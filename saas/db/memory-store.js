@@ -4,6 +4,7 @@ export class MemoryStore {
   constructor() {
     this.developers = new Map();
     this.users = new Map();
+    this.userSessions = new Map();
     this.apps = new Map();
     this.creditPackages = new Map();
     this.creditBalances = new Map();
@@ -23,14 +24,32 @@ export class MemoryStore {
     return developer;
   }
 
-  createUser({ userId = randomUUID(), externalSubject = null }) {
-    const user = { userId, externalSubject, createdAt: new Date().toISOString() };
+  createUser({ userId = randomUUID(), externalSubject = null, email = null }) {
+    const user = { userId, externalSubject, email, createdAt: new Date().toISOString() };
     this.users.set(userId, user);
     return user;
   }
 
   findUserByExternalSubject(externalSubject) {
     return [...this.users.values()].find((user) => user.externalSubject === externalSubject) ?? null;
+  }
+
+  findUserByEmail(email) {
+    const normalized = email.toLowerCase();
+    return [...this.users.values()].find((user) => user.email?.toLowerCase() === normalized) ?? null;
+  }
+
+  createUserSession({ sessionId = randomUUID(), userId, provider, token, expiresAt }) {
+    const session = {
+      sessionId,
+      userId,
+      provider,
+      token,
+      expiresAt,
+      createdAt: new Date().toISOString()
+    };
+    this.userSessions.set(sessionId, session);
+    return session;
   }
 
   createApp({ appId = randomUUID(), developerId, name, apiKey, developerWebhookUrl = null }) {

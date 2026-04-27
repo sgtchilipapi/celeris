@@ -6,7 +6,7 @@ import { CreditLedgerService } from "../services/credit-ledger-service.js";
 test("ledger keeps balance and reserved non-negative through grant reserve capture release", () => {
   const store = new MemoryStore();
   const ledger = new CreditLedgerService({ store });
-  const { userId } = store.createUser({ externalSubject: "player-1" });
+  const { userId } = store.createUser({ externalSubject: "dummy:player-1@example.com", email: "player-1@example.com" });
   const developer = store.createDeveloper({ email: "dev@test.local" });
   const app = store.createApp({ developerId: developer.developerId, name: "Test App", apiKey: "key_1" });
 
@@ -28,7 +28,7 @@ test("ledger keeps balance and reserved non-negative through grant reserve captu
 test("ledger writes are idempotent by operation scope and key", () => {
   const store = new MemoryStore();
   const ledger = new CreditLedgerService({ store });
-  const { userId } = store.createUser({ externalSubject: "player-2" });
+  const { userId } = store.createUser({ externalSubject: "dummy:player-2@example.com", email: "player-2@example.com" });
   const developer = store.createDeveloper({ email: "dev2@test.local" });
   const app = store.createApp({ developerId: developer.developerId, name: "Test App", apiKey: "key_2" });
 

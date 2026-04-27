@@ -58,7 +58,8 @@ export function createApi(services) {
 
   addRoute("POST", "/auth/session", async ({ headers, body }) => ({
     body: services.authService.createSession({
-      externalSubject: body.externalSubject,
+      provider: body.provider,
+      email: body.email,
       idempotencyKey: requireIdempotency(headers, body)
     })
   }));

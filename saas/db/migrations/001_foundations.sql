@@ -9,6 +9,18 @@ CREATE TABLE developers (
 CREATE TABLE users (
   user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   external_subject TEXT UNIQUE,
+  email TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX idx_users_email_lower ON users ((LOWER(email))) WHERE email IS NOT NULL;
+
+CREATE TABLE user_sessions (
+  session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(user_id),
+  provider TEXT NOT NULL,
+  issued_token TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

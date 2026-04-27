@@ -12,7 +12,7 @@ test("happy path mints an item, captures credits, and records asset plus transac
     method: "POST",
     url: "/auth/session",
     headers: { "idempotency-key": "session-1" },
-    body: { externalSubject: "player-happy" }
+    body: { provider: "dummy", email: "player-happy@example.com" }
   });
   const userId = sessionResponse.body.userId;
 
@@ -89,7 +89,7 @@ test("duplicate payment webhook and duplicate mint request do not double-apply s
     method: "POST",
     url: "/auth/session",
     headers: { "idempotency-key": "session-dup" },
-    body: { externalSubject: "player-dup" }
+    body: { provider: "dummy", email: "player-dup@example.com" }
   });
 
   const app = await api.handle({
