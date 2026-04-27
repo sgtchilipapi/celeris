@@ -3,7 +3,7 @@ import { createApi } from "./create-api.js";
 import { MemoryStore } from "../db/memory-store.js";
 import { CreditLedgerService } from "../services/credit-ledger-service.js";
 import { PaymentService } from "../services/payment-service.js";
-import { MockDeveloperClient } from "../services/mock-developer-client.js";
+import { DeveloperBackendClient } from "../services/developer-backend-client.js";
 import { MockTransactionExecutor } from "../services/mock-transaction-executor.js";
 import { MintItemService } from "../services/mint-item-service.js";
 import { MetricsService } from "../services/metrics-service.js";
@@ -12,7 +12,7 @@ import { AuthService } from "../services/auth-service.js";
 import { MockStripeGateway } from "../services/mock-stripe-gateway.js";
 import { PendingActionService } from "../services/pending-action-service.js";
 
-export function buildServices() {
+export function buildServices({ developerFetch = fetch }: { developerFetch?: typeof fetch } = {}) {
   const store = new MemoryStore();
   const defaultDeveloper = store.createDeveloper({ email: "dev@celeris.local" });
   const ledgerService = new CreditLedgerService({ store });
@@ -26,7 +26,7 @@ export function buildServices() {
     mintItemService: new MintItemService({
       store,
       ledgerService,
-      developerClient: new MockDeveloperClient(),
+      developerClient: new DeveloperBackendClient({ store, fetchImpl: developerFetch }),
       executor: new MockTransactionExecutor(),
       pendingActionService
     }),

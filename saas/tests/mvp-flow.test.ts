@@ -3,6 +3,24 @@ import assert from "node:assert/strict";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
 
+function createApprovedDeveloperResponse() {
+  return new Response(
+    JSON.stringify({
+      status: "approved",
+      tx: "bW9ja190eA==",
+      summary: {
+        actionType: "mint_item",
+        itemDefId: "iron_sword",
+        debit: 50
+      }
+    }),
+    {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    }
+  );
+}
+
 function buildCompletedCheckoutEvent({
   eventId,
   checkoutSessionId,
@@ -37,7 +55,9 @@ function buildCompletedCheckoutEvent({
 
 test("happy path mints an item, captures credits, and records asset plus transaction", async () => {
   process.env.NODE_ENV = "test";
-  const services = buildServices();
+  const services = buildServices({
+    developerFetch: async () => createApprovedDeveloperResponse()
+  });
   const api = createApi(services);
 
   const sessionResponse = await api.handle({
@@ -56,7 +76,8 @@ test("happy path mints an item, captures credits, and records asset plus transac
       developerId: services.defaultDeveloper.developerId,
       name: "Iron Forge",
       priceCents: 499,
-      credits: 500
+      credits: 500,
+      webhookUrl: "http://localhost:3001"
     }
   });
   const appId = appResponse.body.appId as string;
@@ -126,7 +147,9 @@ test("happy path mints an item, captures credits, and records asset plus transac
 
 test("duplicate payment webhook and duplicate mint request do not double-apply state", async () => {
   process.env.NODE_ENV = "test";
-  const services = buildServices();
+  const services = buildServices({
+    developerFetch: async () => createApprovedDeveloperResponse()
+  });
   const api = createApi(services);
 
   const session = await api.handle({
@@ -144,7 +167,8 @@ test("duplicate payment webhook and duplicate mint request do not double-apply s
       developerId: services.defaultDeveloper.developerId,
       name: "Duplicate Test",
       priceCents: 499,
-      credits: 500
+      credits: 500,
+      webhookUrl: "http://localhost:3001"
     }
   });
   const duplicateAppId = app.body.appId as string;

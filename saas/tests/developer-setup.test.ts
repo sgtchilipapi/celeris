@@ -16,7 +16,7 @@ test("POST /apps returns minimal setup data and stores webhook url", async () =>
       name: "Developer Setup App",
       priceCents: 499,
       credits: 500,
-      webhookUrl: "https://game.example.com/celeris/webhook"
+      webhookUrl: "http://localhost:3001"
     }
   });
 
@@ -26,7 +26,7 @@ test("POST /apps returns minimal setup data and stores webhook url", async () =>
   assert.match(response.body.apiKey as string, /^app_/);
 
   const storedApp = services.store.apps.get(response.body.appId as string)!;
-  assert.equal(storedApp.developerWebhookUrl, "https://game.example.com/celeris/webhook");
+  assert.equal(storedApp.developerWebhookUrl, "http://localhost:3001");
   assert.equal(
     [...services.store.creditPackages.values()].filter((pkg) => pkg.appId === storedApp.appId).length,
     1
@@ -78,7 +78,7 @@ test("GET /apps/:appId/setup exposes webhook url, package, and action setup need
       name: "Setup Details App",
       priceCents: 499,
       credits: 500,
-      webhookUrl: "https://game.example.com/setup"
+      webhookUrl: "http://localhost:3001"
     }
   });
 
@@ -100,7 +100,7 @@ test("GET /apps/:appId/setup exposes webhook url, package, and action setup need
   assert.equal(setup.statusCode, 200);
   assert.equal(setup.body.appId, app.body.appId);
   assert.match(setup.body.apiKey as string, /^app_/);
-  assert.equal(setup.body.webhookUrl, "https://game.example.com/setup");
+  assert.equal(setup.body.webhookUrl, "http://localhost:3001");
   assert.equal(setup.body.creditPackages.length, 1);
   assert.equal(setup.body.creditPackages[0].credits, 500);
   assert.equal(setup.body.actions.length, 1);

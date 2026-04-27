@@ -47,7 +47,7 @@ APP_JSON="$(post_json "/apps" "manual-app-1" "{
   \"name\": \"Manual Developer Setup App\",
   \"priceCents\": 499,
   \"credits\": 500,
-  \"webhookUrl\": \"https://game.example.com/celeris/webhook\"
+  \"webhookUrl\": \"http://localhost:3001\"
 }")"
 echo "${APP_JSON}"
 APP_ID="$(read_json_field "${APP_JSON}" "appId")"
