@@ -9,23 +9,26 @@ import { MintItemService } from "../services/mint-item-service.js";
 import { MetricsService } from "../services/metrics-service.js";
 import { AppService } from "../services/app-service.js";
 import { AuthService } from "../services/auth-service.js";
+import { MockStripeGateway } from "../services/mock-stripe-gateway.js";
 
 export function buildServices() {
   const store = new MemoryStore();
   const defaultDeveloper = store.createDeveloper({ email: "dev@celeris.local" });
   const ledgerService = new CreditLedgerService({ store });
+  const stripeGateway = new MockStripeGateway();
   const services = {
     store,
     authService: new AuthService({ store }),
     appService: new AppService({ store }),
-    paymentService: new PaymentService({ store, ledgerService }),
+    paymentService: new PaymentService({ store, ledgerService, stripeGateway }),
     mintItemService: new MintItemService({
       store,
       ledgerService,
       developerClient: new MockDeveloperClient(),
       executor: new MockTransactionExecutor()
     }),
-    metricsService: new MetricsService({ store })
+    metricsService: new MetricsService({ store }),
+    stripeGateway
   };
   services.defaultDeveloper = defaultDeveloper;
   return services;

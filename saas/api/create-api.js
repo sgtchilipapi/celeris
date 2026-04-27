@@ -92,13 +92,16 @@ export function createApi(services) {
       appId: body.appId,
       userId: body.userId,
       packageId: body.packageId,
+      successUrl: body.successUrl,
+      cancelUrl: body.cancelUrl,
       idempotencyKey: requireIdempotency(headers, body)
     })
   }));
 
   addRoute("POST", "/webhooks/payment", async ({ headers, body }) => ({
     body: services.paymentService.applyPaymentWebhook({
-      providerSessionId: body.providerSessionId,
+      payload: body,
+      stripeSignature: headers["stripe-signature"],
       idempotencyKey: requireIdempotency(headers, body)
     })
   }));
@@ -133,20 +136,34 @@ export function createApi(services) {
 
   function createNodeServer() {
     return http.createServer(async (req, res) => {
-      const chunks = [];
-      for await (const chunk of req) {
-        chunks.push(chunk);
+      try {
+        const chunks = [];
+        for await (const chunk of req) {
+          chunks.push(chunk);
+        }
+        const rawBody = chunks.length ? Buffer.concat(chunks).toString("utf8") : "";
+        let body = {};
+        if (rawBody) {
+          try {
+            body = JSON.parse(rawBody);
+          } catch {
+            res.writeHead(400, { "content-type": "application/json" });
+            res.end(JSON.stringify({ error: "invalid json body" }));
+            return;
+          }
+        }
+        const response = await handle({
+          method: req.method,
+          url: req.url,
+          headers: req.headers,
+          body
+        });
+        res.writeHead(response.statusCode, response.headers);
+        res.end(JSON.stringify(response.body));
+      } catch (error) {
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "internal server error", detail: error.message }));
       }
-      const rawBody = chunks.length ? Buffer.concat(chunks).toString("utf8") : "";
-      const body = rawBody ? JSON.parse(rawBody) : {};
-      const response = await handle({
-        method: req.method,
-        url: req.url,
-        headers: req.headers,
-        body
-      });
-      res.writeHead(response.statusCode, response.headers);
-      res.end(JSON.stringify(response.body));
     });
   }
 

@@ -3,6 +3,24 @@ import assert from "node:assert/strict";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
 
+function buildCompletedCheckoutEvent({ eventId, checkoutSessionId, userId, appId, credits, amountCents }) {
+  return {
+    id: eventId,
+    type: "checkout.session.completed",
+    data: {
+      object: {
+        id: checkoutSessionId,
+        amount_total: amountCents,
+        metadata: {
+          userId,
+          appId,
+          credits
+        }
+      }
+    }
+  };
+}
+
 test("happy path mints an item, captures credits, and records asset plus transaction", async () => {
   process.env.NODE_ENV = "test";
   const services = buildServices();
@@ -44,11 +62,23 @@ test("happy path mints an item, captures credits, and records asset plus transac
     body: { appId, userId, packageId }
   });
 
+  const paymentEvent = buildCompletedCheckoutEvent({
+    eventId: "evt_happy_path",
+    checkoutSessionId: checkoutResponse.body.checkoutSessionId,
+    userId,
+    appId,
+    credits: 500,
+    amountCents: 499
+  });
+
   await api.handle({
     method: "POST",
     url: "/webhooks/payment",
-    headers: { "idempotency-key": "webhook-1" },
-    body: { providerSessionId: checkoutResponse.body.checkoutSessionId }
+    headers: {
+      "idempotency-key": "webhook-1",
+      "stripe-signature": services.stripeGateway.signWebhookPayload(paymentEvent)
+    },
+    body: paymentEvent
   });
 
   const mintResponse = await api.handle({
@@ -118,17 +148,32 @@ test("duplicate payment webhook and duplicate mint request do not double-apply s
     body: { appId: app.body.appId, userId: session.body.userId, packageId: app.body.defaultCreditPackage.packageId }
   });
 
+  const paymentEvent = buildCompletedCheckoutEvent({
+    eventId: "evt_dup",
+    checkoutSessionId: checkout.body.checkoutSessionId,
+    userId: session.body.userId,
+    appId: app.body.appId,
+    credits: 500,
+    amountCents: 499
+  });
+
   await api.handle({
     method: "POST",
     url: "/webhooks/payment",
-    headers: { "idempotency-key": "webhook-dup" },
-    body: { providerSessionId: checkout.body.checkoutSessionId }
+    headers: {
+      "idempotency-key": "webhook-dup",
+      "stripe-signature": services.stripeGateway.signWebhookPayload(paymentEvent)
+    },
+    body: paymentEvent
   });
   await api.handle({
     method: "POST",
     url: "/webhooks/payment",
-    headers: { "idempotency-key": "webhook-dup" },
-    body: { providerSessionId: checkout.body.checkoutSessionId }
+    headers: {
+      "idempotency-key": "webhook-dup",
+      "stripe-signature": services.stripeGateway.signWebhookPayload(paymentEvent)
+    },
+    body: paymentEvent
   });
 
   const firstMint = await api.handle({
