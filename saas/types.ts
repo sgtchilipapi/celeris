@@ -95,6 +95,15 @@ export interface PendingAction {
   updatedAt: string;
 }
 
+export interface CreatePendingActionRequest {
+  userId: UUID;
+  appId: UUID;
+  actionType: string;
+  cost: number;
+  payloadHash: string;
+  idempotencyKey: string;
+}
+
 export interface MintItemApprovalSummary {
   actionType: "mint_item";
   itemDefId: string;
@@ -176,6 +185,14 @@ export interface StoredAppSetup extends App {
 export interface CreateAppResponse {
   appId: UUID;
   apiKey: string;
+}
+
+export interface AppSetupDetails {
+  appId: UUID;
+  apiKey: string;
+  webhookUrl: string | null;
+  creditPackages: CreditPackage[];
+  actions: ActionType[];
 }
 
 export interface ConfigureActionRequest {

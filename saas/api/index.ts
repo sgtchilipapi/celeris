@@ -10,12 +10,14 @@ import { MetricsService } from "../services/metrics-service.js";
 import { AppService } from "../services/app-service.js";
 import { AuthService } from "../services/auth-service.js";
 import { MockStripeGateway } from "../services/mock-stripe-gateway.js";
+import { PendingActionService } from "../services/pending-action-service.js";
 
 export function buildServices() {
   const store = new MemoryStore();
   const defaultDeveloper = store.createDeveloper({ email: "dev@celeris.local" });
   const ledgerService = new CreditLedgerService({ store });
   const stripeGateway = new MockStripeGateway();
+  const pendingActionService = new PendingActionService({ store, ledgerService });
   const services = {
     store,
     authService: new AuthService({ store }),
@@ -25,10 +27,12 @@ export function buildServices() {
       store,
       ledgerService,
       developerClient: new MockDeveloperClient(),
-      executor: new MockTransactionExecutor()
+      executor: new MockTransactionExecutor(),
+      pendingActionService
     }),
     metricsService: new MetricsService({ store }),
-    stripeGateway
+    stripeGateway,
+    pendingActionService
   };
   return { ...services, defaultDeveloper };
 }

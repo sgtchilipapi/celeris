@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { AppError } from "./errors.js";
-import type { ConfigureActionRequest, CreateAppRequest, CreateAppResponse, MemoryStore, StoredAppSetup } from "../types.js";
+import type { AppSetupDetails, ConfigureActionRequest, CreateAppRequest, CreateAppResponse, MemoryStore, StoredAppSetup } from "../types.js";
 
 export class AppService {
   readonly store: MemoryStore;
@@ -44,6 +44,20 @@ export class AppService {
     return {
       appId: app.appId,
       apiKey: app.apiKey
+    };
+  }
+
+  getAppSetupDetails(appId: string): AppSetupDetails {
+    const app = this.store.apps.get(appId);
+    if (!app) {
+      throw new AppError(404, "app not found");
+    }
+    return {
+      appId: app.appId,
+      apiKey: app.apiKey,
+      webhookUrl: app.developerWebhookUrl,
+      creditPackages: [...this.store.creditPackages.values()].filter((pkg) => pkg.appId === appId),
+      actions: [...this.store.actionTypes.values()].filter((action) => action.appId === appId)
     };
   }
 
