@@ -106,7 +106,7 @@ export class MintItemService {
         });
       }
 
-      this.verifyApproval({ pendingAction, actionType, payload, approval });
+      this.verifyApproval({ pendingAction, payload, approval });
       pendingAction.status = "approved";
       this.store.savePendingAction(pendingAction);
 
@@ -165,7 +165,15 @@ export class MintItemService {
       return result;
     } catch (error) {
       const latest = this.store.getPendingAction(pendingAction.id);
-      if (latest?.status === "reserved" || latest?.status === "approved") {
+      if (!latest) {
+        this.ledgerService.releaseCredits({
+          userId,
+          appId,
+          amount: actionType.cost,
+          idempotencyKey: `pending:${pendingAction.id}:release-missing`,
+          pendingActionId: pendingAction.id
+        });
+      } else if (latest.status === "reserved" || latest.status === "approved") {
         latest.status = "failed";
         this.store.savePendingAction(latest);
         this.ledgerService.releaseCredits({
@@ -182,26 +190,63 @@ export class MintItemService {
 
   private verifyApproval({
     pendingAction,
-    actionType,
     payload,
     approval
   }: {
     pendingAction: PendingAction;
-    actionType: ActionType;
     payload: MintItemPayload;
     approval: Extract<MintItemApprovalResponse, { status: "approved" }>;
   }) {
+    const storedPendingAction = this.store.getPendingAction(pendingAction.id);
+    if (!storedPendingAction) {
+      throw new AppError(422, "pending action not found during verification");
+    }
+    if (storedPendingAction.status !== "reserved") {
+      throw new AppError(422, "pending action is not active");
+    }
+    if (new Date(storedPendingAction.expiresAt).getTime() <= Date.now()) {
+      throw new AppError(422, "pending action expired");
+    }
+
+    const allowedActionType = this.store.getActionType(storedPendingAction.appId, approval.summary.actionType);
+    if (!allowedActionType) {
+      throw new AppError(422, "developer summary action type not allowed");
+    }
+
+    const balance = this.store.getBalance(storedPendingAction.userId, storedPendingAction.appId);
+    if (balance.reserved < storedPendingAction.cost) {
+      throw new AppError(422, "reserved credits mismatch");
+    }
+
     if (!approval.tx) {
       throw new AppError(422, "developer response missing tx");
     }
-    if (approval.summary.actionType !== pendingAction.actionType) {
+    if (!this.isSaneTransactionPayload(approval.tx)) {
+      throw new AppError(422, "developer tx failed basic sanity checks");
+    }
+    if (approval.summary.actionType !== storedPendingAction.actionType) {
       throw new AppError(422, "developer summary action type mismatch");
     }
-    if (approval.summary.debit !== actionType.cost) {
+    if (approval.summary.debit !== storedPendingAction.cost) {
       throw new AppError(422, "developer summary debit mismatch");
     }
     if (approval.summary.itemDefId !== payload.itemDefId) {
       throw new AppError(422, "developer summary itemDefId mismatch");
+    }
+  }
+
+  private isSaneTransactionPayload(tx: string): boolean {
+    if (typeof tx !== "string" || tx.trim().length < 8) {
+      return false;
+    }
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(tx) || tx.length % 4 !== 0) {
+      return false;
+    }
+    try {
+      const decoded = Buffer.from(tx, "base64").toString("utf8");
+      return decoded.trim().length > 0;
+    } catch {
+      return false;
     }
   }
 }
