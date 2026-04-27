@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { AppError } from "./errors.js";
 import type {
-  ActionType,
   ExecuteMintItemRequest,
   MemoryStore,
   MintItemApprovalResponse,
@@ -12,8 +11,8 @@ import type {
 } from "../types.js";
 import { CreditLedgerService } from "./credit-ledger-service.js";
 import { DeveloperBackendClient } from "./developer-backend-client.js";
-import { MockTransactionExecutor } from "./mock-transaction-executor.js";
 import { PendingActionService } from "./pending-action-service.js";
+import { RelayerService } from "./relayer-service.js";
 
 function hashPayload(payload: MintItemPayload): string {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
@@ -23,26 +22,26 @@ export class MintItemService {
   readonly store: MemoryStore;
   readonly ledgerService: CreditLedgerService;
   readonly developerClient: DeveloperBackendClient;
-  readonly executor: MockTransactionExecutor;
+  readonly relayerService: RelayerService;
   readonly pendingActionService: PendingActionService;
 
   constructor({
     store,
     ledgerService,
     developerClient,
-    executor,
+    relayerService,
     pendingActionService
   }: {
     store: MemoryStore;
     ledgerService: CreditLedgerService;
     developerClient: DeveloperBackendClient;
-    executor: MockTransactionExecutor;
+    relayerService: RelayerService;
     pendingActionService: PendingActionService;
   }) {
     this.store = store;
     this.ledgerService = ledgerService;
     this.developerClient = developerClient;
-    this.executor = executor;
+    this.relayerService = relayerService;
     this.pendingActionService = pendingActionService;
   }
 
@@ -110,22 +109,49 @@ export class MintItemService {
       pendingAction.status = "approved";
       this.store.savePendingAction(pendingAction);
 
-      const execution = await this.executor.submit();
-
-      pendingAction.status = execution.status;
-      this.store.savePendingAction(pendingAction);
-
       const transaction = this.store.createTransaction({
         txId: randomUUID(),
         pendingActionId: pendingAction.id,
         appId,
         userId,
-        providerTxId: execution.providerTxId,
+        providerTxId: "",
         rawTx: approval.tx,
-        status: execution.status,
+        status: "submitted",
         summary: approval.summary,
         createdAt: new Date().toISOString()
       });
+
+      const submission = await this.relayerService.submitTransaction(approval.tx);
+      transaction.providerTxId = submission.providerTxId;
+      this.store.saveTransaction(transaction);
+
+      pendingAction.status = "submitted";
+      this.store.savePendingAction(pendingAction);
+
+      const finalStatus = await this.relayerService.resolveTransactionStatus(submission.providerTxId);
+      transaction.status = finalStatus;
+      this.store.saveTransaction(transaction);
+
+      if (finalStatus === "failed") {
+        pendingAction.status = "failed";
+        this.store.savePendingAction(pendingAction);
+        this.ledgerService.releaseCredits({
+          userId,
+          appId,
+          amount: actionType.cost,
+          idempotencyKey: `pending:${pendingAction.id}:release-failed`,
+          pendingActionId: pendingAction.id
+        });
+        throw new AppError(502, "transaction failed after submission", {
+          pendingActionId: pendingAction.id,
+          transactionId: transaction.txId,
+          providerTxId: submission.providerTxId,
+          status: "failed"
+        });
+      }
+
+      pendingAction.status = "success";
+      this.store.savePendingAction(pendingAction);
 
       this.ledgerService.captureCredits({
         userId,
@@ -173,7 +199,7 @@ export class MintItemService {
           idempotencyKey: `pending:${pendingAction.id}:release-missing`,
           pendingActionId: pendingAction.id
         });
-      } else if (latest.status === "reserved" || latest.status === "approved") {
+      } else if (latest.status === "reserved" || latest.status === "approved" || latest.status === "submitted") {
         latest.status = "failed";
         this.store.savePendingAction(latest);
         this.ledgerService.releaseCredits({
