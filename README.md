@@ -1,17 +1,24 @@
-# celeris
+# Celeris
 Celeris handles how players pay for game actions and execute them on-chain so players don't need wallets.
 
-#### TLDR;
+### Built for indie web3 game devs
+
+Built for server-authoritative games to strike the right balance between on-chain programs and off-chain execution.
+
+Aimed primarily to help indie game devs monetize their games and execute on-chain actions without dealing with wallets, payments, or transaction infrastructure.
+
+Game devs can focus on building gameplay and content.
+
+
+### TLDR;
 
 Celeris lets developers:
 
--onboard players instantly
+- onboard players instantly
+- monetize through credits
+- execute on-chain actions without infra
 
--monetize through credits
-
--execute on-chain actions without infra
-
-Build the game. Celeris handles money and execution.Summary
+Build the game. Celeris handles money and execution.
 
 
 ### Overview
@@ -20,20 +27,20 @@ Celeris is a backend service for game developers.
 
 It provides:
 
-user identity
-credit based payments
-action authorization
-transaction execution
-asset handling
+- user identity
+- credit based payments
+- action authorization
+- transaction execution
+- asset handling
 
 Developers keep full control of game logic. Celeris handles money and execution.
 
 ### What it solves
 
-players drop off due to wallet setup and funding
-payments and credit systems are complex to build
-on-chain execution requires relayers and gas handling
-transaction flows can break gameplay
+- players drop off due to wallet setup and funding
+- payments and credit systems are complex to build
+- on-chain execution requires relayers and gas handling
+- transaction flows can break gameplay
 
 Celeris removes these problems.
 
@@ -83,3 +90,111 @@ Celeris verifies developer transactions and submits them on-chain.
 #### Assets
 
 Assets are minted and held in custody, mapped to userId.
+
+# Why Blockchain and why Celeris
+
+Online games rely on centralized servers. This makes them vulnerable to:
+
+- server compromises  
+- exploits and cheating  
+- shutdowns that wipe entire economies  
+
+A strong community can disappear overnight if the game economy breaks.  
+Blockchain can help by adding **verifiable integrity** to parts of the system.
+
+However, using blockchain everywhere is not practical. It is:
+
+- costly  
+- slower than traditional systems  
+- difficult to integrate cleanly into gameplay  
+
+---
+
+## The Blockchain Game Trilemma
+
+```
+           Security
+              ▲
+              │
+              │
+              │
+UX ◄──────────┼──────────► Decentralization
+              │
+              │
+              │
+```
+
+Most blockchain games struggle to find a balance between the three. 
+
+It is common for game devs to go fully decentralized sacrificing UX in the process.
+
+---
+
+## Celeris approach
+
+Celeris focuses on balance, not extremes.
+
+- On-chain
+  - economy integrity  
+  - rule enforcement  
+  - validation  
+
+- Off-chain
+  - real-time gameplay  
+  - combat loops  
+  - player interactions  
+
+- Overlap
+  - summarized results  
+  - validated outcomes  
+
+---
+
+## Why not fully on-chain
+
+Games are not just systems. They are experiences.
+
+Requiring a transaction for every action:
+
+- breaks immersion  
+- increases cost  
+- introduces friction  
+
+Example:
+
+A dungeon run should not require a transaction for every enemy killed.
+
+---
+
+## The Celeris model
+
+Instead:
+
+```
+Play session (off-chain)
+↓
+Game server validates and summarizes results
+↓
+Summary is turned into a single transaction
+↓
+On-chain program validates against rules
+↓
+Deterministic rewards are applied
+```
+
+The blockchain enforces boundaries and fairness, not moment-to-moment gameplay.
+
+---
+
+## Unbreakable Play
+
+Celeris introduces:
+
+Unbreakable Play
+
+A design principle where:
+
+- players start instantly  
+- gameplay is uninterrupted  
+- economies remain stable  
+- results are verifiable  
