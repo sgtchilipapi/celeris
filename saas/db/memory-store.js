@@ -128,6 +128,10 @@ export class MemoryStore {
     return [...this.payments.values()].find((payment) => payment.providerSessionId === providerSessionId) ?? null;
   }
 
+  getPaymentByProviderEventId(providerEventId) {
+    return [...this.payments.values()].find((payment) => payment.providerEventId === providerEventId) ?? null;
+  }
+
   savePayment(record) {
     this.payments.set(record.paymentId, record);
     return record;

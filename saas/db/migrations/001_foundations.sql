@@ -114,11 +114,14 @@ CREATE TABLE payments (
   user_id UUID NOT NULL REFERENCES users(user_id),
   app_id UUID NOT NULL REFERENCES apps(app_id) ON DELETE CASCADE,
   package_id UUID NOT NULL REFERENCES credit_packages(package_id),
+  provider TEXT NOT NULL DEFAULT 'stripe',
   provider_session_id TEXT NOT NULL UNIQUE,
+  provider_event_id TEXT UNIQUE,
   amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
   credits INTEGER NOT NULL CHECK (credits > 0),
   status TEXT NOT NULL CHECK (status IN ('pending', 'paid')),
   idempotency_key TEXT NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (app_id, idempotency_key)
 );
