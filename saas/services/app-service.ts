@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { AppError } from "./errors.js";
-import type { ConfigureActionRequest, CreateAppRequest, CreateAppResponse, MemoryStore } from "../types.js";
+import type { ConfigureActionRequest, CreateAppRequest, CreateAppResponse, MemoryStore, StoredAppSetup } from "../types.js";
 
 export class AppService {
   readonly store: MemoryStore;
@@ -14,10 +14,10 @@ export class AppService {
     name,
     priceCents,
     credits,
-    developerWebhookUrl = null,
+    webhookUrl = null,
     idempotencyKey
-  }: CreateAppRequest): CreateAppResponse {
-    const cached = this.store.getIdempotent<CreateAppResponse>(`app:${developerId}`, idempotencyKey);
+  }: CreateAppRequest): StoredAppSetup {
+    const cached = this.store.getIdempotent<StoredAppSetup>(`app:${developerId}`, idempotencyKey);
     if (cached) {
       return cached;
     }
@@ -27,7 +27,7 @@ export class AppService {
     const app = this.store.createApp({
       developerId,
       name,
-      developerWebhookUrl,
+      developerWebhookUrl: webhookUrl,
       apiKey: `app_${randomUUID()}`
     });
     const creditPackage = this.store.createCreditPackage({
@@ -35,9 +35,16 @@ export class AppService {
       priceCents,
       credits
     });
-    const result: CreateAppResponse = { ...app, defaultCreditPackage: creditPackage };
+    const result: StoredAppSetup = { ...app, defaultCreditPackage: creditPackage };
     this.store.setIdempotent(`app:${developerId}`, idempotencyKey, result);
     return result;
+  }
+
+  toCreateAppResponse(app: StoredAppSetup): CreateAppResponse {
+    return {
+      appId: app.appId,
+      apiKey: app.apiKey
+    };
   }
 
   configureAction({ appId, actionType, cost, idempotencyKey }: ConfigureActionRequest) {

@@ -99,14 +99,16 @@ export function createApi(services: Services) {
 
   addRoute("POST", "/apps", ({ headers, body }) => ({
     statusCode: 201,
-    body: services.appService.createApp({
-      developerId: body.developerId as string,
-      name: body.name as string,
-      priceCents: body.priceCents as number,
-      credits: body.credits as number,
-      developerWebhookUrl: (body.developerWebhookUrl as string | undefined) ?? null,
-      idempotencyKey: requireIdempotency(headers, body)
-    })
+    body: services.appService.toCreateAppResponse(
+      services.appService.createApp({
+        developerId: body.developerId as string,
+        name: body.name as string,
+        priceCents: body.priceCents as number,
+        credits: body.credits as number,
+        webhookUrl: (body.webhookUrl as string | undefined) ?? null,
+        idempotencyKey: requireIdempotency(headers, body)
+      })
+    )
   }));
 
   addRoute("POST", "/apps/:appId/actions", ({ params, headers, body }) => ({
