@@ -137,10 +137,17 @@ CREATE TABLE usage_events (
 );
 
 CREATE INDEX idx_credit_ledger_user_app ON credit_ledger (user_id, app_id, created_at);
+CREATE INDEX idx_credit_balances_app_user ON credit_balances (app_id, user_id);
 CREATE INDEX idx_pending_actions_app_status ON pending_actions (app_id, status, created_at);
 CREATE INDEX idx_transactions_app_created_at ON transactions (app_id, created_at);
 CREATE INDEX idx_assets_app_user ON assets (app_id, user_id);
 CREATE INDEX idx_usage_events_app_type ON usage_events (app_id, event_type, created_at);
 
--- Production balance updates should use:
--- SELECT * FROM credit_balances WHERE user_id = $1 AND app_id = $2 FOR UPDATE;
+-- Production ledger mutations should run in a transaction and lock the balance row:
+-- BEGIN;
+-- SELECT user_id, app_id, balance, reserved
+-- FROM credit_balances
+-- WHERE user_id = $1 AND app_id = $2
+-- FOR UPDATE;
+-- ...apply reserve/capture/release updates and ledger insert...
+-- COMMIT;

@@ -83,6 +83,17 @@ export class MemoryStore {
     return this.creditBalances.get(key);
   }
 
+  withLockedBalance(userId, appId, callback) {
+    const balance = this.getBalance(userId, appId);
+    const snapshot = { ...balance };
+    try {
+      return callback(balance);
+    } catch (error) {
+      this.creditBalances.set(`${userId}:${appId}`, snapshot);
+      throw error;
+    }
+  }
+
   saveBalance(balance) {
     balance.updatedAt = new Date().toISOString();
     this.creditBalances.set(`${balance.userId}:${balance.appId}`, balance);
