@@ -8,11 +8,10 @@ import type {
   MintItemExecutionResult,
   MintItemPayload,
   PendingAction,
-  RejectedMintItemResult,
   UUID
 } from "../types.js";
 import { CreditLedgerService } from "./credit-ledger-service.js";
-import { MockDeveloperClient } from "./mock-developer-client.js";
+import { DeveloperBackendClient } from "./developer-backend-client.js";
 import { MockTransactionExecutor } from "./mock-transaction-executor.js";
 import { PendingActionService } from "./pending-action-service.js";
 
@@ -23,7 +22,7 @@ function hashPayload(payload: MintItemPayload): string {
 export class MintItemService {
   readonly store: MemoryStore;
   readonly ledgerService: CreditLedgerService;
-  readonly developerClient: MockDeveloperClient;
+  readonly developerClient: DeveloperBackendClient;
   readonly executor: MockTransactionExecutor;
   readonly pendingActionService: PendingActionService;
 
@@ -36,7 +35,7 @@ export class MintItemService {
   }: {
     store: MemoryStore;
     ledgerService: CreditLedgerService;
-    developerClient: MockDeveloperClient;
+    developerClient: DeveloperBackendClient;
     executor: MockTransactionExecutor;
     pendingActionService: PendingActionService;
   }) {
@@ -47,9 +46,18 @@ export class MintItemService {
     this.pendingActionService = pendingActionService;
   }
 
-  async execute({ appId, userId, payload, idempotencyKey }: ExecuteMintItemRequest): Promise<MintItemExecutionResult | RejectedMintItemResult> {
-    const cached = this.store.getIdempotent<MintItemExecutionResult | RejectedMintItemResult>(`mint:${appId}:${userId}`, idempotencyKey);
+  async execute({ appId, userId, payload, idempotencyKey }: ExecuteMintItemRequest): Promise<MintItemExecutionResult> {
+    const cached = this.store.getIdempotent<MintItemExecutionResult | { status: "rejected"; pendingActionId: UUID; reason: string }>(
+      `mint:${appId}:${userId}`,
+      idempotencyKey
+    );
     if (cached) {
+      if ("status" in cached && cached.status === "rejected") {
+        throw new AppError(422, cached.reason, {
+          pendingActionId: cached.pendingActionId,
+          status: "failed"
+        });
+      }
       return cached;
     }
     const actionType = this.store.getActionType(appId, "mint_item");
@@ -77,7 +85,7 @@ export class MintItemService {
       });
 
       if (approval.status !== "approved") {
-        pendingAction.status = "released";
+        pendingAction.status = "failed";
         this.store.savePendingAction(pendingAction);
         this.ledgerService.releaseCredits({
           userId,
@@ -86,13 +94,16 @@ export class MintItemService {
           idempotencyKey: `pending:${pendingAction.id}:release`,
           pendingActionId: pendingAction.id
         });
-        const rejected: RejectedMintItemResult = {
+        const rejected = {
           pendingActionId: pendingAction.id,
           status: "rejected",
           reason: approval.reason ?? "developer rejected action"
-        };
+        } as const;
         this.store.setIdempotent(`mint:${appId}:${userId}`, idempotencyKey, rejected);
-        return rejected;
+        throw new AppError(422, rejected.reason, {
+          pendingActionId: pendingAction.id,
+          status: "failed"
+        });
       }
 
       this.verifyApproval({ pendingAction, actionType, payload, approval });

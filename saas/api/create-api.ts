@@ -83,7 +83,10 @@ export function createApi(services: Services) {
       return json(normalized.statusCode ?? 200, normalized.body ?? result);
     } catch (error) {
       if (error instanceof AppError) {
-        return json(error.statusCode, { error: error.message });
+        return json(error.statusCode, {
+          error: error.message,
+          ...(error.details ? { details: error.details } : {})
+        });
       }
       return json(500, { error: "internal server error", detail: (error as Error).message });
     }
