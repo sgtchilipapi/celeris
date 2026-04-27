@@ -14,6 +14,7 @@ import type {
 import { CreditLedgerService } from "./credit-ledger-service.js";
 import { MockDeveloperClient } from "./mock-developer-client.js";
 import { MockTransactionExecutor } from "./mock-transaction-executor.js";
+import { PendingActionService } from "./pending-action-service.js";
 
 function hashPayload(payload: MintItemPayload): string {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
@@ -24,26 +25,26 @@ export class MintItemService {
   readonly ledgerService: CreditLedgerService;
   readonly developerClient: MockDeveloperClient;
   readonly executor: MockTransactionExecutor;
-  readonly clock: () => Date;
+  readonly pendingActionService: PendingActionService;
 
   constructor({
     store,
     ledgerService,
     developerClient,
     executor,
-    clock = () => new Date()
+    pendingActionService
   }: {
     store: MemoryStore;
     ledgerService: CreditLedgerService;
     developerClient: MockDeveloperClient;
     executor: MockTransactionExecutor;
-    clock?: () => Date;
+    pendingActionService: PendingActionService;
   }) {
     this.store = store;
     this.ledgerService = ledgerService;
     this.developerClient = developerClient;
     this.executor = executor;
-    this.clock = clock;
+    this.pendingActionService = pendingActionService;
   }
 
   async execute({ appId, userId, payload, idempotencyKey }: ExecuteMintItemRequest): Promise<MintItemExecutionResult | RejectedMintItemResult> {
@@ -56,17 +57,16 @@ export class MintItemService {
       throw new AppError(404, "action type not configured");
     }
 
-    const pendingAction = this.createPendingAction({ appId, userId, actionType, payload, idempotencyKey });
+    const pendingAction = this.pendingActionService.createPendingAction({
+      appId,
+      userId,
+      actionType: actionType.actionType,
+      cost: actionType.cost,
+      payloadHash: hashPayload(payload),
+      idempotencyKey
+    });
 
     try {
-      this.ledgerService.reserveCredits({
-        userId,
-        appId,
-        amount: actionType.cost,
-        idempotencyKey: `pending:${pendingAction.id}:reserve`,
-        pendingActionId: pendingAction.id
-      });
-
       const approval = await this.developerClient.approveMintItem({
         pendingActionId: pendingAction.id,
         appId,
@@ -167,36 +167,6 @@ export class MintItemService {
       }
       throw error;
     }
-  }
-
-  private createPendingAction({
-    appId,
-    userId,
-    actionType,
-    payload,
-    idempotencyKey
-  }: {
-    appId: UUID;
-    userId: UUID;
-    actionType: ActionType;
-    payload: MintItemPayload;
-    idempotencyKey: string;
-  }): PendingAction {
-    const pendingAction: PendingAction = {
-      id: randomUUID(),
-      appId,
-      userId,
-      actionType: actionType.actionType,
-      cost: actionType.cost,
-      payloadHash: hashPayload(payload),
-      status: "reserved",
-      expiresAt: new Date(this.clock().getTime() + 10 * 60 * 1000).toISOString(),
-      idempotencyKey,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    this.store.createPendingAction(pendingAction);
-    return pendingAction;
   }
 
   private verifyApproval({

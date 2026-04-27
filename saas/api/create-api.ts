@@ -121,6 +121,10 @@ export function createApi(services: Services) {
     })
   }));
 
+  addRoute("GET", "/apps/:appId/setup", ({ params }) => ({
+    body: services.appService.getAppSetupDetails(params.appId)
+  }));
+
   addRoute("POST", "/checkout/session", ({ headers, body }) => ({
     statusCode: 201,
     body: services.paymentService.createCheckoutSession({
