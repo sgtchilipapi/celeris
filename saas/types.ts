@@ -165,12 +165,17 @@ export interface CreateAppRequest {
   name: string;
   priceCents: number;
   credits: number;
-  developerWebhookUrl?: string | null;
+  webhookUrl?: string | null;
   idempotencyKey: string;
 }
 
-export interface CreateAppResponse extends App {
+export interface StoredAppSetup extends App {
   defaultCreditPackage: CreditPackage;
+}
+
+export interface CreateAppResponse {
+  appId: UUID;
+  apiKey: string;
 }
 
 export interface ConfigureActionRequest {

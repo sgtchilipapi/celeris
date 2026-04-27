@@ -60,7 +60,7 @@ test("happy path mints an item, captures credits, and records asset plus transac
     }
   });
   const appId = appResponse.body.appId as string;
-  const packageId = appResponse.body.defaultCreditPackage.packageId as string;
+  const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
   await api.handle({
     method: "POST",
@@ -147,10 +147,12 @@ test("duplicate payment webhook and duplicate mint request do not double-apply s
       credits: 500
     }
   });
+  const duplicateAppId = app.body.appId as string;
+  const duplicatePackageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === duplicateAppId)!.packageId;
 
   await api.handle({
     method: "POST",
-    url: `/apps/${app.body.appId as string}/actions`,
+    url: `/apps/${duplicateAppId}/actions`,
     headers: { "idempotency-key": "action-dup" },
     body: { actionType: "mint_item", cost: 50 }
   });
@@ -159,14 +161,14 @@ test("duplicate payment webhook and duplicate mint request do not double-apply s
     method: "POST",
     url: "/checkout/session",
     headers: { "idempotency-key": "checkout-dup" },
-    body: { appId: app.body.appId as string, userId: session.body.userId as string, packageId: app.body.defaultCreditPackage.packageId as string }
+    body: { appId: duplicateAppId, userId: session.body.userId as string, packageId: duplicatePackageId }
   });
 
   const paymentEvent = buildCompletedCheckoutEvent({
     eventId: "evt_dup",
     checkoutSessionId: checkout.body.checkoutSessionId as string,
     userId: session.body.userId as string,
-    appId: app.body.appId as string,
+    appId: duplicateAppId,
     credits: 500,
     amountCents: 499
   });
@@ -194,18 +196,18 @@ test("duplicate payment webhook and duplicate mint request do not double-apply s
     method: "POST",
     url: "/actions/mint_item",
     headers: { "idempotency-key": "mint-dup" },
-    body: { appId: app.body.appId as string, userId: session.body.userId as string, payload: { itemDefId: "iron_sword" } }
+    body: { appId: duplicateAppId, userId: session.body.userId as string, payload: { itemDefId: "iron_sword" } }
   });
   const secondMint = await api.handle({
     method: "POST",
     url: "/actions/mint_item",
     headers: { "idempotency-key": "mint-dup" },
-    body: { appId: app.body.appId as string, userId: session.body.userId as string, payload: { itemDefId: "iron_sword" } }
+    body: { appId: duplicateAppId, userId: session.body.userId as string, payload: { itemDefId: "iron_sword" } }
   });
 
   assert.equal(firstMint.body.transactionId, secondMint.body.transactionId);
   assert.equal(services.store.creditLedger.filter((entry) => entry.type === "grant").length, 1);
   assert.equal(services.store.creditLedger.filter((entry) => entry.type === "capture").length, 1);
   assert.equal(services.store.assets.size, 1);
-  assert.equal(services.store.getBalance(session.body.userId as string, app.body.appId as string).balance, 450);
+  assert.equal(services.store.getBalance(session.body.userId as string, duplicateAppId).balance, 450);
 });

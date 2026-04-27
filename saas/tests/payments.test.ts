@@ -56,15 +56,17 @@ test("POST /checkout/session creates a stripe checkout session with attached met
       credits: 500
     }
   });
+  const appId = app.body.appId as string;
+  const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
   const response = await api.handle({
     method: "POST",
     url: "/checkout/session",
     headers: { "idempotency-key": "checkout-session-1" },
     body: {
-      appId: app.body.appId as string,
+      appId,
       userId: session.body.userId as string,
-      packageId: app.body.defaultCreditPackage.packageId as string,
+      packageId,
       successUrl: "https://example.com/success",
       cancelUrl: "https://example.com/cancel"
     }
@@ -76,7 +78,7 @@ test("POST /checkout/session creates a stripe checkout session with attached met
   assert.match(response.body.checkoutUrl as string, /^https:\/\/checkout\.stripe\.local\/session\//);
   assert.deepEqual(response.body.metadata, {
     userId: session.body.userId,
-    appId: app.body.appId,
+    appId,
     credits: 500
   });
 
@@ -106,15 +108,17 @@ test("POST /webhooks/payment verifies the stripe event, records payment state, a
       credits: 500
     }
   });
+  const appId = app.body.appId as string;
+  const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
   const checkout = await api.handle({
     method: "POST",
     url: "/checkout/session",
     headers: { "idempotency-key": "pay-webhook-checkout" },
     body: {
-      appId: app.body.appId as string,
+      appId,
       userId: session.body.userId as string,
-      packageId: app.body.defaultCreditPackage.packageId as string
+      packageId
     }
   });
 
@@ -122,7 +126,7 @@ test("POST /webhooks/payment verifies the stripe event, records payment state, a
     eventId: "evt_1",
     checkoutSessionId: checkout.body.checkoutSessionId as string,
     userId: session.body.userId as string,
-    appId: app.body.appId as string,
+    appId,
     credits: 500,
     amountCents: 499
   });
@@ -141,7 +145,7 @@ test("POST /webhooks/payment verifies the stripe event, records payment state, a
   assert.equal(webhook.statusCode, 200);
   assert.equal(webhook.body.status, "paid");
   assert.equal(webhook.body.grantedCredits, 500);
-  assert.equal(services.store.getBalance(session.body.userId as string, app.body.appId as string).balance, 500);
+  assert.equal(services.store.getBalance(session.body.userId as string, appId).balance, 500);
   assert.equal(services.store.creditLedger.filter((entry) => entry.type === "grant").length, 1);
 
   const payment = services.store.getPaymentByProviderSessionId(checkout.body.checkoutSessionId as string)!;
@@ -170,12 +174,13 @@ test("payment webhook idempotency and signature verification prevent duplicate g
       credits: 500
     }
   });
+  const appId = app.body.appId as string;
 
   const event = buildCompletedCheckoutEvent({
     eventId: "evt_new_payment",
     checkoutSessionId: "cs_test_manual_event",
     userId: session.body.userId as string,
-    appId: app.body.appId as string,
+    appId,
     credits: 500,
     amountCents: 499
   });
@@ -211,7 +216,7 @@ test("payment webhook idempotency and signature verification prevent duplicate g
 
   assert.equal(first.body.paymentId, duplicate.body.paymentId);
   assert.equal(services.store.creditLedger.filter((entry) => entry.type === "grant").length, 1);
-  assert.equal(services.store.getBalance(session.body.userId as string, app.body.appId as string).balance, 500);
+  assert.equal(services.store.getBalance(session.body.userId as string, appId).balance, 500);
   assert.equal(invalid.statusCode, 400);
   assert.equal(invalid.body.error, "invalid stripe signature");
 });
