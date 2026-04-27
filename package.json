@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "node --watch saas/api/index.js",
     "start": "node saas/api/index.js",
-    "test": "node --test"
+    "start:api": "node saas/api/index.js",
+    "test": "node --test",
+    "test:watch": "node --test --watch",
+    "db:migrate": "psql \"$DATABASE_URL\" -f saas/db/migrations/001_foundations.sql"
   }
 }
