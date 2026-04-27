@@ -3,7 +3,21 @@ import assert from "node:assert/strict";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
 
-function buildCompletedCheckoutEvent({ eventId, checkoutSessionId, userId, appId, credits, amountCents }) {
+function buildCompletedCheckoutEvent({
+  eventId,
+  checkoutSessionId,
+  userId,
+  appId,
+  credits,
+  amountCents
+}: {
+  eventId: string;
+  checkoutSessionId: string;
+  userId: string;
+  appId: string;
+  credits: number;
+  amountCents: number;
+}) {
   return {
     id: eventId,
     type: "checkout.session.completed",
@@ -32,7 +46,7 @@ test("happy path mints an item, captures credits, and records asset plus transac
     headers: { "idempotency-key": "session-1" },
     body: { provider: "dummy", email: "player-happy@example.com" }
   });
-  const userId = sessionResponse.body.userId;
+  const userId = sessionResponse.body.userId as string;
 
   const appResponse = await api.handle({
     method: "POST",
@@ -45,8 +59,8 @@ test("happy path mints an item, captures credits, and records asset plus transac
       credits: 500
     }
   });
-  const appId = appResponse.body.appId;
-  const packageId = appResponse.body.defaultCreditPackage.packageId;
+  const appId = appResponse.body.appId as string;
+  const packageId = appResponse.body.defaultCreditPackage.packageId as string;
 
   await api.handle({
     method: "POST",
@@ -64,7 +78,7 @@ test("happy path mints an item, captures credits, and records asset plus transac
 
   const paymentEvent = buildCompletedCheckoutEvent({
     eventId: "evt_happy_path",
-    checkoutSessionId: checkoutResponse.body.checkoutSessionId,
+    checkoutSessionId: checkoutResponse.body.checkoutSessionId as string,
     userId,
     appId,
     credits: 500,
@@ -136,7 +150,7 @@ test("duplicate payment webhook and duplicate mint request do not double-apply s
 
   await api.handle({
     method: "POST",
-    url: `/apps/${app.body.appId}/actions`,
+    url: `/apps/${app.body.appId as string}/actions`,
     headers: { "idempotency-key": "action-dup" },
     body: { actionType: "mint_item", cost: 50 }
   });
@@ -145,14 +159,14 @@ test("duplicate payment webhook and duplicate mint request do not double-apply s
     method: "POST",
     url: "/checkout/session",
     headers: { "idempotency-key": "checkout-dup" },
-    body: { appId: app.body.appId, userId: session.body.userId, packageId: app.body.defaultCreditPackage.packageId }
+    body: { appId: app.body.appId as string, userId: session.body.userId as string, packageId: app.body.defaultCreditPackage.packageId as string }
   });
 
   const paymentEvent = buildCompletedCheckoutEvent({
     eventId: "evt_dup",
-    checkoutSessionId: checkout.body.checkoutSessionId,
-    userId: session.body.userId,
-    appId: app.body.appId,
+    checkoutSessionId: checkout.body.checkoutSessionId as string,
+    userId: session.body.userId as string,
+    appId: app.body.appId as string,
     credits: 500,
     amountCents: 499
   });
@@ -180,18 +194,18 @@ test("duplicate payment webhook and duplicate mint request do not double-apply s
     method: "POST",
     url: "/actions/mint_item",
     headers: { "idempotency-key": "mint-dup" },
-    body: { appId: app.body.appId, userId: session.body.userId, payload: { itemDefId: "iron_sword" } }
+    body: { appId: app.body.appId as string, userId: session.body.userId as string, payload: { itemDefId: "iron_sword" } }
   });
   const secondMint = await api.handle({
     method: "POST",
     url: "/actions/mint_item",
     headers: { "idempotency-key": "mint-dup" },
-    body: { appId: app.body.appId, userId: session.body.userId, payload: { itemDefId: "iron_sword" } }
+    body: { appId: app.body.appId as string, userId: session.body.userId as string, payload: { itemDefId: "iron_sword" } }
   });
 
   assert.equal(firstMint.body.transactionId, secondMint.body.transactionId);
   assert.equal(services.store.creditLedger.filter((entry) => entry.type === "grant").length, 1);
   assert.equal(services.store.creditLedger.filter((entry) => entry.type === "capture").length, 1);
   assert.equal(services.store.assets.size, 1);
-  assert.equal(services.store.getBalance(session.body.userId, app.body.appId).balance, 450);
+  assert.equal(services.store.getBalance(session.body.userId as string, app.body.appId as string).balance, 450);
 });
