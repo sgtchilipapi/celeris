@@ -297,6 +297,18 @@ export interface ExecutionResult {
   status: TransactionStatus;
 }
 
+export interface RelayerSubmissionResult {
+  providerTxId: string;
+  status: "submitted";
+  signedTx: string;
+  attempts: number;
+}
+
+export interface RelayerNetworkClient {
+  sendTransaction(signedTx: string): Promise<{ txHash: string }>;
+  getTransactionStatus(txHash: string): Promise<Exclude<TransactionStatus, "submitted">>;
+}
+
 export interface AppMetricsUser {
   userId: UUID;
   balance: number;
@@ -365,6 +377,7 @@ export interface MemoryStore {
   getPendingAction(id: UUID): PendingAction | null;
   savePendingAction(record: PendingAction): PendingAction;
   createTransaction(record: TransactionRecord): TransactionRecord;
+  saveTransaction(record: TransactionRecord): TransactionRecord;
   createAsset(record: Asset): Asset;
   createPayment(record: Payment): Payment;
   getPaymentByProviderSessionId(providerSessionId: string): Payment | null;

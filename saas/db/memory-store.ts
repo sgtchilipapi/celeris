@@ -182,6 +182,11 @@ export class MemoryStore implements MemoryStoreContract {
     return record;
   }
 
+  saveTransaction(record: TransactionRecord): TransactionRecord {
+    this.transactions.set(record.txId, record);
+    return record;
+  }
+
   createAsset(record: Asset): Asset {
     this.assets.set(record.assetId, record);
     return record;
