@@ -1,15 +1,28 @@
 import { randomUUID } from "node:crypto";
 import { AppError } from "./errors.js";
+import type {
+  CheckoutSessionResponse,
+  CreateCheckoutSessionRequest,
+  MemoryStore,
+  PaymentWebhookResponse,
+  StripeCheckoutSessionCompletedEvent
+} from "../types.js";
+import { CreditLedgerService } from "./credit-ledger-service.js";
+import { MockStripeGateway } from "./mock-stripe-gateway.js";
 
 export class PaymentService {
-  constructor({ store, ledgerService, stripeGateway }) {
+  readonly store: MemoryStore;
+  readonly ledgerService: CreditLedgerService;
+  readonly stripeGateway: MockStripeGateway;
+
+  constructor({ store, ledgerService, stripeGateway }: { store: MemoryStore; ledgerService: CreditLedgerService; stripeGateway: MockStripeGateway }) {
     this.store = store;
     this.ledgerService = ledgerService;
     this.stripeGateway = stripeGateway;
   }
 
-  createCheckoutSession({ appId, userId, packageId, successUrl, cancelUrl, idempotencyKey }) {
-    const cached = this.store.getIdempotent(`checkout:${appId}:${userId}`, idempotencyKey);
+  createCheckoutSession({ appId, userId, packageId, successUrl, cancelUrl, idempotencyKey }: CreateCheckoutSessionRequest): CheckoutSessionResponse {
+    const cached = this.store.getIdempotent<CheckoutSessionResponse>(`checkout:${appId}:${userId}`, idempotencyKey);
     if (cached) {
       return cached;
     }
@@ -39,20 +52,28 @@ export class PaymentService {
       metadata: checkoutSession.metadata,
       createdAt: new Date().toISOString()
     });
-    const result = {
+    const result: CheckoutSessionResponse = {
       paymentId: payment.paymentId,
       checkoutSessionId: payment.providerSessionId,
       checkoutUrl: checkoutSession.url,
       amountCents: payment.amountCents,
       credits: payment.credits,
       provider: payment.provider,
-      metadata: payment.metadata
+      metadata: checkoutSession.metadata
     };
     this.store.setIdempotent(`checkout:${appId}:${userId}`, idempotencyKey, result);
     return result;
   }
 
-  applyPaymentWebhook({ payload, stripeSignature, idempotencyKey }) {
+  applyPaymentWebhook({
+    payload,
+    stripeSignature,
+    idempotencyKey
+  }: {
+    payload: StripeCheckoutSessionCompletedEvent;
+    stripeSignature?: string;
+    idempotencyKey: string;
+  }): PaymentWebhookResponse | { received: true; ignored: true; eventId: string } {
     const event = this.stripeGateway.verifyWebhookEvent({
       payload,
       signature: stripeSignature
@@ -96,12 +117,12 @@ export class PaymentService {
         createdAt: new Date().toISOString()
       });
     }
-    const cached = this.store.getIdempotent(`payment-webhook:${payment.paymentId}`, idempotencyKey);
+    const cached = this.store.getIdempotent<PaymentWebhookResponse>(`payment-webhook:${payment.paymentId}`, idempotencyKey);
     if (cached) {
       return cached;
     }
     if (this.store.getPaymentByProviderEventId(event.id)) {
-      const duplicate = {
+      const duplicate: PaymentWebhookResponse = {
         paymentId: payment.paymentId,
         userId: payment.userId,
         appId: payment.appId,
@@ -113,7 +134,7 @@ export class PaymentService {
       return duplicate;
     }
     if (payment.status === "paid") {
-      const existing = {
+      const existing: PaymentWebhookResponse = {
         paymentId: payment.paymentId,
         userId: payment.userId,
         appId: payment.appId,
@@ -144,7 +165,7 @@ export class PaymentService {
       metadata: { paymentId: payment.paymentId },
       createdAt: new Date().toISOString()
     });
-    const result = {
+    const result: PaymentWebhookResponse = {
       paymentId: payment.paymentId,
       userId: payment.userId,
       appId: payment.appId,

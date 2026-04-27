@@ -1,13 +1,23 @@
 import { randomUUID } from "node:crypto";
 import { AppError } from "./errors.js";
+import type { ConfigureActionRequest, CreateAppRequest, CreateAppResponse, MemoryStore } from "../types.js";
 
 export class AppService {
-  constructor({ store }) {
+  readonly store: MemoryStore;
+
+  constructor({ store }: { store: MemoryStore }) {
     this.store = store;
   }
 
-  createApp({ developerId, name, priceCents, credits, developerWebhookUrl = null, idempotencyKey }) {
-    const cached = this.store.getIdempotent(`app:${developerId}`, idempotencyKey);
+  createApp({
+    developerId,
+    name,
+    priceCents,
+    credits,
+    developerWebhookUrl = null,
+    idempotencyKey
+  }: CreateAppRequest): CreateAppResponse {
+    const cached = this.store.getIdempotent<CreateAppResponse>(`app:${developerId}`, idempotencyKey);
     if (cached) {
       return cached;
     }
@@ -25,12 +35,12 @@ export class AppService {
       priceCents,
       credits
     });
-    const result = { ...app, defaultCreditPackage: creditPackage };
+    const result: CreateAppResponse = { ...app, defaultCreditPackage: creditPackage };
     this.store.setIdempotent(`app:${developerId}`, idempotencyKey, result);
     return result;
   }
 
-  configureAction({ appId, actionType, cost, idempotencyKey }) {
+  configureAction({ appId, actionType, cost, idempotencyKey }: ConfigureActionRequest) {
     const cached = this.store.getIdempotent(`action:${appId}:${actionType}`, idempotencyKey);
     if (cached) {
       return cached;

@@ -30,8 +30,7 @@ export function buildServices() {
     metricsService: new MetricsService({ store }),
     stripeGateway
   };
-  services.defaultDeveloper = defaultDeveloper;
-  return services;
+  return { ...services, defaultDeveloper };
 }
 
 const services = buildServices();

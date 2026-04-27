@@ -18,10 +18,10 @@ test("POST /auth/session creates a canonical user and returns a jwt-shaped token
   });
 
   assert.equal(response.statusCode, 200);
-  assert.match(response.body.userId, /^[0-9a-f-]{36}$/);
-  assert.match(response.body.token, /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+  assert.match(response.body.userId as string, /^[0-9a-f-]{36}$/);
+  assert.match(response.body.token as string, /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
 
-  const user = services.store.users.get(response.body.userId);
+  const user = services.store.users.get(response.body.userId as string)!;
   assert.equal(user.email, "player@one.example");
   assert.equal(user.externalSubject, "dummy:player@one.example");
   assert.equal(services.store.userSessions.size, 1);

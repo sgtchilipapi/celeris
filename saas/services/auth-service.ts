@@ -1,17 +1,22 @@
 import crypto from "node:crypto";
 import { AppError } from "./errors.js";
+import type { AuthProvider, CreateSessionRequest, MemoryStore, SessionResponse } from "../types.js";
 
 export class AuthService {
-  constructor({ store, jwtSecret = "dev-secret", sessionTtlSeconds = 60 * 60 * 24 * 7 }) {
+  readonly store: MemoryStore;
+  readonly jwtSecret: string;
+  readonly sessionTtlSeconds: number;
+
+  constructor({ store, jwtSecret = "dev-secret", sessionTtlSeconds = 60 * 60 * 24 * 7 }: { store: MemoryStore; jwtSecret?: string; sessionTtlSeconds?: number }) {
     this.store = store;
     this.jwtSecret = jwtSecret;
     this.sessionTtlSeconds = sessionTtlSeconds;
   }
 
-  createSession({ provider = "dummy", email, idempotencyKey }) {
+  createSession({ provider = "dummy", email, idempotencyKey }: CreateSessionRequest): SessionResponse {
     const normalizedProvider = provider.toLowerCase();
-    const identity = this.#resolveIdentity({ provider: normalizedProvider, email });
-    const cached = this.store.getIdempotent(`session:${identity.subject}`, idempotencyKey);
+    const identity = this.resolveIdentity({ provider: normalizedProvider, email });
+    const cached = this.store.getIdempotent<SessionResponse>(`session:${identity.subject}`, idempotencyKey);
     if (cached) {
       return cached;
     }
@@ -21,7 +26,7 @@ export class AuthService {
       this.store.createUser({ externalSubject: identity.subject, email: identity.email });
 
     const sessionId = crypto.randomUUID();
-    const token = this.#signToken({
+    const token = this.signToken({
       userId: user.userId,
       provider: identity.provider,
       sessionId
@@ -35,7 +40,7 @@ export class AuthService {
       expiresAt
     });
 
-    const session = {
+    const session: SessionResponse = {
       userId: user.userId,
       token
     };
@@ -43,7 +48,7 @@ export class AuthService {
     return session;
   }
 
-  #resolveIdentity({ provider, email }) {
+  private resolveIdentity({ provider, email }: { provider: string; email?: string }) {
     if (provider !== "dummy") {
       throw new AppError(400, `unsupported auth provider: ${provider}`);
     }
@@ -52,16 +57,16 @@ export class AuthService {
     }
     const normalizedEmail = email.trim().toLowerCase();
     return {
-      provider,
+      provider: provider as AuthProvider,
       email: normalizedEmail,
       subject: `dummy:${normalizedEmail}`
     };
   }
 
-  #signToken({ userId, provider, sessionId }) {
-    const header = this.#toBase64Url({ alg: "HS256", typ: "JWT" });
+  private signToken({ userId, provider, sessionId }: { userId: string; provider: AuthProvider; sessionId: string }) {
+    const header = this.toBase64Url({ alg: "HS256", typ: "JWT" });
     const now = Math.floor(Date.now() / 1000);
-    const payload = this.#toBase64Url({
+    const payload = this.toBase64Url({
       sub: userId,
       jti: sessionId,
       iss: "celeris",
@@ -70,14 +75,11 @@ export class AuthService {
       iat: now,
       exp: now + this.sessionTtlSeconds
     });
-    const signature = crypto
-      .createHmac("sha256", this.jwtSecret)
-      .update(`${header}.${payload}`)
-      .digest("base64url");
+    const signature = crypto.createHmac("sha256", this.jwtSecret).update(`${header}.${payload}`).digest("base64url");
     return `${header}.${payload}.${signature}`;
   }
 
-  #toBase64Url(value) {
+  private toBase64Url(value: object) {
     return Buffer.from(JSON.stringify(value)).toString("base64url");
   }
 }

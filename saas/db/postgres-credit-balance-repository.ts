@@ -1,11 +1,30 @@
+import type { CreditBalance, UUID } from "../types.js";
+
+type TxLike = {
+  oneOrNone<T>(query: string, values: unknown[]): Promise<T | null>;
+  none(query: string, values: unknown[]): Promise<void>;
+};
+
+type DbLike = {
+  transaction<T>(callback: (tx: TxLike) => Promise<T>): Promise<T>;
+};
+
 export class PostgresCreditBalanceRepository {
-  constructor({ db }) {
+  readonly db: DbLike;
+
+  constructor({ db }: { db: DbLike }) {
     this.db = db;
   }
 
-  async withLockedBalance(userId, appId, callback) {
+  async withLockedBalance(userId: UUID, appId: UUID, callback: (balance: CreditBalance) => Promise<CreditBalance> | CreditBalance) {
     return this.db.transaction(async (tx) => {
-      const balance = await tx.oneOrNone(
+      const balance = await tx.oneOrNone<{
+        user_id: UUID;
+        app_id: UUID;
+        balance: number;
+        reserved: number;
+        updated_at: string;
+      }>(
         `
           SELECT user_id, app_id, balance, reserved, updated_at
           FROM credit_balances
@@ -15,14 +34,13 @@ export class PostgresCreditBalanceRepository {
         [userId, appId]
       );
 
-      const current =
-        balance ?? {
-          user_id: userId,
-          app_id: appId,
-          balance: 0,
-          reserved: 0,
-          updated_at: new Date().toISOString()
-        };
+      const current = balance ?? {
+        user_id: userId,
+        app_id: appId,
+        balance: 0,
+        reserved: 0,
+        updated_at: new Date().toISOString()
+      };
 
       const next = await callback({
         userId: current.user_id,

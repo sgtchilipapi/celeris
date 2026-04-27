@@ -1,9 +1,13 @@
+import type { AppMetrics, MemoryStore } from "../types.js";
+
 export class MetricsService {
-  constructor({ store }) {
+  readonly store: MemoryStore;
+
+  constructor({ store }: { store: MemoryStore }) {
     this.store = store;
   }
 
-  getAppMetrics(appId) {
+  getAppMetrics(appId: string): AppMetrics {
     const users = [...this.store.creditBalances.values()].filter((balance) => balance.appId === appId);
     const payments = [...this.store.payments.values()].filter((payment) => payment.appId === appId && payment.status === "paid");
     const ledger = this.store.creditLedger.filter((entry) => entry.appId === appId);
