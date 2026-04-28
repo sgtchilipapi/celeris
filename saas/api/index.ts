@@ -12,6 +12,7 @@ import { MockStripeGateway } from "../services/mock-stripe-gateway.js";
 import { PendingActionService } from "../services/pending-action-service.js";
 import { RelayerService } from "../services/relayer-service.js";
 import { MockRelayerNetwork } from "../services/mock-relayer-network.js";
+import { AssetService } from "../services/asset-service.js";
 import type { RelayerNetworkClient } from "../types.js";
 
 export function buildServices({
@@ -27,6 +28,7 @@ export function buildServices({
   const stripeGateway = new MockStripeGateway();
   const pendingActionService = new PendingActionService({ store, ledgerService });
   const relayerService = new RelayerService({ networkClient: relayerNetworkClient });
+  const assetService = new AssetService({ store });
   const services = {
     store,
     authService: new AuthService({ store }),
@@ -37,12 +39,14 @@ export function buildServices({
       ledgerService,
       developerClient: new DeveloperBackendClient({ store, fetchImpl: developerFetch }),
       relayerService,
-      pendingActionService
+      pendingActionService,
+      assetService
     }),
     metricsService: new MetricsService({ store }),
     stripeGateway,
     pendingActionService,
-    relayerService
+    relayerService,
+    assetService
   };
   return { ...services, defaultDeveloper };
 }
