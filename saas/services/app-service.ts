@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { AppError } from "./errors.js";
-import type { AppSetupDetails, ConfigureActionRequest, CreateAppRequest, CreateAppResponse, MemoryStore, StoredAppSetup } from "../types.js";
+import type { AppListItem, AppSetupDetails, ConfigureActionRequest, CreateAppRequest, CreateAppResponse, MemoryStore, StoredAppSetup } from "../types.js";
 
 export class AppService {
   readonly store: MemoryStore;
@@ -59,6 +59,17 @@ export class AppService {
       creditPackages: [...this.store.creditPackages.values()].filter((pkg) => pkg.appId === appId),
       actions: [...this.store.actionTypes.values()].filter((action) => action.appId === appId)
     };
+  }
+
+  listApps(): AppListItem[] {
+    return [...this.store.apps.values()]
+      .map((app) => ({
+        appId: app.appId,
+        developerId: app.developerId,
+        name: app.name,
+        createdAt: app.createdAt
+      }))
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   }
 
   configureAction({ appId, actionType, cost, idempotencyKey }: ConfigureActionRequest) {

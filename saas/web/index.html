@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Celeris Dashboard</title>
+    <link rel="stylesheet" href="/dashboard/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <h1>Celeris</h1>
+          <p>Apps</p>
+        </div>
+        <div id="app-list" class="app-list"></div>
+      </aside>
+
+      <main class="main-content">
+        <header class="page-header">
+          <div>
+            <h2 id="app-name">Select an app</h2>
+            <p id="app-meta">Per-app revenue, credits, and transaction usage.</p>
+          </div>
+        </header>
+
+        <section class="metric-grid" id="metric-grid"></section>
+
+        <section class="chart-grid">
+          <section class="panel">
+            <h3>Credit Flow</h3>
+            <div id="credit-flow-chart" class="chart"></div>
+          </section>
+          <section class="panel">
+            <h3>Transaction Outcomes</h3>
+            <div id="transaction-chart" class="chart"></div>
+          </section>
+        </section>
+
+        <section class="panel">
+          <h3>Per-user Activity</h3>
+          <div id="user-table"></div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/dashboard/app.js"></script>
+  </body>
+  </html>

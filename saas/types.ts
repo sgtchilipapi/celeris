@@ -193,6 +193,13 @@ export interface CreateAppResponse {
   apiKey: string;
 }
 
+export interface AppListItem {
+  appId: UUID;
+  developerId: UUID;
+  name: string;
+  createdAt: string;
+}
+
 export interface AppSetupDetails {
   appId: UUID;
   apiKey: string;
@@ -331,6 +338,11 @@ export interface AppMetrics {
   mintItemCount: number;
   successfulTransactions: number;
   failedTransactions: number;
+  chartSeries: {
+    creditFlow: Array<{ label: string; value: number }>;
+    transactionOutcomes: Array<{ label: string; value: number }>;
+    userActivity: Array<{ userId: UUID; value: number }>;
+  };
   users: AppMetricsUser[];
 }
 
