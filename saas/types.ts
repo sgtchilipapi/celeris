@@ -184,6 +184,15 @@ export interface CreateAppRequest {
   idempotencyKey: string;
 }
 
+export interface UpdateAppRequest {
+  appId: UUID;
+  name: string;
+  priceCents: number;
+  credits: number;
+  webhookUrl?: string | null;
+  idempotencyKey: string;
+}
+
 export interface StoredAppSetup extends App {
   defaultCreditPackage: CreditPackage;
 }
@@ -191,6 +200,11 @@ export interface StoredAppSetup extends App {
 export interface CreateAppResponse {
   appId: UUID;
   apiKey: string;
+}
+
+export interface DeveloperSessionResponse {
+  developerId: UUID;
+  email: string;
 }
 
 export interface AppListItem {
@@ -211,6 +225,14 @@ export interface AppSetupDetails {
 export interface ConfigureActionRequest {
   appId: UUID;
   actionType: string;
+  cost: number;
+  idempotencyKey: string;
+}
+
+export interface UpdateActionRequest {
+  appId: UUID;
+  currentActionType: string;
+  nextActionType: string;
   cost: number;
   idempotencyKey: string;
 }
@@ -385,8 +407,12 @@ export interface MemoryStore {
     priceCents: number;
     credits: number;
   }): CreditPackage;
+  saveApp(record: App): App;
+  saveCreditPackage(record: CreditPackage): CreditPackage;
+  deleteApp(appId: UUID): boolean;
   upsertActionType(input: { appId: UUID; actionType: string; cost: number }): ActionType;
   getActionType(appId: UUID, actionType: string): ActionType | null;
+  deleteActionType(appId: UUID, actionType: string): boolean;
   getBalance(userId: UUID, appId: UUID): CreditBalance;
   withLockedBalance<T>(userId: UUID, appId: UUID, callback: (balance: CreditBalance) => T): T;
   saveBalance(balance: CreditBalance): CreditBalance;

@@ -24,6 +24,7 @@ const createAppCreditsPerDollarEl = document.getElementById("create-app-credits-
 const createAppWebhookEl = document.getElementById("create-app-webhook");
 const createAppFeedbackEl = document.getElementById("create-app-feedback");
 const cancelCreateAppBtn = document.getElementById("cancel-create-app-btn");
+const submitCreateAppBtn = document.getElementById("submit-create-app-btn");
 
 const overviewAppNameEl = document.getElementById("overview-app-name");
 const overviewAppMetaEl = document.getElementById("overview-app-meta");
@@ -42,6 +43,7 @@ const customActionFieldEl = document.getElementById("custom-action-field");
 const customActionNameEl = document.getElementById("custom-action-name");
 const actionCostInputEl = document.getElementById("action-cost-input");
 const actionFeedbackEl = document.getElementById("action-feedback");
+const saveActionBtn = document.getElementById("save-action-btn");
 
 const metricsAppNameEl = document.getElementById("metrics-app-name");
 const metricsBackBtn = document.getElementById("metrics-back-btn");
@@ -57,8 +59,28 @@ const state = {
   session: null,
   apps: [],
   selectedApp: null,
-  selectedSetup: null
+  selectedSetup: null,
+  editingActionType: null,
+  editingAppId: null
 };
+
+const EDIT_ICON = `
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M4 17.25V20h2.75L17.81 8.94l-2.75-2.75L4 17.25Zm14.71-9.04a1 1 0 0 0 0-1.41l-1.5-1.5a1 1 0 0 0-1.41 0l-1.09 1.09 2.75 2.75 1.25-1.18Z" />
+  </svg>
+`;
+
+const DELETE_ICON = `
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 7h2v8h-2v-8Zm4 0h2v8h-2v-8ZM7 8h10l-1 13H8L7 8Z" />
+  </svg>
+`;
+
+const COPY_ICON = `
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M16 1H6a2 2 0 0 0-2 2v12h2V3h10V1Zm3 4H10a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Zm0 16H10V7h9v14Z" />
+  </svg>
+`;
 
 async function fetchJson(path, init = undefined) {
   const response = await fetch(path, init);
@@ -114,7 +136,12 @@ function supportsDialog() {
 }
 
 function escapeHtml(value) {
-  return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function setView(name) {
@@ -130,12 +157,18 @@ function syncCustomActionField() {
   customActionFieldEl.hidden = actionTypeSelectEl.value !== "custom";
 }
 
+function getPresetActionTypes() {
+  return [...actionTypeSelectEl.options]
+    .filter((option) => option.value !== "custom")
+    .map((option) => option.value);
+}
+
 function updateSessionSummary() {
   if (!state.session) {
     sessionSummaryEl.textContent = "";
     return;
   }
-  sessionSummaryEl.innerHTML = `<strong>${escapeHtml(state.session.username)}</strong><br /><span>${escapeHtml(state.session.email)}</span>`;
+  sessionSummaryEl.innerHTML = `<strong>${escapeHtml(state.session.username)}</strong>`;
 }
 
 function formatCurrency(cents) {
@@ -250,20 +283,48 @@ function renderHome() {
   }
 
   for (const app of apps) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "app-item";
-    button.innerHTML = `
-      <strong>${escapeHtml(app.name)}</strong>
-      <small>${escapeHtml(app.appId)}</small>
-      <small>Created ${formatDate(app.createdAt)}</small>
+    const row = document.createElement("div");
+    row.className = "list-row action-row";
+    row.innerHTML = `
+      <button type="button" class="app-item app-item-inline" data-open-app="${escapeHtml(app.appId)}">
+        <strong>${escapeHtml(app.name)}</strong>
+        <small>${escapeHtml(app.appId)}</small>
+        <small>Created ${formatDate(app.createdAt)}</small>
+      </button>
+      <div class="icon-actions">
+        <button class="icon-button" type="button" data-edit-app="${escapeHtml(app.appId)}" aria-label="Edit ${escapeHtml(app.name)}">
+          ${EDIT_ICON}
+        </button>
+        <button class="icon-button" type="button" data-delete-app="${escapeHtml(app.appId)}" aria-label="Delete ${escapeHtml(app.name)}">
+          ${DELETE_ICON}
+        </button>
+      </div>
     `;
+    appListEl.appendChild(row);
+  }
+
+  for (const button of appListEl.querySelectorAll("[data-open-app]")) {
     button.addEventListener("click", () => {
-      openAppOverview(app.appId).catch((error) => {
+      openAppOverview(button.dataset.openApp).catch((error) => {
         showFeedback(homeFeedbackEl, error.message);
       });
     });
-    appListEl.appendChild(button);
+  }
+
+  for (const button of appListEl.querySelectorAll("[data-edit-app]")) {
+    button.addEventListener("click", () => {
+      openEditApp(button.dataset.editApp).catch((error) => {
+        showFeedback(homeFeedbackEl, error.message);
+      });
+    });
+  }
+
+  for (const button of appListEl.querySelectorAll("[data-delete-app]")) {
+    button.addEventListener("click", () => {
+      deleteApp(button.dataset.deleteApp).catch((error) => {
+        showFeedback(homeFeedbackEl, error.message);
+      });
+    });
   }
 }
 
@@ -281,6 +342,31 @@ function renderDetailList(element, items) {
     .join("");
 }
 
+function renderCopyValue(value) {
+  const escapedValue = escapeHtml(value);
+  const encodedValue = encodeURIComponent(value);
+  return `
+    <span class="copy-value">
+      <code>${escapedValue}</code>
+      <button class="icon-button copy-button" type="button" data-copy-value="${encodedValue}" aria-label="Copy ${escapedValue}">
+        ${COPY_ICON}
+      </button>
+    </span>
+  `;
+}
+
+function bindCopyButtons(scope) {
+  for (const button of scope.querySelectorAll("[data-copy-value]")) {
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(decodeURIComponent(button.dataset.copyValue ?? ""));
+      } catch {
+        showFeedback(overviewFeedbackEl, "Copy failed.");
+      }
+    });
+  }
+}
+
 function renderActions(actions) {
   if (actions.length === 0) {
     actionsListEl.innerHTML = '<div class="list-row"><strong>No actions added yet</strong><small>Add an on-chain action to define what players can do.</small></div>';
@@ -290,32 +376,56 @@ function renderActions(actions) {
   actionsListEl.innerHTML = actions
     .map(
       (action) => `
-        <div class="list-row">
-          <strong>${escapeHtml(action.actionType)}</strong>
-          <small>${escapeHtml(`${action.cost} credits`)}</small>
+        <div class="list-row action-row">
+          <div>
+            <strong>${escapeHtml(action.actionType)}</strong>
+            <small>${escapeHtml(`${action.cost} credits`)}</small>
+          </div>
+          <div class="icon-actions">
+            <button class="icon-button" type="button" data-edit-action="${escapeHtml(action.actionType)}" aria-label="Edit ${escapeHtml(action.actionType)}">
+              ${EDIT_ICON}
+            </button>
+            <button class="icon-button" type="button" data-delete-action="${escapeHtml(action.actionType)}" aria-label="Delete ${escapeHtml(action.actionType)}">
+              ${DELETE_ICON}
+            </button>
+          </div>
         </div>
       `
     )
     .join("");
+
+  for (const button of actionsListEl.querySelectorAll("[data-edit-action]")) {
+    button.addEventListener("click", () => {
+      const action = state.selectedSetup?.actions.find((entry) => entry.actionType === button.dataset.editAction);
+      if (action) {
+        openActionModal(action);
+      }
+    });
+  }
+
+  for (const button of actionsListEl.querySelectorAll("[data-delete-action]")) {
+    button.addEventListener("click", () => {
+      const actionType = button.dataset.deleteAction;
+      if (actionType) {
+        deleteOnchainAction(actionType).catch((error) => {
+          showFeedback(overviewFeedbackEl, error.message);
+        });
+      }
+    });
+  }
 }
 
 function refreshOverviewSetup(setup) {
   state.selectedSetup = setup;
   const firstPackage = setup.creditPackages[0] ?? null;
   renderDetailList(setupListEl, [
-    { label: "Webhook URL", value: setup.webhookUrl ? `<code>${escapeHtml(setup.webhookUrl)}</code>` : "Not set" },
+    { label: "Webhook URL", value: setup.webhookUrl ? renderCopyValue(setup.webhookUrl) : "Not set" },
     {
       label: "Default package",
       value: firstPackage ? `${formatCurrency(firstPackage.priceCents)} for ${firstPackage.credits} credits` : "Not set"
-    },
-    {
-      label: "Configured actions",
-      value:
-        setup.actions.length > 0
-          ? escapeHtml(setup.actions.map((action) => `${action.actionType} (${action.cost} credits)`).join(", "))
-          : "No actions configured"
     }
   ]);
+  bindCopyButtons(setupListEl);
   renderActions(setup.actions);
 }
 
@@ -330,14 +440,15 @@ async function openAppOverview(appId) {
   state.selectedSetup = setup;
 
   overviewAppNameEl.textContent = app.name;
-  overviewAppMetaEl.textContent = `App ${app.appId}`;
+  overviewAppMetaEl.textContent = "";
 
   renderDetailList(identityListEl, [
     { label: "App name", value: escapeHtml(app.name) },
-    { label: "App ID", value: `<code>${escapeHtml(app.appId)}</code>` },
-    { label: "API key", value: `<code>${escapeHtml(setup.apiKey)}</code>` },
+    { label: "App ID", value: renderCopyValue(app.appId) },
+    { label: "API key", value: renderCopyValue(setup.apiKey) },
     { label: "Created", value: formatDate(app.createdAt) }
   ]);
+  bindCopyButtons(identityListEl);
   refreshOverviewSetup(setup);
 
   setView("overview");
@@ -437,14 +548,14 @@ async function createApp() {
     throw new Error("Webhook URL is required.");
   }
 
-  const app = await fetchJson("/apps", {
-    method: "POST",
+  const app = await fetchJson(state.editingAppId ? `/apps/${encodeURIComponent(state.editingAppId)}` : "/apps", {
+    method: state.editingAppId ? "PUT" : "POST",
     headers: {
       "content-type": "application/json",
       "idempotency-key": `dashboard-app-${crypto.randomUUID()}`
     },
     body: JSON.stringify({
-      developerId: state.session.developerId,
+      ...(state.editingAppId ? {} : { developerId: state.session.developerId }),
       name: appName,
       priceCents: 100,
       credits,
@@ -457,14 +568,58 @@ async function createApp() {
   createAppNameEl.value = "My Demo Game";
   createAppCreditsPerDollarEl.value = formatNumber(500);
   createAppWebhookEl.value = "http://localhost:3001";
+  submitCreateAppBtn.textContent = "Create app";
+  state.editingAppId = null;
   await openAppOverview(app.appId);
 }
 
-function openActionModal() {
+async function openEditApp(appId) {
+  const app = state.apps.find((entry) => entry.appId === appId);
+  if (!app) {
+    throw new Error("App not found.");
+  }
+  const setup = await fetchJson(`/apps/${encodeURIComponent(appId)}/setup`);
+  state.editingAppId = appId;
+  createAppNameEl.value = app.name;
+  createAppCreditsPerDollarEl.value = formatNumber(setup.creditPackages[0]?.credits ?? 500);
+  createAppWebhookEl.value = setup.webhookUrl ?? "";
+  submitCreateAppBtn.textContent = "Save changes";
+  showFeedback(createAppFeedbackEl, "");
+  setView("create");
+}
+
+async function deleteApp(appId) {
+  await fetchJson(`/apps/${encodeURIComponent(appId)}`, {
+    method: "DELETE",
+    headers: {
+      "content-type": "application/json",
+      "idempotency-key": `dashboard-app-delete-${crypto.randomUUID()}`
+    },
+    body: JSON.stringify({})
+  });
+  if (state.selectedApp?.appId === appId) {
+    state.selectedApp = null;
+    state.selectedSetup = null;
+  }
+  await loadApps();
+}
+
+function openActionModal(existingAction = null) {
   showFeedback(actionFeedbackEl, "");
-  actionTypeSelectEl.value = "custom";
-  customActionNameEl.value = "";
-  actionCostInputEl.value = formatNumber(50);
+  state.editingActionType = existingAction?.actionType ?? null;
+  const presetValues = getPresetActionTypes();
+  const actionType = existingAction?.actionType ?? "";
+
+  if (actionType && presetValues.includes(actionType)) {
+    actionTypeSelectEl.value = actionType;
+    customActionNameEl.value = "";
+  } else {
+    actionTypeSelectEl.value = "custom";
+    customActionNameEl.value = actionType;
+  }
+
+  actionCostInputEl.value = existingAction ? formatNumber(existingAction.cost) : "";
+  saveActionBtn.textContent = existingAction ? "Save changes" : "Save action";
   syncCustomActionField();
   if (supportsDialog()) {
     actionModalEl.showModal();
@@ -474,6 +629,7 @@ function openActionModal() {
 }
 
 function closeActionModal() {
+  state.editingActionType = null;
   if (supportsDialog() && actionModalEl.open) {
     actionModalEl.close();
   }
@@ -501,21 +657,57 @@ async function createOnchainAction() {
     throw new Error("Credit cost must be a positive whole number.");
   }
 
-  await fetchJson(`/apps/${encodeURIComponent(state.selectedApp.appId)}/actions`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "idempotency-key": `dashboard-action-${crypto.randomUUID()}`
-    },
-    body: JSON.stringify({
-      actionType,
-      cost
-    })
-  });
+  const idempotencyKey = `dashboard-action-${crypto.randomUUID()}`;
+  if (state.editingActionType) {
+    await fetchJson(
+      `/apps/${encodeURIComponent(state.selectedApp.appId)}/actions/${encodeURIComponent(state.editingActionType)}`,
+      {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": idempotencyKey
+        },
+        body: JSON.stringify({
+          actionType,
+          cost
+        })
+      }
+    );
+  } else {
+    await fetchJson(`/apps/${encodeURIComponent(state.selectedApp.appId)}/actions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": idempotencyKey
+      },
+      body: JSON.stringify({
+        actionType,
+        cost
+      })
+    });
+  }
 
   const setup = await fetchJson(`/apps/${encodeURIComponent(state.selectedApp.appId)}/setup`);
   refreshOverviewSetup(setup);
   closeActionModal();
+}
+
+async function deleteOnchainAction(actionType) {
+  if (!state.selectedApp) {
+    throw new Error("Choose an app first.");
+  }
+
+  await fetchJson(`/apps/${encodeURIComponent(state.selectedApp.appId)}/actions/${encodeURIComponent(actionType)}`, {
+    method: "DELETE",
+    headers: {
+      "content-type": "application/json",
+      "idempotency-key": `dashboard-action-delete-${crypto.randomUUID()}`
+    },
+    body: JSON.stringify({})
+  });
+
+  const setup = await fetchJson(`/apps/${encodeURIComponent(state.selectedApp.appId)}/setup`);
+  refreshOverviewSetup(setup);
 }
 
 async function restoreSession() {
@@ -558,11 +750,19 @@ signOutBtn.addEventListener("click", () => {
 homeCreateAppBtn.addEventListener("click", () => {
   showFeedback(homeFeedbackEl, "");
   showFeedback(createAppFeedbackEl, "");
+  state.editingAppId = null;
+  submitCreateAppBtn.textContent = "Create app";
+  createAppFormEl.reset();
+  createAppNameEl.value = "My Demo Game";
+  createAppCreditsPerDollarEl.value = formatNumber(500);
+  createAppWebhookEl.value = "http://localhost:3001";
   setView("create");
 });
 
 cancelCreateAppBtn.addEventListener("click", () => {
   showFeedback(createAppFeedbackEl, "");
+  state.editingAppId = null;
+  submitCreateAppBtn.textContent = "Create app";
   setView("home");
 });
 
@@ -624,7 +824,7 @@ metricsBackBtn.addEventListener("click", () => {
 
 async function boot() {
   createAppCreditsPerDollarEl.value = formatNumber(500);
-  actionCostInputEl.value = formatNumber(50);
+  actionCostInputEl.value = "";
   syncCustomActionField();
   setView("login");
   try {

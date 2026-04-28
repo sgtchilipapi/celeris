@@ -132,8 +132,36 @@ export function createApi(services: Services) {
     )
   }));
 
-  addRoute("GET", "/apps", () => ({
-    body: services.appService.listApps()
+  addRoute("PUT", "/apps/:appId", ({ params, headers, body }) => ({
+    body: services.appService.toCreateAppResponse(
+      services.appService.updateApp({
+        appId: params.appId,
+        name: body.name as string,
+        priceCents: body.priceCents as number,
+        credits: body.credits as number,
+        webhookUrl: (body.webhookUrl as string | undefined) ?? null,
+        idempotencyKey: requireIdempotency(headers, body)
+      })
+    )
+  }));
+
+  addRoute("DELETE", "/apps/:appId", ({ params, headers, body }) => ({
+    body: {
+      deleted: services.appService.deleteApp({
+        appId: params.appId,
+        idempotencyKey: requireIdempotency(headers, body)
+      })
+    }
+  }));
+
+  addRoute("POST", "/demo/developer/session", ({ body }) => ({
+    body: services.appService.createDemoDeveloperSession(
+      typeof body.developerId === "string" ? body.developerId : undefined
+    )
+  }));
+
+  addRoute("GET", "/apps", ({ query }) => ({
+    body: services.appService.listApps(query.developerId)
   }));
 
   addRoute("POST", "/apps/:appId/actions", ({ params, headers, body }) => ({
@@ -144,6 +172,26 @@ export function createApi(services: Services) {
       cost: body.cost as number,
       idempotencyKey: requireIdempotency(headers, body)
     })
+  }));
+
+  addRoute("PUT", "/apps/:appId/actions/:actionType", ({ params, headers, body }) => ({
+    body: services.appService.updateAction({
+      appId: params.appId,
+      currentActionType: decodeURIComponent(params.actionType),
+      nextActionType: (body.actionType as string | undefined) ?? decodeURIComponent(params.actionType),
+      cost: body.cost as number,
+      idempotencyKey: requireIdempotency(headers, body)
+    })
+  }));
+
+  addRoute("DELETE", "/apps/:appId/actions/:actionType", ({ params, headers, body }) => ({
+    body: {
+      deleted: services.appService.deleteAction({
+        appId: params.appId,
+        actionType: decodeURIComponent(params.actionType),
+        idempotencyKey: requireIdempotency(headers, body)
+      })
+    }
   }));
 
   addRoute("GET", "/apps/:appId/setup", ({ params }) => ({

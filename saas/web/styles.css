@@ -211,6 +211,12 @@ select {
   cursor: pointer;
 }
 
+.app-item-inline {
+  border: 0;
+  padding: 0;
+  flex: 1;
+}
+
 .app-item strong,
 .list-row strong {
   display: block;
@@ -222,6 +228,54 @@ select {
 .list-row small {
   color: #444;
   font-size: 12px;
+}
+
+.action-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.icon-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.icon-button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid #111;
+  background: #fff;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.icon-button:hover,
+.icon-button:focus-visible {
+  background: #f2f2f2;
+}
+
+.icon-button svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
+.copy-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.copy-button {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
 }
 
 .panel-grid {
