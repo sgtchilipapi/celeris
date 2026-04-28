@@ -39,6 +39,7 @@ SESSION_JSON="$(post_json "/auth/session" "manual-session-1" '{
 }')"
 echo "${SESSION_JSON}"
 USER_ID="$(read_json_field "${SESSION_JSON}" "userId")"
+PLAYER_TOKEN="$(read_json_field "${SESSION_JSON}" "token")"
 
 echo
 echo "Creating developer app..."
@@ -97,13 +98,16 @@ echo "${WEBHOOK_JSON}"
 
 echo
 echo "Minting item..."
-MINT_JSON="$(post_json "/actions/mint_item" "manual-mint-1" "{
-  \"appId\": \"${APP_ID}\",
-  \"userId\": \"${USER_ID}\",
-  \"payload\": {
-    \"itemDefId\": \"iron_sword\"
-  }
-}")"
+MINT_JSON="$(curl -sS -X POST "${BASE_URL}/actions/mint_item" \
+  -H 'content-type: application/json' \
+  -H "idempotency-key: manual-mint-1" \
+  -H "authorization: Bearer ${PLAYER_TOKEN}" \
+  -d "{
+    \"appId\": \"${APP_ID}\",
+    \"payload\": {
+      \"itemDefId\": \"iron_sword\"
+    }
+  }")"
 echo "${MINT_JSON}"
 
 echo

@@ -67,6 +67,7 @@ test("happy path mints an item, captures credits, and records asset plus transac
     body: { provider: "dummy", email: "player-happy@example.com" }
   });
   const userId = sessionResponse.body.userId as string;
+  const token = sessionResponse.body.token as string;
 
   const appResponse = await api.handle({
     method: "POST",
@@ -119,10 +120,12 @@ test("happy path mints an item, captures credits, and records asset plus transac
   const mintResponse = await api.handle({
     method: "POST",
     url: "/actions/mint_item",
-    headers: { "idempotency-key": "mint-1" },
+    headers: {
+      "idempotency-key": "mint-1",
+      authorization: `Bearer ${token}`
+    },
     body: {
       appId,
-      userId,
       payload: { itemDefId: "iron_sword" }
     }
   });
@@ -158,6 +161,7 @@ test("duplicate payment webhook and duplicate mint request do not double-apply s
     headers: { "idempotency-key": "session-dup" },
     body: { provider: "dummy", email: "player-dup@example.com" }
   });
+  const duplicateToken = session.body.token as string;
 
   const app = await api.handle({
     method: "POST",
@@ -219,14 +223,20 @@ test("duplicate payment webhook and duplicate mint request do not double-apply s
   const firstMint = await api.handle({
     method: "POST",
     url: "/actions/mint_item",
-    headers: { "idempotency-key": "mint-dup" },
-    body: { appId: duplicateAppId, userId: session.body.userId as string, payload: { itemDefId: "iron_sword" } }
+    headers: {
+      "idempotency-key": "mint-dup",
+      authorization: `Bearer ${duplicateToken}`
+    },
+    body: { appId: duplicateAppId, payload: { itemDefId: "iron_sword" } }
   });
   const secondMint = await api.handle({
     method: "POST",
     url: "/actions/mint_item",
-    headers: { "idempotency-key": "mint-dup" },
-    body: { appId: duplicateAppId, userId: session.body.userId as string, payload: { itemDefId: "iron_sword" } }
+    headers: {
+      "idempotency-key": "mint-dup",
+      authorization: `Bearer ${duplicateToken}`
+    },
+    body: { appId: duplicateAppId, payload: { itemDefId: "iron_sword" } }
   });
 
   assert.equal(firstMint.body.transactionId, secondMint.body.transactionId);

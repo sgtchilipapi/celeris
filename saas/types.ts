@@ -169,6 +169,12 @@ export interface SessionResponse {
   token: string;
 }
 
+export interface AuthenticatedSession {
+  userId: UUID;
+  sessionId: UUID;
+  provider: AuthProvider;
+}
+
 export interface CreateAppRequest {
   developerId: UUID;
   name: string;

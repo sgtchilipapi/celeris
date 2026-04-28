@@ -91,6 +91,7 @@ test("mint_item posts pending action details to the developer webhook", async ()
   });
   const appId = app.body.appId as string;
   const userId = session.body.userId as string;
+  const token = session.body.token as string;
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
   await api.handle({
@@ -129,8 +130,11 @@ test("mint_item posts pending action details to the developer webhook", async ()
   const mint = await api.handle({
     method: "POST",
     url: "/actions/mint_item",
-    headers: { "idempotency-key": "dev-int-mint-1" },
-    body: { appId, userId, payload: { itemDefId: "iron_sword" } }
+    headers: {
+      "idempotency-key": "dev-int-mint-1",
+      authorization: `Bearer ${token}`
+    },
+    body: { appId, payload: { itemDefId: "iron_sword" } }
   });
 
   assert.equal(mint.statusCode, 200);
@@ -180,6 +184,7 @@ test("developer rejection releases credits, marks pending action failed, and ret
   });
   const appId = app.body.appId as string;
   const userId = session.body.userId as string;
+  const token = session.body.token as string;
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
   await api.handle({
@@ -218,8 +223,11 @@ test("developer rejection releases credits, marks pending action failed, and ret
   const mint = await api.handle({
     method: "POST",
     url: "/actions/mint_item",
-    headers: { "idempotency-key": "dev-int-mint-2" },
-    body: { appId, userId, payload: { itemDefId: "iron_sword" } }
+    headers: {
+      "idempotency-key": "dev-int-mint-2",
+      authorization: `Bearer ${token}`
+    },
+    body: { appId, payload: { itemDefId: "iron_sword" } }
   });
 
   assert.equal(mint.statusCode, 422);
@@ -230,4 +238,68 @@ test("developer rejection releases credits, marks pending action failed, and ret
 
   const pendingAction = [...services.store.pendingActions.values()].find((candidate) => candidate.appId === appId)!;
   assert.equal(pendingAction.status, "failed");
+});
+
+test("mint_item requires an authenticated player token and rejects spoofed userId", async () => {
+  const services = buildServices({
+    developerFetch: async () =>
+      new Response(JSON.stringify({ status: "approved", tx: "bW9ja190eA==", summary: { actionType: "mint_item", itemDefId: "iron_sword", debit: 50 } }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+  });
+  const api = createApi(services);
+
+  const session = await api.handle({
+    method: "POST",
+    url: "/auth/session",
+    headers: { "idempotency-key": "dev-int-session-3" },
+    body: { provider: "dummy", email: "dev-int-auth@example.com" }
+  });
+
+  const otherSession = await api.handle({
+    method: "POST",
+    url: "/auth/session",
+    headers: { "idempotency-key": "dev-int-session-4" },
+    body: { provider: "dummy", email: "dev-int-other@example.com" }
+  });
+
+  const app = await api.handle({
+    method: "POST",
+    url: "/apps",
+    headers: { "idempotency-key": "dev-int-app-3" },
+    body: {
+      developerId: services.defaultDeveloper.developerId,
+      name: "Developer Auth App",
+      priceCents: 499,
+      credits: 500,
+      webhookUrl: "http://localhost:3001"
+    }
+  });
+
+  const unauthorized = await api.handle({
+    method: "POST",
+    url: "/actions/mint_item",
+    headers: { "idempotency-key": "dev-int-mint-3" },
+    body: { appId: app.body.appId as string, payload: { itemDefId: "iron_sword" } }
+  });
+
+  const spoofed = await api.handle({
+    method: "POST",
+    url: "/actions/mint_item",
+    headers: {
+      "idempotency-key": "dev-int-mint-4",
+      authorization: `Bearer ${session.body.token as string}`
+    },
+    body: {
+      appId: app.body.appId as string,
+      userId: otherSession.body.userId as string,
+      payload: { itemDefId: "iron_sword" }
+    }
+  });
+
+  assert.equal(unauthorized.statusCode, 401);
+  assert.equal(unauthorized.body.error, "authorization token required");
+  assert.equal(spoofed.statusCode, 403);
+  assert.equal(spoofed.body.error, "userId does not match authenticated session");
 });

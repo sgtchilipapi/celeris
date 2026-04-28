@@ -76,6 +76,7 @@ async function setupRelayerFlow(relayerNetworkClient: RelayerNetworkClient) {
 
   const appId = app.body.appId as string;
   const userId = session.body.userId as string;
+  const token = session.body.token as string;
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
   await api.handle({
@@ -111,7 +112,7 @@ async function setupRelayerFlow(relayerNetworkClient: RelayerNetworkClient) {
     body: paymentEvent
   });
 
-  return { services, api, appId, userId };
+  return { services, api, appId, userId, token };
 }
 
 test("relayer retries submission once on retryable network error and succeeds", async () => {
@@ -129,12 +130,12 @@ test("relayer retries submission once on retryable network error and succeeds", 
     }
   };
 
-  const { services, api, appId, userId } = await setupRelayerFlow(networkClient);
+  const { services, api, appId, userId, token } = await setupRelayerFlow(networkClient);
   const mint = await api.handle({
     method: "POST",
     url: "/actions/mint_item",
-    headers: { "idempotency-key": "relayer-mint-retry-1" },
-    body: { appId, userId, payload: { itemDefId: "iron_sword" } }
+    headers: { "idempotency-key": "relayer-mint-retry-1", authorization: `Bearer ${token}` },
+    body: { appId, payload: { itemDefId: "iron_sword" } }
   });
 
   assert.equal(mint.statusCode, 200);
@@ -156,12 +157,12 @@ test("relayer marks submitted transaction failed and releases credits", async ()
     }
   };
 
-  const { services, api, appId, userId } = await setupRelayerFlow(networkClient);
+  const { services, api, appId, userId, token } = await setupRelayerFlow(networkClient);
   const mint = await api.handle({
     method: "POST",
     url: "/actions/mint_item",
-    headers: { "idempotency-key": "relayer-mint-failed-1" },
-    body: { appId, userId, payload: { itemDefId: "iron_sword" } }
+    headers: { "idempotency-key": "relayer-mint-failed-1", authorization: `Bearer ${token}` },
+    body: { appId, payload: { itemDefId: "iron_sword" } }
   });
 
   assert.equal(mint.statusCode, 502);
@@ -189,12 +190,12 @@ test("relayer fails after one retryable submission retry and leaves no capture",
     }
   };
 
-  const { services, api, appId, userId } = await setupRelayerFlow(networkClient);
+  const { services, api, appId, userId, token } = await setupRelayerFlow(networkClient);
   const mint = await api.handle({
     method: "POST",
     url: "/actions/mint_item",
-    headers: { "idempotency-key": "relayer-mint-submit-error-1" },
-    body: { appId, userId, payload: { itemDefId: "iron_sword" } }
+    headers: { "idempotency-key": "relayer-mint-submit-error-1", authorization: `Bearer ${token}` },
+    body: { appId, payload: { itemDefId: "iron_sword" } }
   });
 
   assert.equal(mint.statusCode, 502);

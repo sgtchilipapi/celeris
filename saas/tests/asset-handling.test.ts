@@ -76,6 +76,7 @@ async function setupAssetFlow(relayerNetworkClient: RelayerNetworkClient) {
 
   const appId = app.body.appId as string;
   const userId = session.body.userId as string;
+  const token = session.body.token as string;
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
   await api.handle({
@@ -111,7 +112,7 @@ async function setupAssetFlow(relayerNetworkClient: RelayerNetworkClient) {
     body: paymentEvent
   });
 
-  return { services, api, appId, userId };
+  return { services, api, appId, userId, token };
 }
 
 test("successful mint captures credits and creates a held asset linked to the user", async () => {
@@ -124,12 +125,12 @@ test("successful mint captures credits and creates a held asset linked to the us
     }
   };
 
-  const { services, api, appId, userId } = await setupAssetFlow(networkClient);
+  const { services, api, appId, userId, token } = await setupAssetFlow(networkClient);
   const mint = await api.handle({
     method: "POST",
     url: "/actions/mint_item",
-    headers: { "idempotency-key": "asset-mint-1" },
-    body: { appId, userId, payload: { itemDefId: "iron_sword" } }
+    headers: { "idempotency-key": "asset-mint-1", authorization: `Bearer ${token}` },
+    body: { appId, payload: { itemDefId: "iron_sword" } }
   });
 
   assert.equal(mint.statusCode, 200);
@@ -157,12 +158,12 @@ test("failed transaction does not create an asset and releases credits", async (
     }
   };
 
-  const { services, api, appId, userId } = await setupAssetFlow(networkClient);
+  const { services, api, appId, userId, token } = await setupAssetFlow(networkClient);
   const mint = await api.handle({
     method: "POST",
     url: "/actions/mint_item",
-    headers: { "idempotency-key": "asset-mint-2" },
-    body: { appId, userId, payload: { itemDefId: "iron_sword" } }
+    headers: { "idempotency-key": "asset-mint-2", authorization: `Bearer ${token}` },
+    body: { appId, payload: { itemDefId: "iron_sword" } }
   });
 
   assert.equal(mint.statusCode, 502);
