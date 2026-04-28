@@ -7,43 +7,228 @@
     <link rel="stylesheet" href="/dashboard/styles.css" />
   </head>
   <body>
-    <div class="app-shell">
-      <aside class="sidebar">
-        <div class="sidebar-header">
-          <h1>Celeris</h1>
-          <p>Apps</p>
+    <div class="shell">
+      <header id="app-header" class="app-header" hidden>
+        <div>
+          <p class="eyebrow">Celeris</p>
+          <h1 class="header-title">Developer Dashboard</h1>
         </div>
-        <div id="app-list" class="app-list"></div>
-      </aside>
+        <div class="header-actions">
+          <div id="session-summary" class="session-summary"></div>
+          <button id="sign-out-btn" class="button button-secondary" type="button">Sign out</button>
+        </div>
+      </header>
 
-      <main class="main-content">
-        <header class="page-header">
-          <div>
-            <h2 id="app-name">Select an app</h2>
-            <p id="app-meta">Per-app revenue, credits, and transaction usage.</p>
+      <main class="main">
+        <section id="login-view" class="view view-login">
+          <form id="auth-form" class="card auth-card">
+            <div class="card-copy">
+              <p class="eyebrow">Developer Access</p>
+              <h2>Sign in</h2>
+              <p>Use a local demo account to enter the developer dashboard.</p>
+            </div>
+
+            <label class="field">
+              <span>Username</span>
+              <input id="auth-username" name="username" type="text" autocomplete="username" />
+            </label>
+
+            <label class="field">
+              <span>Password</span>
+              <input id="auth-password" name="password" type="password" autocomplete="current-password" />
+            </label>
+
+            <p id="auth-feedback" class="feedback" hidden></p>
+
+            <div class="stack">
+              <button id="sign-in-btn" class="button button-primary" type="submit">Sign in</button>
+              <button id="sign-up-btn" class="button button-secondary" type="button">Sign up</button>
+            </div>
+          </form>
+        </section>
+
+        <section id="home-view" class="view stack" hidden>
+          <div class="page-head">
+            <div>
+              <p class="eyebrow">Apps</p>
+              <h2>Your apps</h2>
+            </div>
+            <button id="home-create-app-btn" class="button button-primary" type="button">Create new app</button>
           </div>
-        </header>
 
-        <section class="metric-grid" id="metric-grid"></section>
+          <p id="home-feedback" class="feedback" hidden></p>
 
-        <section class="chart-grid">
-          <section class="panel">
-            <h3>Credit Flow</h3>
-            <div id="credit-flow-chart" class="chart"></div>
+          <section id="home-empty-state" class="card empty-card" hidden>
+            <h3>No apps yet</h3>
+            <p>Create one app to get an API key, a default credit package, and the demo setup.</p>
           </section>
-          <section class="panel">
-            <h3>Transaction Outcomes</h3>
-            <div id="transaction-chart" class="chart"></div>
+
+          <section class="card">
+            <div class="section-head">
+              <h3>Open existing app</h3>
+            </div>
+            <div id="app-list" class="app-list"></div>
           </section>
         </section>
 
-        <section class="panel">
-          <h3>Per-user Activity</h3>
-          <div id="user-table"></div>
+        <section id="create-app-view" class="view stack" hidden>
+          <div class="page-head">
+            <div>
+              <p class="eyebrow">Create App</p>
+              <h2>New app</h2>
+              <p>Set the app name, its default credit package, and where Celeris should send approval requests.</p>
+            </div>
+            <button id="cancel-create-app-btn" class="button button-secondary" type="button">Back</button>
+          </div>
+
+          <form id="create-app-form" class="card form-card">
+            <label class="field">
+              <span>App name</span>
+              <input id="create-app-name" type="text" value="My Demo Game" />
+            </label>
+
+            <label class="field">
+              <span>Credits per $1</span>
+              <input id="create-app-credits-per-dollar" type="text" inputmode="numeric" value="500" />
+            </label>
+
+            <label class="field">
+              <span class="field-label-with-help">
+                <span>Webhook URL</span>
+                <span class="tooltip-wrap">
+                  <button class="info-button" type="button" aria-describedby="webhook-help">i</button>
+                  <span id="webhook-help" class="tooltip">
+                    Your game backend endpoint. Celeris calls this URL before sending an on-chain action so your server can approve or reject it. For the local demo, use <code>http://localhost:3001</code>.
+                  </span>
+                </span>
+              </span>
+              <input id="create-app-webhook" type="text" value="http://localhost:3001" />
+            </label>
+
+            <p id="create-app-feedback" class="feedback" hidden></p>
+
+            <div class="inline-actions">
+              <button id="submit-create-app-btn" class="button button-primary" type="submit">Create app</button>
+            </div>
+          </form>
+        </section>
+
+        <section id="overview-view" class="view stack" hidden>
+          <div class="page-head">
+            <div>
+              <p class="eyebrow">Overview</p>
+              <h2 id="overview-app-name">App overview</h2>
+              <p id="overview-app-meta">Review setup details and jump into metrics when needed.</p>
+            </div>
+            <div class="inline-actions">
+              <button id="overview-back-btn" class="button button-secondary" type="button">All apps</button>
+              <button id="view-metrics-btn" class="button button-secondary" type="button">View metrics</button>
+            </div>
+          </div>
+
+          <p id="overview-feedback" class="feedback" hidden></p>
+
+          <div class="panel-grid">
+            <section class="card">
+              <div class="section-head">
+                <h3>App identity</h3>
+              </div>
+              <dl id="identity-list" class="detail-list"></dl>
+            </section>
+
+            <section class="card">
+              <div class="section-head">
+                <h3>Setup summary</h3>
+              </div>
+              <dl id="setup-list" class="detail-list"></dl>
+            </section>
+          </div>
+
+          <section class="card">
+            <div class="page-head">
+              <div class="section-head">
+                <h3>Actions</h3>
+              </div>
+              <button id="add-onchain-action-btn" class="button button-primary" type="button">Add on-chain action</button>
+            </div>
+            <div id="actions-list" class="list-block"></div>
+          </section>
+        </section>
+
+        <dialog id="action-modal" class="modal">
+          <form id="action-form" class="card form-card modal-card">
+            <div class="page-head">
+              <div>
+                <p class="eyebrow">On-Chain Action</p>
+                <h2>Define action</h2>
+              </div>
+              <button id="close-action-modal-btn" class="button button-secondary" type="button">Close</button>
+            </div>
+
+            <label class="field">
+              <span>Action type</span>
+              <select id="action-type-select" class="select-input">
+                <option value="custom">Custom action</option>
+                <option value="Create Character">Create Character</option>
+                <option value="Buy Item from NPC">Buy Item from NPC</option>
+                <option value="Sell Item to NPC">Sell Item to NPC</option>
+                <option value="Claim Rewards">Claim Rewards</option>
+                <option value="Craft Item">Craft Item</option>
+                <option value="Open Treasure Box">Open Treasure Box</option>
+              </select>
+            </label>
+
+            <label id="custom-action-field" class="field">
+              <span>Custom action name</span>
+              <input id="custom-action-name" type="text" />
+            </label>
+
+            <label class="field">
+              <span>Credit cost</span>
+              <input id="action-cost-input" type="text" inputmode="numeric" value="" />
+            </label>
+
+            <p id="action-feedback" class="feedback" hidden></p>
+
+            <div class="inline-actions">
+              <button id="save-action-btn" class="button button-primary" type="submit">Save action</button>
+            </div>
+          </form>
+        </dialog>
+
+        <section id="metrics-view" class="view stack" hidden>
+          <div class="page-head">
+            <div>
+              <p class="eyebrow">Metrics</p>
+              <h2 id="metrics-app-name">Activity</h2>
+              <p>Only the key demo signals: users, spend, and transaction outcomes.</p>
+            </div>
+            <button id="metrics-back-btn" class="button button-secondary" type="button">Back to overview</button>
+          </div>
+
+          <p id="metrics-feedback" class="feedback" hidden></p>
+
+          <section id="metric-grid" class="metric-grid"></section>
+
+          <div class="panel-grid">
+            <section class="card">
+              <div class="section-head">
+                <h3>Recent transactions</h3>
+              </div>
+              <div id="transaction-list" class="list-block"></div>
+            </section>
+
+            <section class="card">
+              <div class="section-head">
+                <h3>Recent users</h3>
+              </div>
+              <div id="user-list" class="list-block"></div>
+            </section>
+          </div>
         </section>
       </main>
     </div>
 
     <script type="module" src="/dashboard/app.js"></script>
   </body>
-  </html>
+</html>

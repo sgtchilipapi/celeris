@@ -3,7 +3,6 @@ const appSelect = document.getElementById("app-select");
 const signInBtn = document.getElementById("sign-in-btn");
 const buyCreditsBtn = document.getElementById("buy-credits-btn");
 const mintItemBtn = document.getElementById("mint-item-btn");
-const userIdEl = document.getElementById("user-id");
 const balanceEl = document.getElementById("balance-value");
 const reservedEl = document.getElementById("reserved-value");
 const resultOutput = document.getElementById("result-output");
@@ -90,7 +89,6 @@ async function signIn() {
 
   state.token = session.token;
   state.userId = session.userId;
-  userIdEl.textContent = session.userId;
   buyCreditsBtn.disabled = false;
   mintItemBtn.disabled = false;
   await refreshBalance();

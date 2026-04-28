@@ -105,6 +105,11 @@ export class MemoryStore implements MemoryStoreContract {
     return app;
   }
 
+  saveApp(record: App): App {
+    this.apps.set(record.appId, record);
+    return record;
+  }
+
   createCreditPackage({
     packageId = randomUUID(),
     appId,
@@ -121,6 +126,58 @@ export class MemoryStore implements MemoryStoreContract {
     return pkg;
   }
 
+  saveCreditPackage(record: CreditPackage): CreditPackage {
+    this.creditPackages.set(record.packageId, record);
+    return record;
+  }
+
+  deleteApp(appId: UUID): boolean {
+    const deleted = this.apps.delete(appId);
+    if (!deleted) {
+      return false;
+    }
+
+    for (const [packageId, pkg] of this.creditPackages.entries()) {
+      if (pkg.appId === appId) {
+        this.creditPackages.delete(packageId);
+      }
+    }
+    for (const [key, action] of this.actionTypes.entries()) {
+      if (action.appId === appId) {
+        this.actionTypes.delete(key);
+      }
+    }
+    for (const [key, balance] of this.creditBalances.entries()) {
+      if (balance.appId === appId) {
+        this.creditBalances.delete(key);
+      }
+    }
+    for (const [id, pending] of this.pendingActions.entries()) {
+      if (pending.appId === appId) {
+        this.pendingActions.delete(id);
+      }
+    }
+    for (const [id, tx] of this.transactions.entries()) {
+      if (tx.appId === appId) {
+        this.transactions.delete(id);
+      }
+    }
+    for (const [id, asset] of this.assets.entries()) {
+      if (asset.appId === appId) {
+        this.assets.delete(id);
+      }
+    }
+    for (const [id, payment] of this.payments.entries()) {
+      if (payment.appId === appId) {
+        this.payments.delete(id);
+      }
+    }
+    this.creditLedger = this.creditLedger.filter((entry) => entry.appId !== appId);
+    this.usageEvents = this.usageEvents.filter((event) => event.appId !== appId);
+
+    return true;
+  }
+
   upsertActionType({ appId, actionType, cost }: { appId: UUID; actionType: string; cost: number }): ActionType {
     const key = `${appId}:${actionType}`;
     const record: ActionType = { appId, actionType, cost, createdAt: new Date().toISOString() };
@@ -130,6 +187,10 @@ export class MemoryStore implements MemoryStoreContract {
 
   getActionType(appId: UUID, actionType: string): ActionType | null {
     return this.actionTypes.get(`${appId}:${actionType}`) ?? null;
+  }
+
+  deleteActionType(appId: UUID, actionType: string): boolean {
+    return this.actionTypes.delete(`${appId}:${actionType}`);
   }
 
   getBalance(userId: UUID, appId: UUID): CreditBalance {
