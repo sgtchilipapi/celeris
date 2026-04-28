@@ -23,6 +23,20 @@ export class MetricsService {
       mintItemCount: mintCount,
       successfulTransactions: transactions.filter((tx) => tx.status === "success").length,
       failedTransactions: transactions.filter((tx) => tx.status === "failed").length,
+      chartSeries: {
+        creditFlow: [
+          { label: "Purchased", value: ledger.filter((entry) => entry.type === "grant").reduce((sum, entry) => sum + entry.amount, 0) },
+          { label: "Spent", value: ledger.filter((entry) => entry.type === "capture").reduce((sum, entry) => sum + entry.amount, 0) }
+        ],
+        transactionOutcomes: [
+          { label: "Success", value: transactions.filter((tx) => tx.status === "success").length },
+          { label: "Failed", value: transactions.filter((tx) => tx.status === "failed").length }
+        ],
+        userActivity: users.map((balance) => ({
+          userId: balance.userId,
+          value: this.store.usageEvents.filter((event) => event.appId === appId && event.userId === balance.userId).length
+        }))
+      },
       users: users.map((balance) => ({
         userId: balance.userId,
         balance: balance.balance,

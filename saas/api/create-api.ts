@@ -1,4 +1,7 @@
+import fs from "node:fs/promises";
 import http from "node:http";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { AppError } from "../services/errors.js";
 import type { AppMetrics, MemoryStore } from "../types.js";
 import type { AuthService } from "../services/auth-service.js";
@@ -48,6 +51,8 @@ type RouteContext = {
   body: Record<string, unknown>;
 };
 
+const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../web");
+
 export function createApi(services: Services) {
   const routes: Array<{ method: string; pattern: string; handler: (ctx: RouteContext) => Promise<unknown> | unknown }> = [];
 
@@ -67,6 +72,12 @@ export function createApi(services: Services) {
     body?: Record<string, unknown>;
   }): Promise<{ statusCode: number; headers: { "content-type": string }; body: any }> {
     const { pathname, searchParams } = new URL(url, "http://localhost");
+    if (method === "GET") {
+      const staticResponse = await tryServeWebAsset(pathname);
+      if (staticResponse) {
+        return staticResponse;
+      }
+    }
     const route = routes.find((candidate) => candidate.method === method && parsePath(candidate.pattern, pathname));
     if (!route) {
       return json(404, { error: "not found" });
@@ -79,7 +90,14 @@ export function createApi(services: Services) {
         headers,
         body
       });
-      const normalized = result as { statusCode?: number; body?: any };
+      const normalized = result as { statusCode?: number; headers?: { "content-type": string }; body?: any };
+      if (normalized?.headers) {
+        return {
+          statusCode: normalized.statusCode ?? 200,
+          headers: normalized.headers,
+          body: normalized.body
+        };
+      }
       return json(normalized.statusCode ?? 200, normalized.body ?? result);
     } catch (error) {
       if (error instanceof AppError) {
@@ -112,6 +130,10 @@ export function createApi(services: Services) {
         idempotencyKey: requireIdempotency(headers, body)
       })
     )
+  }));
+
+  addRoute("GET", "/apps", () => ({
+    body: services.appService.listApps()
   }));
 
   addRoute("POST", "/apps/:appId/actions", ({ params, headers, body }) => ({
@@ -201,6 +223,10 @@ export function createApi(services: Services) {
           body
         });
         res.writeHead(response.statusCode, response.headers);
+        if (Buffer.isBuffer(response.body) || typeof response.body === "string") {
+          res.end(response.body);
+          return;
+        }
         res.end(JSON.stringify(response.body));
       } catch (error) {
         res.writeHead(500, { "content-type": "application/json" });
@@ -234,4 +260,34 @@ function requireAuthenticatedUserId(authService: AuthService, headers: http.Inco
   }
 
   return session.userId;
+}
+
+async function tryServeWebAsset(pathname: string) {
+  if (pathname === "/dashboard" || pathname === "/dashboard/") {
+    return serveFile(path.join(webRoot, "index.html"), "text/html; charset=utf-8");
+  }
+  if (pathname === "/dashboard/app.js") {
+    return serveFile(path.join(webRoot, "app.js"), "text/javascript; charset=utf-8");
+  }
+  if (pathname === "/dashboard/styles.css") {
+    return serveFile(path.join(webRoot, "styles.css"), "text/css; charset=utf-8");
+  }
+  return null;
+}
+
+async function serveFile(filePath: string, contentType: string) {
+  try {
+    const body = await fs.readFile(filePath);
+    return {
+      statusCode: 200,
+      headers: { "content-type": contentType },
+      body
+    };
+  } catch {
+    return {
+      statusCode: 404,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ error: "not found" })
+    };
+  }
 }
