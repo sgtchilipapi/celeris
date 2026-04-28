@@ -8,7 +8,7 @@ Automated coverage:
 - developer rejection
 
 Artifacts:
-- `saas/tests/end-to-end.test.ts`
+- `celeris/tests/end-to-end.test.ts`
 - `npm run test:e2e`
 - the manual happy-path script now also fetches app metrics and verifies the dashboard page is reachable
 

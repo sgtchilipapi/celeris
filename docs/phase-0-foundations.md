@@ -2,7 +2,7 @@
 
 This phase establishes the minimum vertical slice for the Happy Path MVP:
 
-- repo structure under `saas/` and `docs/`
+- repo structure under `celeris/` and `docs/`
 - initial Postgres schema for the core entities
 - explicit services for auth, apps, credits, payments, pending actions, execution, and metrics
 - API endpoints for the MVP flow
