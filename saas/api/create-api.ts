@@ -162,6 +162,13 @@ export function createApi(services: Services) {
     })
   }));
 
+  addRoute("POST", "/demo/checkout/complete", ({ headers, body }) => ({
+    body: services.paymentService.completeDemoCheckoutSession({
+      checkoutSessionId: body.checkoutSessionId as string,
+      idempotencyKey: requireIdempotency(headers, body)
+    })
+  }));
+
   addRoute("POST", "/webhooks/payment", ({ headers, body }) => ({
     body: services.paymentService.applyPaymentWebhook({
       payload: body as never,
@@ -271,6 +278,15 @@ async function tryServeWebAsset(pathname: string) {
   }
   if (pathname === "/dashboard/styles.css") {
     return serveFile(path.join(webRoot, "styles.css"), "text/css; charset=utf-8");
+  }
+  if (pathname === "/demo" || pathname === "/demo/") {
+    return serveFile(path.join(webRoot, "demo.html"), "text/html; charset=utf-8");
+  }
+  if (pathname === "/demo/app.js") {
+    return serveFile(path.join(webRoot, "demo-app.js"), "text/javascript; charset=utf-8");
+  }
+  if (pathname === "/demo/styles.css") {
+    return serveFile(path.join(webRoot, "demo-styles.css"), "text/css; charset=utf-8");
   }
   return null;
 }
