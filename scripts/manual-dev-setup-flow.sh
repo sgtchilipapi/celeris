@@ -116,6 +116,16 @@ USERS_JSON="$(get_json "/users?appId=${APP_ID}")"
 echo "${USERS_JSON}"
 
 echo
+echo "Fetching app metrics..."
+METRICS_JSON="$(get_json "/metrics?appId=${APP_ID}")"
+echo "${METRICS_JSON}"
+
+echo
+echo "Checking dashboard page..."
+DASHBOARD_STATUS="$(curl -sS -o /tmp/celeris-dashboard.html -w '%{http_code}' "${BASE_URL}/dashboard")"
+echo "dashboardStatus: ${DASHBOARD_STATUS}"
+
+echo
 echo "Summary"
 echo "userId: ${USER_ID}"
 echo "appId: ${APP_ID}"
