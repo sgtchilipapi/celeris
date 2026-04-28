@@ -176,4 +176,39 @@ export class PaymentService {
     this.store.setIdempotent(`payment-webhook:${payment.paymentId}`, idempotencyKey, result);
     return result;
   }
+
+  completeDemoCheckoutSession({
+    checkoutSessionId,
+    idempotencyKey
+  }: {
+    checkoutSessionId: string;
+    idempotencyKey: string;
+  }): PaymentWebhookResponse {
+    const payment = this.store.getPaymentByProviderSessionId(checkoutSessionId);
+    if (!payment) {
+      throw new AppError(404, "checkout session not found");
+    }
+
+    const payload: StripeCheckoutSessionCompletedEvent = {
+      id: `evt_demo_${checkoutSessionId}`,
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: payment.providerSessionId,
+          amount_total: payment.amountCents,
+          metadata: {
+            userId: payment.userId,
+            appId: payment.appId,
+            credits: payment.credits
+          }
+        }
+      }
+    };
+
+    return this.applyPaymentWebhook({
+      payload,
+      stripeSignature: this.stripeGateway.signWebhookPayload(payload),
+      idempotencyKey
+    }) as PaymentWebhookResponse;
+  }
 }
