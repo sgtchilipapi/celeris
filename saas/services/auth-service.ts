@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { AppError } from "./errors.js";
-import type { AuthProvider, CreateSessionRequest, MemoryStore, SessionResponse } from "../types.js";
+import type { AuthenticatedSession, AuthProvider, CreateSessionRequest, MemoryStore, SessionResponse } from "../types.js";
 
 export class AuthService {
   readonly store: MemoryStore;
@@ -46,6 +46,61 @@ export class AuthService {
     };
     this.store.setIdempotent(`session:${identity.subject}`, idempotencyKey, session);
     return session;
+  }
+
+  authenticatePlayerToken(token: string): AuthenticatedSession {
+    if (!token) {
+      throw new AppError(401, "authorization token required");
+    }
+
+    const [encodedHeader, encodedPayload, providedSignature] = token.split(".");
+    if (!encodedHeader || !encodedPayload || !providedSignature) {
+      throw new AppError(401, "invalid authorization token");
+    }
+
+    const expectedSignature = crypto
+      .createHmac("sha256", this.jwtSecret)
+      .update(`${encodedHeader}.${encodedPayload}`)
+      .digest("base64url");
+
+    if (providedSignature !== expectedSignature) {
+      throw new AppError(401, "invalid authorization token");
+    }
+
+    let payload: {
+      sub?: string;
+      jti?: string;
+      aud?: string;
+      provider?: AuthProvider;
+      exp?: number;
+    };
+    try {
+      payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
+    } catch {
+      throw new AppError(401, "invalid authorization token");
+    }
+
+    if (!payload.sub || !payload.jti || payload.aud !== "player" || !payload.provider) {
+      throw new AppError(401, "invalid authorization token");
+    }
+    if (typeof payload.exp !== "number" || payload.exp <= Math.floor(Date.now() / 1000)) {
+      throw new AppError(401, "session expired");
+    }
+
+    const session = this.store.userSessions.get(payload.jti);
+    if (!session || session.token !== token || session.userId !== payload.sub) {
+      throw new AppError(401, "session not found");
+    }
+
+    if (!this.store.users.has(payload.sub)) {
+      throw new AppError(401, "session user not found");
+    }
+
+    return {
+      userId: payload.sub,
+      sessionId: payload.jti,
+      provider: payload.provider
+    };
   }
 
   private resolveIdentity({ provider, email }: { provider: string; email?: string }) {

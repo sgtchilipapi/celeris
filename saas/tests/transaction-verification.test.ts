@@ -65,6 +65,7 @@ async function setupMintFlow({
 
   const appId = app.body.appId as string;
   const userId = session.body.userId as string;
+  const token = session.body.token as string;
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
   await api.handle({
@@ -100,11 +101,11 @@ async function setupMintFlow({
     body: paymentEvent
   });
 
-  return { services, api, appId, userId };
+  return { services, api, appId, userId, token };
 }
 
 test("verification rejects mismatched debit and releases reserved credits", async () => {
-  const { services, api, appId, userId } = await setupMintFlow({
+  const { services, api, appId, userId, token } = await setupMintFlow({
     developerFetch: async () =>
       new Response(
         JSON.stringify({
@@ -123,8 +124,8 @@ test("verification rejects mismatched debit and releases reserved credits", asyn
   const mint = await api.handle({
     method: "POST",
     url: "/actions/mint_item",
-    headers: { "idempotency-key": "txv-mint-debit-1" },
-    body: { appId, userId, payload: { itemDefId: "iron_sword" } }
+    headers: { "idempotency-key": "txv-mint-debit-1", authorization: `Bearer ${token}` },
+    body: { appId, payload: { itemDefId: "iron_sword" } }
   });
 
   assert.equal(mint.statusCode, 422);
@@ -136,7 +137,7 @@ test("verification rejects mismatched debit and releases reserved credits", asyn
 });
 
 test("verification rejects invalid tx structure and releases reserved credits", async () => {
-  const { services, api, appId, userId } = await setupMintFlow({
+  const { services, api, appId, userId, token } = await setupMintFlow({
     developerFetch: async () =>
       new Response(
         JSON.stringify({
@@ -155,8 +156,8 @@ test("verification rejects invalid tx structure and releases reserved credits", 
   const mint = await api.handle({
     method: "POST",
     url: "/actions/mint_item",
-    headers: { "idempotency-key": "txv-mint-tx-1" },
-    body: { appId, userId, payload: { itemDefId: "iron_sword" } }
+    headers: { "idempotency-key": "txv-mint-tx-1", authorization: `Bearer ${token}` },
+    body: { appId, payload: { itemDefId: "iron_sword" } }
   });
 
   assert.equal(mint.statusCode, 422);
@@ -166,7 +167,7 @@ test("verification rejects invalid tx structure and releases reserved credits", 
 });
 
 test("verification rejects disallowed action types and releases reserved credits", async () => {
-  const { services, api, appId, userId } = await setupMintFlow({
+  const { services, api, appId, userId, token } = await setupMintFlow({
     developerFetch: async () =>
       new Response(
         JSON.stringify({
@@ -185,8 +186,8 @@ test("verification rejects disallowed action types and releases reserved credits
   const mint = await api.handle({
     method: "POST",
     url: "/actions/mint_item",
-    headers: { "idempotency-key": "txv-mint-action-1" },
-    body: { appId, userId, payload: { itemDefId: "iron_sword" } }
+    headers: { "idempotency-key": "txv-mint-action-1", authorization: `Bearer ${token}` },
+    body: { appId, payload: { itemDefId: "iron_sword" } }
   });
 
   assert.equal(mint.statusCode, 422);
@@ -196,7 +197,7 @@ test("verification rejects disallowed action types and releases reserved credits
 });
 
 test("verification rejects when pending action disappears before execution", async () => {
-  const { services, api, appId, userId } = await setupMintFlow({
+  const { services, api, appId, userId, token } = await setupMintFlow({
     developerFetch: async (_input, init) => {
       const request = JSON.parse(String(init?.body ?? "{}")) as { pendingActionId: string };
       services.store.pendingActions.delete(request.pendingActionId);
@@ -218,8 +219,8 @@ test("verification rejects when pending action disappears before execution", asy
   const mint = await api.handle({
     method: "POST",
     url: "/actions/mint_item",
-    headers: { "idempotency-key": "txv-mint-pa-1" },
-    body: { appId, userId, payload: { itemDefId: "iron_sword" } }
+    headers: { "idempotency-key": "txv-mint-pa-1", authorization: `Bearer ${token}` },
+    body: { appId, payload: { itemDefId: "iron_sword" } }
   });
 
   assert.equal(mint.statusCode, 422);

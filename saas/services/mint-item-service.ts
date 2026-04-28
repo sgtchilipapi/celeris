@@ -13,6 +13,7 @@ import { CreditLedgerService } from "./credit-ledger-service.js";
 import { DeveloperBackendClient } from "./developer-backend-client.js";
 import { PendingActionService } from "./pending-action-service.js";
 import { RelayerService } from "./relayer-service.js";
+import { AssetService } from "./asset-service.js";
 
 function hashPayload(payload: MintItemPayload): string {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
@@ -24,25 +25,29 @@ export class MintItemService {
   readonly developerClient: DeveloperBackendClient;
   readonly relayerService: RelayerService;
   readonly pendingActionService: PendingActionService;
+  readonly assetService: AssetService;
 
   constructor({
     store,
     ledgerService,
     developerClient,
     relayerService,
-    pendingActionService
+    pendingActionService,
+    assetService
   }: {
     store: MemoryStore;
     ledgerService: CreditLedgerService;
     developerClient: DeveloperBackendClient;
     relayerService: RelayerService;
     pendingActionService: PendingActionService;
+    assetService: AssetService;
   }) {
     this.store = store;
     this.ledgerService = ledgerService;
     this.developerClient = developerClient;
     this.relayerService = relayerService;
     this.pendingActionService = pendingActionService;
+    this.assetService = assetService;
   }
 
   async execute({ appId, userId, payload, idempotencyKey }: ExecuteMintItemRequest): Promise<MintItemExecutionResult> {
@@ -161,14 +166,12 @@ export class MintItemService {
         pendingActionId: pendingAction.id
       });
 
-      const asset = this.store.createAsset({
-        assetId: randomUUID(),
+      const asset = this.assetService.createHeldAsset({
         appId,
         userId,
         itemDefId: approval.summary.itemDefId,
         transactionId: transaction.txId,
-        status: "held",
-        createdAt: new Date().toISOString()
+        idempotencyKey: `pending:${pendingAction.id}:asset`
       });
 
       this.store.recordUsageEvent({

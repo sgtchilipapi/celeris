@@ -151,7 +151,7 @@ export function createApi(services: Services) {
   addRoute("POST", "/actions/mint_item", async ({ headers, body }) => ({
     body: await services.mintItemService.execute({
       appId: body.appId as string,
-      userId: body.userId as string,
+      userId: requireAuthenticatedUserId(services.authService, headers, body),
       payload: body.payload as { itemDefId: string },
       idempotencyKey: requireIdempotency(headers, body)
     })
@@ -218,4 +218,20 @@ function requireIdempotency(headers: http.IncomingHttpHeaders, body: Record<stri
     throw new AppError(400, "idempotency key required");
   }
   return key;
+}
+
+function requireAuthenticatedUserId(authService: AuthService, headers: http.IncomingHttpHeaders, body: Record<string, unknown>) {
+  const authorization = headers.authorization;
+  if (typeof authorization !== "string" || !authorization.startsWith("Bearer ")) {
+    throw new AppError(401, "authorization token required");
+  }
+
+  const token = authorization.slice("Bearer ".length).trim();
+  const session = authService.authenticatePlayerToken(token);
+
+  if (typeof body.userId === "string" && body.userId !== session.userId) {
+    throw new AppError(403, "userId does not match authenticated session");
+  }
+
+  return session.userId;
 }
