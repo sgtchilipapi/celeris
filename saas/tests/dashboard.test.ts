@@ -162,4 +162,55 @@ test("dashboard endpoints expose app list and aggregated per-app metrics", async
 
   assert.equal(dashboardPage.statusCode, 200);
   assert.match(String(dashboardPage.body), /Celeris Dashboard/);
+  assert.match(String(dashboardPage.body), /Username/);
+  assert.match(String(dashboardPage.body), /Webhook URL/);
+});
+
+test("demo developer session can be created and app list can be filtered per developer", async () => {
+  const services = buildServices();
+  const api = createApi(services);
+
+  const developerSession = await api.handle({
+    method: "POST",
+    url: "/demo/developer/session",
+    body: { developerId: "dev-local-1" }
+  });
+
+  await api.handle({
+    method: "POST",
+    url: "/apps",
+    headers: { "idempotency-key": "dashboard-dev-app-1" },
+    body: {
+      developerId: "dev-local-1",
+      name: "Developer Owned App",
+      priceCents: 499,
+      credits: 500,
+      webhookUrl: "http://localhost:3001"
+    }
+  });
+
+  services.store.createDeveloper({ developerId: "another-dev", email: "another@demo.celeris.local" });
+  await api.handle({
+    method: "POST",
+    url: "/apps",
+    headers: { "idempotency-key": "dashboard-dev-app-2" },
+    body: {
+      developerId: "another-dev",
+      name: "Another Dev App",
+      priceCents: 499,
+      credits: 500,
+      webhookUrl: "http://localhost:3001"
+    }
+  });
+
+  const filteredApps = await api.handle({
+    method: "GET",
+    url: "/apps?developerId=dev-local-1"
+  });
+
+  assert.equal(developerSession.statusCode, 200);
+  assert.equal(developerSession.body.developerId, "dev-local-1");
+  assert.equal(filteredApps.statusCode, 200);
+  assert.equal(filteredApps.body.length, 1);
+  assert.equal(filteredApps.body[0].name, "Developer Owned App");
 });
