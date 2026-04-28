@@ -10,6 +10,7 @@
     "dev:mock-developer": "node --watch --import tsx scripts/mock-developer-backend.ts",
     "start:mock-developer": "node --import tsx scripts/mock-developer-backend.ts",
     "test": "node --import tsx --test saas/tests/*.test.ts",
+    "test:e2e": "node --import tsx --test saas/tests/end-to-end.test.ts",
     "test:watch": "node --watch --import tsx --test saas/tests/*.test.ts",
     "typecheck": "tsc --noEmit",
     "db:migrate": "psql \"$DATABASE_URL\" -f saas/db/migrations/001_foundations.sql"

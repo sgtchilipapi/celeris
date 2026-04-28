@@ -1,6 +1,7 @@
 import http from "node:http";
 
 const port = Number(process.env.MOCK_DEVELOPER_PORT ?? 3001);
+const scenario = process.env.MOCK_DEVELOPER_SCENARIO ?? "approve";
 
 const server = http.createServer(async (req, res) => {
   if (req.method !== "POST") {
@@ -28,7 +29,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (body.payload?.itemDefId === "reject_item") {
+  if (scenario === "reject" || body.payload?.itemDefId === "reject_item") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ status: "rejected", reason: "item rejected by developer backend" }));
     return;
