@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cloudflaredPath = path.join(rootDir, ".bin", "cloudflared");
 const defaultApiOrigin = "http://localhost:3000";
-const defaultDashboardOrigin = `${defaultApiOrigin}/dashboard`;
+const defaultDashboardOrigin = defaultApiOrigin;
 const defaultFrontendOrigin = "http://localhost:3002";
 const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
 
@@ -303,7 +303,7 @@ async function spawnTunnel(name: string, url: string) {
 function buildDashboardUrl(base: string, demoSession: DemoSession) {
   const url = new URL(base);
   if (!url.pathname || url.pathname === "/") {
-    url.pathname = "/dashboard";
+    url.pathname = "/";
   }
   url.searchParams.set("demoUsername", demoSession.developerUsername);
   url.searchParams.set("demoPassword", demoSession.developerPassword);

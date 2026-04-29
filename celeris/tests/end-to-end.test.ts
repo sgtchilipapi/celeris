@@ -185,7 +185,7 @@ test("end-to-end happy path covers signup, credits, mint, asset, and dashboard m
   });
   const dashboard = await api.handle({
     method: "GET",
-    url: "/dashboard"
+    url: "/"
   });
 
   assert.equal(metrics.body.totalUsers, 1);

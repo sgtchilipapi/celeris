@@ -118,6 +118,22 @@ export function createApi(services: Services) {
     })
   }));
 
+  addRoute("POST", "/player/sign-up", ({ headers, body }) => ({
+    statusCode: 201,
+    body: services.authService.signUpPlayer({
+      username: body.username as string,
+      password: body.password as string,
+      idempotencyKey: requireIdempotency(headers, body)
+    })
+  }));
+
+  addRoute("POST", "/player/sign-in", ({ body }) => ({
+    body: services.authService.signInPlayer({
+      username: body.username as string,
+      password: body.password as string
+    })
+  }));
+
   addRoute("POST", "/developer/sign-up", ({ headers, body }) => ({
     statusCode: 201,
     body: services.appService.signUpDeveloper({
@@ -335,13 +351,13 @@ function requireAuthenticatedUserId(authService: AuthService, headers: http.Inco
 }
 
 async function tryServeWebAsset(pathname: string) {
-  if (pathname === "/dashboard" || pathname === "/dashboard/") {
+  if (pathname === "/" || pathname === "/index.html" || pathname === "/dashboard" || pathname === "/dashboard/") {
     return serveFile(path.join(webRoot, "index.html"), "text/html; charset=utf-8");
   }
-  if (pathname === "/dashboard/app.js") {
+  if (pathname === "/app.js" || pathname === "/dashboard/app.js") {
     return serveFile(path.join(webRoot, "app.js"), "text/javascript; charset=utf-8");
   }
-  if (pathname === "/dashboard/styles.css") {
+  if (pathname === "/styles.css" || pathname === "/dashboard/styles.css") {
     return serveFile(path.join(webRoot, "styles.css"), "text/css; charset=utf-8");
   }
   if (pathname === "/demo" || pathname === "/demo/") {

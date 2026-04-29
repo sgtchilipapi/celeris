@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Celeris Dashboard</title>
-    <link rel="stylesheet" href="/dashboard/styles.css" />
+    <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <div class="shell">
@@ -147,20 +147,102 @@
           <section class="card">
             <div class="page-head">
               <div class="section-head">
-                <h3>Actions</h3>
+                <h3>Sponsor wallet</h3>
               </div>
-              <button id="add-onchain-action-btn" class="button button-primary" type="button">Add on-chain action</button>
+              <div class="wallet-balance">
+                <button id="wallet-decrease-btn" class="icon-button" type="button" aria-label="Decrease sponsor wallet balance">-</button>
+                <button id="wallet-increase-btn" class="icon-button" type="button" aria-label="Increase sponsor wallet balance">+</button>
+              </div>
             </div>
-            <div id="actions-list" class="list-block"></div>
+            <dl id="sponsor-wallet-list" class="detail-list"></dl>
+          </section>
+
+          <section class="card">
+            <div class="page-head">
+              <div class="section-head">
+                <h3>Programs</h3>
+              </div>
+              <button id="add-program-btn" class="button button-primary" type="button">Add program</button>
+            </div>
+            <div id="programs-list" class="list-block"></div>
           </section>
         </section>
+
+        <section id="program-view" class="view stack" hidden>
+          <div class="page-head">
+            <div>
+              <p class="eyebrow">Program</p>
+              <h2 id="program-page-title">Program</h2>
+              <p id="program-page-meta">Review this program and define the actions it supports.</p>
+            </div>
+            <div class="inline-actions">
+              <button id="program-back-btn" class="button button-secondary" type="button">Back to app</button>
+            </div>
+          </div>
+
+          <p id="program-feedback-page" class="feedback" hidden></p>
+
+          <section class="card">
+            <div class="section-head">
+              <h3>Program details</h3>
+            </div>
+            <dl id="program-detail-list" class="detail-list"></dl>
+          </section>
+
+          <section class="card">
+            <div class="page-head">
+              <div class="section-head">
+                <h3>Actions</h3>
+              </div>
+              <button id="add-program-action-btn" class="button button-primary" type="button">Add action</button>
+            </div>
+            <div id="program-actions-list" class="list-block"></div>
+          </section>
+        </section>
+
+        <dialog id="program-modal" class="modal">
+          <form id="program-form" class="card form-card modal-card">
+            <div class="page-head">
+              <div>
+                <p class="eyebrow">Program</p>
+                <h2>Add program</h2>
+              </div>
+              <button id="close-program-modal-btn" class="button button-secondary" type="button">Close</button>
+            </div>
+
+            <label class="field">
+              <span>Program ID</span>
+              <input id="program-id-input" type="text" />
+            </label>
+
+            <label class="field">
+              <span>Network</span>
+              <select id="program-network-select" class="select-input">
+                <option value="mainnet">mainnet</option>
+                <option value="devnet">devnet</option>
+                <option value="localnet">localnet</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Alias</span>
+              <input id="program-alias-input" type="text" />
+            </label>
+
+            <p id="program-feedback" class="feedback" hidden></p>
+
+            <div class="inline-actions">
+              <button id="save-program-btn" class="button button-primary" type="submit">Save program</button>
+            </div>
+          </form>
+        </dialog>
 
         <dialog id="action-modal" class="modal">
           <form id="action-form" class="card form-card modal-card">
             <div class="page-head">
               <div>
-                <p class="eyebrow">On-Chain Action</p>
-                <h2>Define action</h2>
+                <p class="eyebrow">Action</p>
+                <h2>Add action</h2>
               </div>
               <button id="close-action-modal-btn" class="button button-secondary" type="button">Close</button>
             </div>
@@ -169,23 +251,19 @@
               <span>Action type</span>
               <select id="action-type-select" class="select-input">
                 <option value="custom">Custom action</option>
-                <option value="Create Character">Create Character</option>
-                <option value="Buy Item from NPC">Buy Item from NPC</option>
-                <option value="Sell Item to NPC">Sell Item to NPC</option>
                 <option value="Claim Rewards">Claim Rewards</option>
-                <option value="Craft Item">Craft Item</option>
-                <option value="Open Treasure Box">Open Treasure Box</option>
+                <option value="First Time Claim">First Time Claim</option>
               </select>
             </label>
 
-            <label id="custom-action-field" class="field">
+            <label id="custom-action-field" class="field" hidden>
               <span>Custom action name</span>
               <input id="custom-action-name" type="text" />
             </label>
 
             <label class="field">
-              <span>Credit cost</span>
-              <input id="action-cost-input" type="text" inputmode="numeric" value="" />
+              <span>Credit consumption</span>
+              <input id="action-cost-input" type="text" inputmode="numeric" />
             </label>
 
             <p id="action-feedback" class="feedback" hidden></p>
@@ -229,6 +307,6 @@
       </main>
     </div>
 
-    <script type="module" src="/dashboard/app.js"></script>
+    <script type="module" src="/app.js"></script>
   </body>
 </html>

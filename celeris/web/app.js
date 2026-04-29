@@ -2,6 +2,7 @@ const loginViewEl = document.getElementById("login-view");
 const homeViewEl = document.getElementById("home-view");
 const createAppViewEl = document.getElementById("create-app-view");
 const overviewViewEl = document.getElementById("overview-view");
+const programViewEl = document.getElementById("program-view");
 const metricsViewEl = document.getElementById("metrics-view");
 const appHeaderEl = document.getElementById("app-header");
 
@@ -30,11 +31,32 @@ const overviewAppNameEl = document.getElementById("overview-app-name");
 const overviewAppMetaEl = document.getElementById("overview-app-meta");
 const identityListEl = document.getElementById("identity-list");
 const setupListEl = document.getElementById("setup-list");
+const sponsorWalletListEl = document.getElementById("sponsor-wallet-list");
+const walletDecreaseBtn = document.getElementById("wallet-decrease-btn");
+const walletIncreaseBtn = document.getElementById("wallet-increase-btn");
+const programsListEl = document.getElementById("programs-list");
 const overviewFeedbackEl = document.getElementById("overview-feedback");
 const overviewBackBtn = document.getElementById("overview-back-btn");
 const viewMetricsBtn = document.getElementById("view-metrics-btn");
-const actionsListEl = document.getElementById("actions-list");
-const addOnchainActionBtn = document.getElementById("add-onchain-action-btn");
+const addProgramBtn = document.getElementById("add-program-btn");
+
+const programPageTitleEl = document.getElementById("program-page-title");
+const programPageMetaEl = document.getElementById("program-page-meta");
+const programDetailListEl = document.getElementById("program-detail-list");
+const programActionsListEl = document.getElementById("program-actions-list");
+const addProgramActionBtn = document.getElementById("add-program-action-btn");
+const programBackBtn = document.getElementById("program-back-btn");
+const programFeedbackPageEl = document.getElementById("program-feedback-page");
+
+const programModalEl = document.getElementById("program-modal");
+const programFormEl = document.getElementById("program-form");
+const closeProgramModalBtn = document.getElementById("close-program-modal-btn");
+const programIdInputEl = document.getElementById("program-id-input");
+const programNetworkSelectEl = document.getElementById("program-network-select");
+const programAliasInputEl = document.getElementById("program-alias-input");
+const programFeedbackEl = document.getElementById("program-feedback");
+const saveProgramBtn = document.getElementById("save-program-btn");
+
 const actionModalEl = document.getElementById("action-modal");
 const actionFormEl = document.getElementById("action-form");
 const closeActionModalBtn = document.getElementById("close-action-modal-btn");
@@ -53,14 +75,19 @@ const transactionListEl = document.getElementById("transaction-list");
 const userListEl = document.getElementById("user-list");
 
 const SESSION_STORAGE_KEY = "celeris-dashboard-session";
+const APP_UI_STORAGE_KEY = "celeris-dashboard-app-ui";
+const PLACEHOLDER_SPONSOR_ADDRESS = "9xQeWvG816bUx9EPjHmaT23yvVMZVbGCJx9nD2hM2W8S";
 
 const state = {
   session: null,
   apps: [],
   selectedApp: null,
   selectedSetup: null,
-  editingActionType: null,
-  editingAppId: null
+  selectedProgramId: null,
+  editingAppId: null,
+  editingProgramId: null,
+  editingProgramActionId: null,
+  appUi: loadStoredAppUi()
 };
 
 const EDIT_ICON = `
@@ -99,6 +126,27 @@ function loadStoredSession() {
   }
 }
 
+function saveStoredSession(session) {
+  localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+}
+
+function clearStoredSession() {
+  localStorage.removeItem(SESSION_STORAGE_KEY);
+}
+
+function loadStoredAppUi() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(APP_UI_STORAGE_KEY) ?? "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveStoredAppUi() {
+  localStorage.setItem(APP_UI_STORAGE_KEY, JSON.stringify(state.appUi));
+}
+
 function readDemoBootstrap() {
   const params = new URLSearchParams(window.location.search);
   const username = params.get("demoUsername");
@@ -113,14 +161,6 @@ function readDemoBootstrap() {
   return { username, password, developerId, appId };
 }
 
-function saveStoredSession(session) {
-  localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
-}
-
-function clearStoredSession() {
-  localStorage.removeItem(SESSION_STORAGE_KEY);
-}
-
 function showFeedback(element, message) {
   if (!message) {
     element.hidden = true;
@@ -131,8 +171,8 @@ function showFeedback(element, message) {
   element.textContent = message;
 }
 
-function supportsDialog() {
-  return typeof actionModalEl?.showModal === "function";
+function supportsDialog(dialog) {
+  return typeof dialog?.showModal === "function";
 }
 
 function escapeHtml(value) {
@@ -149,26 +189,13 @@ function setView(name) {
   homeViewEl.hidden = name !== "home";
   createAppViewEl.hidden = name !== "create";
   overviewViewEl.hidden = name !== "overview";
+  programViewEl.hidden = name !== "program";
   metricsViewEl.hidden = name !== "metrics";
   appHeaderEl.hidden = name === "login";
 }
 
-function syncCustomActionField() {
-  customActionFieldEl.hidden = actionTypeSelectEl.value !== "custom";
-}
-
-function getPresetActionTypes() {
-  return [...actionTypeSelectEl.options]
-    .filter((option) => option.value !== "custom")
-    .map((option) => option.value);
-}
-
 function updateSessionSummary() {
-  if (!state.session) {
-    sessionSummaryEl.textContent = "";
-    return;
-  }
-  sessionSummaryEl.innerHTML = `<strong>${escapeHtml(state.session.username)}</strong>`;
+  sessionSummaryEl.innerHTML = state.session ? `<strong>${escapeHtml(state.session.username)}</strong>` : "";
 }
 
 function formatCurrency(cents) {
@@ -216,6 +243,74 @@ async function createOrRestoreDeveloper(developerId) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ developerId })
   });
+}
+
+function ensureAppUi(appId) {
+  if (!state.appUi[appId]) {
+    state.appUi[appId] = {
+      sponsorWallet: {
+        address: PLACEHOLDER_SPONSOR_ADDRESS,
+        balance: 20
+      },
+      programs: []
+    };
+  }
+  if (!state.appUi[appId].sponsorWallet) {
+    state.appUi[appId].sponsorWallet = {
+      address: PLACEHOLDER_SPONSOR_ADDRESS,
+      balance: 20
+    };
+  }
+  if (!Array.isArray(state.appUi[appId].programs)) {
+    state.appUi[appId].programs = [];
+  }
+  return state.appUi[appId];
+}
+
+function getSelectedAppUi() {
+  if (!state.selectedApp) {
+    return null;
+  }
+  return ensureAppUi(state.selectedApp.appId);
+}
+
+function getSelectedProgram() {
+  const appUi = getSelectedAppUi();
+  if (!appUi || !state.selectedProgramId) {
+    return null;
+  }
+  return appUi.programs.find((program) => program.id === state.selectedProgramId) ?? null;
+}
+
+function renderDetailList(element, items) {
+  element.innerHTML = items
+    .map((item) => `<dt>${escapeHtml(item.label)}</dt><dd>${item.value}</dd>`)
+    .join("");
+}
+
+function renderCopyValue(value) {
+  const escapedValue = escapeHtml(value);
+  const encodedValue = encodeURIComponent(value);
+  return `
+    <span class="copy-value">
+      <code>${escapedValue}</code>
+      <button class="icon-button copy-button" type="button" data-copy-value="${encodedValue}" aria-label="Copy ${escapedValue}">
+        ${COPY_ICON}
+      </button>
+    </span>
+  `;
+}
+
+function bindCopyButtons(scope, feedbackTarget = overviewFeedbackEl) {
+  for (const button of scope.querySelectorAll("[data-copy-value]")) {
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(decodeURIComponent(button.dataset.copyValue ?? ""));
+      } catch {
+        showFeedback(feedbackTarget, "Copy failed.");
+      }
+    });
+  }
 }
 
 async function signIn(credentials = null) {
@@ -266,15 +361,24 @@ function signOut() {
   state.apps = [];
   state.selectedApp = null;
   state.selectedSetup = null;
+  state.selectedProgramId = null;
+  state.editingAppId = null;
+  state.editingProgramId = null;
+  state.editingProgramActionId = null;
   clearStoredSession();
   updateSessionSummary();
   showFeedback(authFeedbackEl, "");
   showFeedback(homeFeedbackEl, "");
   showFeedback(overviewFeedbackEl, "");
+  showFeedback(programFeedbackPageEl, "");
   showFeedback(metricsFeedbackEl, "");
   showFeedback(createAppFeedbackEl, "");
+  showFeedback(programFeedbackEl, "");
   showFeedback(actionFeedbackEl, "");
-  if (supportsDialog() && actionModalEl.open) {
+  if (supportsDialog(programModalEl) && programModalEl.open) {
+    programModalEl.close();
+  }
+  if (supportsDialog(actionModalEl) && actionModalEl.open) {
     actionModalEl.close();
   }
   authFormEl.reset();
@@ -346,87 +450,7 @@ async function loadApps() {
   renderHome();
 }
 
-function renderDetailList(element, items) {
-  element.innerHTML = items
-    .map((item) => `<dt>${escapeHtml(item.label)}</dt><dd>${item.value}</dd>`)
-    .join("");
-}
-
-function renderCopyValue(value) {
-  const escapedValue = escapeHtml(value);
-  const encodedValue = encodeURIComponent(value);
-  return `
-    <span class="copy-value">
-      <code>${escapedValue}</code>
-      <button class="icon-button copy-button" type="button" data-copy-value="${encodedValue}" aria-label="Copy ${escapedValue}">
-        ${COPY_ICON}
-      </button>
-    </span>
-  `;
-}
-
-function bindCopyButtons(scope) {
-  for (const button of scope.querySelectorAll("[data-copy-value]")) {
-    button.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(decodeURIComponent(button.dataset.copyValue ?? ""));
-      } catch {
-        showFeedback(overviewFeedbackEl, "Copy failed.");
-      }
-    });
-  }
-}
-
-function renderActions(actions) {
-  if (actions.length === 0) {
-    actionsListEl.innerHTML = '<div class="list-row"><strong>No actions added yet</strong><small>Add an on-chain action to define what players can do.</small></div>';
-    return;
-  }
-
-  actionsListEl.innerHTML = actions
-    .map(
-      (action) => `
-        <div class="list-row action-row">
-          <div>
-            <strong>${escapeHtml(action.actionType)}</strong>
-            <small>${escapeHtml(`${action.cost} credits`)}</small>
-          </div>
-          <div class="icon-actions">
-            <button class="icon-button" type="button" data-edit-action="${escapeHtml(action.actionType)}" aria-label="Edit ${escapeHtml(action.actionType)}">
-              ${EDIT_ICON}
-            </button>
-            <button class="icon-button" type="button" data-delete-action="${escapeHtml(action.actionType)}" aria-label="Delete ${escapeHtml(action.actionType)}">
-              ${DELETE_ICON}
-            </button>
-          </div>
-        </div>
-      `
-    )
-    .join("");
-
-  for (const button of actionsListEl.querySelectorAll("[data-edit-action]")) {
-    button.addEventListener("click", () => {
-      const action = state.selectedSetup?.actions.find((entry) => entry.actionType === button.dataset.editAction);
-      if (action) {
-        openActionModal(action);
-      }
-    });
-  }
-
-  for (const button of actionsListEl.querySelectorAll("[data-delete-action]")) {
-    button.addEventListener("click", () => {
-      const actionType = button.dataset.deleteAction;
-      if (actionType) {
-        deleteOnchainAction(actionType).catch((error) => {
-          showFeedback(overviewFeedbackEl, error.message);
-        });
-      }
-    });
-  }
-}
-
-function refreshOverviewSetup(setup) {
-  state.selectedSetup = setup;
+function renderSetupSummary(setup) {
   const firstPackage = setup.creditPackages[0] ?? null;
   renderDetailList(setupListEl, [
     { label: "Webhook URL", value: setup.webhookUrl ? renderCopyValue(setup.webhookUrl) : "Not set" },
@@ -436,7 +460,87 @@ function refreshOverviewSetup(setup) {
     }
   ]);
   bindCopyButtons(setupListEl);
-  renderActions(setup.actions);
+}
+
+function renderSponsorWallet() {
+  const appUi = getSelectedAppUi();
+  if (!appUi) {
+    sponsorWalletListEl.innerHTML = "";
+    return;
+  }
+  renderDetailList(sponsorWalletListEl, [
+    { label: "Address", value: renderCopyValue(appUi.sponsorWallet.address) },
+    { label: "Balance", value: `${formatNumber(appUi.sponsorWallet.balance)} SOL` }
+  ]);
+  bindCopyButtons(sponsorWalletListEl);
+}
+
+function renderPrograms() {
+  const appUi = getSelectedAppUi();
+  if (!appUi || appUi.programs.length === 0) {
+    programsListEl.innerHTML =
+      '<div class="list-row"><strong>No programs added yet</strong><small>Add a program to organize on-chain actions under it.</small></div>';
+    return;
+  }
+
+  programsListEl.innerHTML = appUi.programs
+    .map(
+      (program) => `
+        <div class="list-row action-row">
+          <button type="button" class="app-item app-item-inline" data-open-program="${escapeHtml(program.id)}">
+            <strong>${escapeHtml(program.alias)}</strong>
+            <small>${escapeHtml(program.network)}</small>
+            <small>${escapeHtml(program.programId)}</small>
+          </button>
+          <div class="icon-actions">
+            <button class="icon-button" type="button" data-edit-program="${escapeHtml(program.id)}" aria-label="Edit ${escapeHtml(program.alias)}">
+              ${EDIT_ICON}
+            </button>
+            <button class="icon-button" type="button" data-delete-program="${escapeHtml(program.id)}" aria-label="Delete ${escapeHtml(program.alias)}">
+              ${DELETE_ICON}
+            </button>
+          </div>
+        </div>
+      `
+    )
+    .join("");
+
+  for (const button of programsListEl.querySelectorAll("[data-open-program]")) {
+    button.addEventListener("click", () => {
+      openProgramView(button.dataset.openProgram);
+    });
+  }
+
+  for (const button of programsListEl.querySelectorAll("[data-edit-program]")) {
+    button.addEventListener("click", () => {
+      openProgramModal(button.dataset.editProgram);
+    });
+  }
+
+  for (const button of programsListEl.querySelectorAll("[data-delete-program]")) {
+    button.addEventListener("click", () => {
+      deleteProgram(button.dataset.deleteProgram);
+    });
+  }
+}
+
+function refreshOverview() {
+  if (!state.selectedApp || !state.selectedSetup) {
+    return;
+  }
+
+  overviewAppNameEl.textContent = state.selectedApp.name;
+  overviewAppMetaEl.textContent = "Review setup details, sponsor funding, and the programs attached to this app.";
+  renderDetailList(identityListEl, [
+    { label: "App name", value: escapeHtml(state.selectedApp.name) },
+    { label: "App ID", value: renderCopyValue(state.selectedApp.appId) },
+    { label: "API key", value: renderCopyValue(state.selectedSetup.apiKey) },
+    { label: "Created", value: formatDate(state.selectedApp.createdAt) }
+  ]);
+  bindCopyButtons(identityListEl);
+  renderSetupSummary(state.selectedSetup);
+  renderSponsorWallet();
+  renderPrograms();
 }
 
 async function openAppOverview(appId) {
@@ -448,20 +552,73 @@ async function openAppOverview(appId) {
   const setup = await fetchJson(`/apps/${encodeURIComponent(appId)}/setup`);
   state.selectedApp = app;
   state.selectedSetup = setup;
-
-  overviewAppNameEl.textContent = app.name;
-  overviewAppMetaEl.textContent = "";
-
-  renderDetailList(identityListEl, [
-    { label: "App name", value: escapeHtml(app.name) },
-    { label: "App ID", value: renderCopyValue(app.appId) },
-    { label: "API key", value: renderCopyValue(setup.apiKey) },
-    { label: "Created", value: formatDate(app.createdAt) }
-  ]);
-  bindCopyButtons(identityListEl);
-  refreshOverviewSetup(setup);
-
+  state.selectedProgramId = null;
+  ensureAppUi(appId);
+  saveStoredAppUi();
+  refreshOverview();
   setView("overview");
+}
+
+function renderProgramActions(program) {
+  if (program.actions.length === 0) {
+    programActionsListEl.innerHTML =
+      '<div class="list-row"><strong>No actions added yet</strong><small>Add a program action to define what this program supports.</small></div>';
+    return;
+  }
+
+  programActionsListEl.innerHTML = program.actions
+    .map(
+      (action) => `
+        <div class="list-row action-row">
+          <div>
+            <strong>${escapeHtml(action.actionType)}</strong>
+            <small>${escapeHtml(`${action.cost} credits`)}</small>
+          </div>
+          <div class="icon-actions">
+            <button class="icon-button" type="button" data-edit-program-action="${escapeHtml(action.id)}" aria-label="Edit ${escapeHtml(action.actionType)}">
+              ${EDIT_ICON}
+            </button>
+            <button class="icon-button" type="button" data-delete-program-action="${escapeHtml(action.id)}" aria-label="Delete ${escapeHtml(action.actionType)}">
+              ${DELETE_ICON}
+            </button>
+          </div>
+        </div>
+      `
+    )
+    .join("");
+
+  for (const button of programActionsListEl.querySelectorAll("[data-edit-program-action]")) {
+    button.addEventListener("click", () => {
+      openActionModal(button.dataset.editProgramAction);
+    });
+  }
+
+  for (const button of programActionsListEl.querySelectorAll("[data-delete-program-action]")) {
+    button.addEventListener("click", () => {
+      deleteProgramAction(button.dataset.deleteProgramAction);
+    });
+  }
+}
+
+function openProgramView(programId) {
+  const program = getSelectedAppUi()?.programs.find((entry) => entry.id === programId);
+  if (!program) {
+    showFeedback(overviewFeedbackEl, "Program not found.");
+    return;
+  }
+
+  state.selectedProgramId = programId;
+  programPageTitleEl.textContent = program.alias;
+  programPageMetaEl.textContent = `${program.network} · ${program.programId}`;
+  renderDetailList(programDetailListEl, [
+    { label: "Alias", value: escapeHtml(program.alias) },
+    { label: "Program ID", value: renderCopyValue(program.programId) },
+    { label: "Network", value: escapeHtml(program.network) },
+    { label: "Actions", value: String(program.actions.length) }
+  ]);
+  bindCopyButtons(programDetailListEl, programFeedbackPageEl);
+  renderProgramActions(program);
+  setView("program");
 }
 
 function renderMetrics(metrics, transactions, users) {
@@ -485,41 +642,39 @@ function renderMetrics(metrics, transactions, users) {
     )
     .join("");
 
-  if (transactions.length === 0) {
-    transactionListEl.innerHTML = '<div class="list-row"><strong>No transactions yet</strong></div>';
-  } else {
-    transactionListEl.innerHTML = transactions
-      .slice()
-      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-      .slice(0, 8)
-      .map(
-        (tx) => `
-          <div class="list-row">
-            <strong>${tx.summary.actionType} · ${tx.status}</strong>
-            <small>${escapeHtml(tx.userId)}</small>
-            <small>${formatDate(tx.createdAt)}</small>
-          </div>
-        `
-      )
-      .join("");
-  }
+  transactionListEl.innerHTML =
+    transactions.length === 0
+      ? '<div class="list-row"><strong>No transactions yet</strong></div>'
+      : transactions
+          .slice()
+          .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+          .slice(0, 8)
+          .map(
+            (tx) => `
+              <div class="list-row">
+                <strong>${tx.summary.actionType} · ${tx.status}</strong>
+                <small>${escapeHtml(tx.userId)}</small>
+                <small>${formatDate(tx.createdAt)}</small>
+              </div>
+            `
+          )
+          .join("");
 
-  if (users.length === 0) {
-    userListEl.innerHTML = '<div class="list-row"><strong>No users yet</strong></div>';
-  } else {
-    userListEl.innerHTML = users
-      .slice(0, 8)
-      .map(
-        (user) => `
-          <div class="list-row">
-            <strong>${escapeHtml(user.userId)}</strong>
-            <small>Balance ${user.balance}</small>
-            <small>Reserved ${user.reserved}</small>
-          </div>
-        `
-      )
-      .join("");
-  }
+  userListEl.innerHTML =
+    users.length === 0
+      ? '<div class="list-row"><strong>No users yet</strong></div>'
+      : users
+          .slice(0, 8)
+          .map(
+            (user) => `
+              <div class="list-row">
+                <strong>${escapeHtml(user.userId)}</strong>
+                <small>Balance ${user.balance}</small>
+                <small>Reserved ${user.reserved}</small>
+              </div>
+            `
+          )
+          .join("");
 }
 
 async function openMetricsView() {
@@ -574,13 +729,17 @@ async function createApp() {
   });
 
   await loadApps();
+  resetCreateAppForm();
+  await openAppOverview(app.appId);
+}
+
+function resetCreateAppForm() {
   createAppFormEl.reset();
   createAppNameEl.value = "My Demo Game";
   createAppCreditsPerDollarEl.value = formatNumber(500);
   createAppWebhookEl.value = "http://localhost:3001";
   submitCreateAppBtn.textContent = "Create app";
   state.editingAppId = null;
-  await openAppOverview(app.appId);
 }
 
 async function openEditApp(appId) {
@@ -607,117 +766,204 @@ async function deleteApp(appId) {
     },
     body: JSON.stringify({})
   });
+
+  delete state.appUi[appId];
+  saveStoredAppUi();
+
   if (state.selectedApp?.appId === appId) {
     state.selectedApp = null;
     state.selectedSetup = null;
+    state.selectedProgramId = null;
   }
   await loadApps();
 }
 
-function openActionModal(existingAction = null) {
-  showFeedback(actionFeedbackEl, "");
-  state.editingActionType = existingAction?.actionType ?? null;
-  const presetValues = getPresetActionTypes();
-  const actionType = existingAction?.actionType ?? "";
+function openProgramModal(programId = null) {
+  const program = programId ? getSelectedAppUi()?.programs.find((entry) => entry.id === programId) : null;
+  state.editingProgramId = program?.id ?? null;
+  programIdInputEl.value = program?.programId ?? "";
+  programNetworkSelectEl.value = program?.network ?? "mainnet";
+  programAliasInputEl.value = program?.alias ?? "";
+  saveProgramBtn.textContent = program ? "Save program" : "Add program";
+  showFeedback(programFeedbackEl, "");
 
-  if (actionType && presetValues.includes(actionType)) {
-    actionTypeSelectEl.value = actionType;
-    customActionNameEl.value = "";
-  } else {
-    actionTypeSelectEl.value = "custom";
-    customActionNameEl.value = actionType;
+  if (supportsDialog(programModalEl)) {
+    programModalEl.showModal();
+    return;
+  }
+  showFeedback(overviewFeedbackEl, "This browser does not support the program modal.");
+}
+
+function closeProgramModal() {
+  state.editingProgramId = null;
+  if (supportsDialog(programModalEl) && programModalEl.open) {
+    programModalEl.close();
+  }
+}
+
+function saveProgram() {
+  const appUi = getSelectedAppUi();
+  if (!appUi) {
+    throw new Error("Choose an app first.");
   }
 
-  actionCostInputEl.value = existingAction ? formatNumber(existingAction.cost) : "";
-  saveActionBtn.textContent = existingAction ? "Save changes" : "Save action";
+  const programId = programIdInputEl.value.trim();
+  const network = programNetworkSelectEl.value;
+  const alias = programAliasInputEl.value.trim();
+
+  if (!programId) {
+    throw new Error("Program ID is required.");
+  }
+  if (!alias) {
+    throw new Error("Alias is required.");
+  }
+
+  if (state.editingProgramId) {
+    const program = appUi.programs.find((entry) => entry.id === state.editingProgramId);
+    if (!program) {
+      throw new Error("Program not found.");
+    }
+    program.programId = programId;
+    program.network = network;
+    program.alias = alias;
+  } else {
+    appUi.programs.push({
+      id: crypto.randomUUID(),
+      programId,
+      network,
+      alias,
+      actions: []
+    });
+  }
+
+  saveStoredAppUi();
+  refreshOverview();
+  closeProgramModal();
+}
+
+function deleteProgram(programId) {
+  const appUi = getSelectedAppUi();
+  if (!appUi) {
+    return;
+  }
+  appUi.programs = appUi.programs.filter((entry) => entry.id !== programId);
+  if (state.selectedProgramId === programId) {
+    state.selectedProgramId = null;
+    setView("overview");
+  }
+  saveStoredAppUi();
+  refreshOverview();
+}
+
+function syncCustomActionField() {
+  customActionFieldEl.hidden = actionTypeSelectEl.value !== "custom";
+}
+
+function openActionModal(actionId = null) {
+  const program = getSelectedProgram();
+  if (!program) {
+    showFeedback(programFeedbackPageEl, "Program not found.");
+    return;
+  }
+
+  const action = actionId ? program.actions.find((entry) => entry.id === actionId) : null;
+  state.editingProgramActionId = action?.id ?? null;
+
+  if (action) {
+    const presetActionTypes = ["Claim Rewards", "First Time Claim"];
+    if (presetActionTypes.includes(action.actionType)) {
+      actionTypeSelectEl.value = action.actionType;
+      customActionNameEl.value = "";
+    } else {
+      actionTypeSelectEl.value = "custom";
+      customActionNameEl.value = action.actionType;
+    }
+    actionCostInputEl.value = formatNumber(action.cost);
+  } else {
+    actionTypeSelectEl.value = "custom";
+    customActionNameEl.value = "";
+    actionCostInputEl.value = "";
+  }
+
+  saveActionBtn.textContent = action ? "Save action" : "Add action";
+  showFeedback(actionFeedbackEl, "");
   syncCustomActionField();
-  if (supportsDialog()) {
+
+  if (supportsDialog(actionModalEl)) {
     actionModalEl.showModal();
     return;
   }
-  showFeedback(overviewFeedbackEl, "This browser does not support the action modal.");
+  showFeedback(programFeedbackPageEl, "This browser does not support the action modal.");
 }
 
 function closeActionModal() {
-  state.editingActionType = null;
-  if (supportsDialog() && actionModalEl.open) {
+  state.editingProgramActionId = null;
+  if (supportsDialog(actionModalEl) && actionModalEl.open) {
     actionModalEl.close();
   }
 }
 
 function getSelectedActionType() {
   if (actionTypeSelectEl.value === "custom") {
-    const customName = customActionNameEl.value.trim();
-    if (!customName) {
+    const customAction = customActionNameEl.value.trim();
+    if (!customAction) {
       throw new Error("Custom action name is required.");
     }
-    return customName;
+    return customAction;
   }
   return actionTypeSelectEl.value;
 }
 
-async function createOnchainAction() {
-  if (!state.selectedApp) {
-    throw new Error("Choose an app first.");
+function saveProgramAction() {
+  const program = getSelectedProgram();
+  if (!program) {
+    throw new Error("Choose a program first.");
   }
 
   const actionType = getSelectedActionType();
   const cost = parseWholeNumber(actionCostInputEl.value);
-  if (!Number.isInteger(cost) || cost <= 0) {
-    throw new Error("Credit cost must be a positive whole number.");
+  if (!Number.isInteger(cost) || cost < 0) {
+    throw new Error("Credit consumption must be zero or a positive whole number.");
   }
 
-  const idempotencyKey = `dashboard-action-${crypto.randomUUID()}`;
-  if (state.editingActionType) {
-    await fetchJson(
-      `/apps/${encodeURIComponent(state.selectedApp.appId)}/actions/${encodeURIComponent(state.editingActionType)}`,
-      {
-        method: "PUT",
-        headers: {
-          "content-type": "application/json",
-          "idempotency-key": idempotencyKey
-        },
-        body: JSON.stringify({
-          actionType,
-          cost
-        })
-      }
-    );
+  if (state.editingProgramActionId) {
+    const action = program.actions.find((entry) => entry.id === state.editingProgramActionId);
+    if (!action) {
+      throw new Error("Action not found.");
+    }
+    action.actionType = actionType;
+    action.cost = cost;
   } else {
-    await fetchJson(`/apps/${encodeURIComponent(state.selectedApp.appId)}/actions`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "idempotency-key": idempotencyKey
-      },
-      body: JSON.stringify({
-        actionType,
-        cost
-      })
+    program.actions.push({
+      id: crypto.randomUUID(),
+      actionType,
+      cost
     });
   }
 
-  const setup = await fetchJson(`/apps/${encodeURIComponent(state.selectedApp.appId)}/setup`);
-  refreshOverviewSetup(setup);
+  saveStoredAppUi();
+  openProgramView(program.id);
   closeActionModal();
 }
 
-async function deleteOnchainAction(actionType) {
-  if (!state.selectedApp) {
-    throw new Error("Choose an app first.");
+function deleteProgramAction(actionId) {
+  const program = getSelectedProgram();
+  if (!program) {
+    return;
   }
+  program.actions = program.actions.filter((entry) => entry.id !== actionId);
+  saveStoredAppUi();
+  openProgramView(program.id);
+}
 
-  await fetchJson(`/apps/${encodeURIComponent(state.selectedApp.appId)}/actions/${encodeURIComponent(actionType)}`, {
-    method: "DELETE",
-    headers: {
-      "content-type": "application/json",
-      "idempotency-key": `dashboard-action-delete-${crypto.randomUUID()}`
-    },
-    body: JSON.stringify({})
-  });
-
-  const setup = await fetchJson(`/apps/${encodeURIComponent(state.selectedApp.appId)}/setup`);
-  refreshOverviewSetup(setup);
+function adjustWalletBalance(delta) {
+  const appUi = getSelectedAppUi();
+  if (!appUi) {
+    return;
+  }
+  appUi.sponsorWallet.balance = Math.max(0, Number(appUi.sponsorWallet.balance) + delta);
+  saveStoredAppUi();
+  renderSponsorWallet();
 }
 
 async function restoreSession() {
@@ -769,22 +1015,21 @@ signOutBtn.addEventListener("click", () => {
 });
 
 homeCreateAppBtn.addEventListener("click", () => {
-  showFeedback(homeFeedbackEl, "");
-  showFeedback(createAppFeedbackEl, "");
-  state.editingAppId = null;
-  submitCreateAppBtn.textContent = "Create app";
-  createAppFormEl.reset();
-  createAppNameEl.value = "My Demo Game";
-  createAppCreditsPerDollarEl.value = formatNumber(500);
-  createAppWebhookEl.value = "http://localhost:3001";
+  resetCreateAppForm();
   setView("create");
 });
 
 cancelCreateAppBtn.addEventListener("click", () => {
+  resetCreateAppForm();
   showFeedback(createAppFeedbackEl, "");
-  state.editingAppId = null;
-  submitCreateAppBtn.textContent = "Create app";
   setView("home");
+});
+
+createAppCreditsPerDollarEl.addEventListener("input", () => {
+  const parsed = parseWholeNumber(createAppCreditsPerDollarEl.value);
+  if (!Number.isNaN(parsed)) {
+    createAppCreditsPerDollarEl.value = formatNumber(parsed);
+  }
 });
 
 createAppFormEl.addEventListener("submit", (event) => {
@@ -795,27 +1040,54 @@ createAppFormEl.addEventListener("submit", (event) => {
   });
 });
 
-createAppCreditsPerDollarEl.addEventListener("input", () => {
-  const credits = parseWholeNumber(createAppCreditsPerDollarEl.value);
-  createAppCreditsPerDollarEl.value = Number.isFinite(credits) ? formatNumber(credits) : "";
-});
-
-actionTypeSelectEl.addEventListener("change", () => {
-  syncCustomActionField();
-});
-
-actionCostInputEl.addEventListener("input", () => {
-  const cost = parseWholeNumber(actionCostInputEl.value);
-  actionCostInputEl.value = Number.isFinite(cost) ? formatNumber(cost) : "";
-});
-
 overviewBackBtn.addEventListener("click", () => {
-  showFeedback(overviewFeedbackEl, "");
   setView("home");
 });
 
-addOnchainActionBtn.addEventListener("click", () => {
-  showFeedback(overviewFeedbackEl, "");
+viewMetricsBtn.addEventListener("click", () => {
+  showFeedback(metricsFeedbackEl, "");
+  openMetricsView().catch((error) => {
+    showFeedback(metricsFeedbackEl, error.message);
+  });
+});
+
+metricsBackBtn.addEventListener("click", () => {
+  setView("overview");
+});
+
+walletDecreaseBtn.addEventListener("click", () => {
+  adjustWalletBalance(-1);
+});
+
+walletIncreaseBtn.addEventListener("click", () => {
+  adjustWalletBalance(1);
+});
+
+addProgramBtn.addEventListener("click", () => {
+  openProgramModal();
+});
+
+closeProgramModalBtn.addEventListener("click", () => {
+  closeProgramModal();
+});
+
+programFormEl.addEventListener("submit", (event) => {
+  event.preventDefault();
+  showFeedback(programFeedbackEl, "");
+  try {
+    saveProgram();
+  } catch (error) {
+    showFeedback(programFeedbackEl, error.message);
+  }
+});
+
+programBackBtn.addEventListener("click", () => {
+  setView("overview");
+});
+
+actionTypeSelectEl.addEventListener("change", syncCustomActionField);
+
+addProgramActionBtn.addEventListener("click", () => {
   openActionModal();
 });
 
@@ -826,49 +1098,30 @@ closeActionModalBtn.addEventListener("click", () => {
 actionFormEl.addEventListener("submit", (event) => {
   event.preventDefault();
   showFeedback(actionFeedbackEl, "");
-  createOnchainAction().catch((error) => {
-    showFeedback(actionFeedbackEl, error.message);
-  });
-});
-
-viewMetricsBtn.addEventListener("click", () => {
-  showFeedback(overviewFeedbackEl, "");
-  openMetricsView().catch((error) => {
-    showFeedback(overviewFeedbackEl, error.message);
-  });
-});
-
-metricsBackBtn.addEventListener("click", () => {
-  showFeedback(metricsFeedbackEl, "");
-  setView("overview");
-});
-
-async function boot() {
-  createAppCreditsPerDollarEl.value = formatNumber(500);
-  actionCostInputEl.value = "";
-  syncCustomActionField();
-  setView("login");
-  const bootstrap = applyDemoBootstrap();
   try {
-    if (bootstrap) {
-      await signIn(bootstrap);
+    saveProgramAction();
+  } catch (error) {
+    showFeedback(actionFeedbackEl, error.message);
+  }
+});
+
+(async function init() {
+  const bootstrap = applyDemoBootstrap();
+  const restored = await restoreSession().catch(() => false);
+
+  if (!restored && bootstrap) {
+    try {
+      await signUp(bootstrap);
       if (bootstrap.appId) {
-        await openAppOverview(bootstrap.appId).catch(() => {});
+        await openAppOverview(bootstrap.appId);
       }
       return;
+    } catch (error) {
+      showFeedback(authFeedbackEl, error.message);
     }
-    const restored = await restoreSession();
-    if (!restored) {
-      updateSessionSummary();
-      setView("login");
-      return;
-    }
-  } catch {
-    clearStoredSession();
-    state.session = null;
-    updateSessionSummary();
+  }
+
+  if (!restored) {
     setView("login");
   }
-}
-
-boot();
+})();

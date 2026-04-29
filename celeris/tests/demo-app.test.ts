@@ -7,11 +7,17 @@ test("demo app assets and demo checkout completion endpoint are served for the f
   const services = buildServices();
   const api = createApi(services);
 
+  const signedUp = await api.handle({
+    method: "POST",
+    url: "/player/sign-up",
+    headers: { "idempotency-key": "demo-player-sign-up-1" },
+    body: { username: "demo-player", password: "demo-pass" }
+  });
+
   const session = await api.handle({
     method: "POST",
-    url: "/auth/session",
-    headers: { "idempotency-key": "demo-session-1" },
-    body: { provider: "dummy", email: "demo-ui@example.com" }
+    url: "/player/sign-in",
+    body: { username: "demo-player", password: "demo-pass" }
   });
 
   const app = await api.handle({
@@ -60,6 +66,7 @@ test("demo app assets and demo checkout completion endpoint are served for the f
 
   assert.equal(completed.statusCode, 200);
   assert.equal(completed.body.grantedCredits, 500);
+  assert.equal(session.body.userId, signedUp.body.userId);
   assert.equal(services.store.getBalance(userId, appId).balance, 500);
   assert.equal(demoPage.statusCode, 200);
   assert.equal(demoJs.statusCode, 200);

@@ -1,6 +1,13 @@
 import crypto from "node:crypto";
 import { AppError } from "./errors.js";
-import type { AuthenticatedSession, AuthProvider, CreateSessionRequest, MemoryStore, SessionResponse } from "../types.js";
+import type {
+  AuthenticatedSession,
+  AuthProvider,
+  CreateSessionRequest,
+  MemoryStore,
+  PlayerCredentialsRequest,
+  SessionResponse
+} from "../types.js";
 
 export class AuthService {
   readonly store: MemoryStore;
@@ -46,6 +53,56 @@ export class AuthService {
     };
     this.store.setIdempotent(`session:${identity.subject}`, idempotencyKey, session);
     return session;
+  }
+
+  signUpPlayer({ username, password, idempotencyKey }: PlayerCredentialsRequest): SessionResponse {
+    const normalizedUsername = username.trim().toLowerCase();
+    if (!normalizedUsername || !password) {
+      throw new AppError(400, "username and password are required");
+    }
+
+    const cached = this.store.getIdempotent<SessionResponse>(`player-sign-up:${normalizedUsername}`, idempotencyKey);
+    if (cached) {
+      return cached;
+    }
+
+    if (this.store.getPlayerAccountByUsername(normalizedUsername)) {
+      throw new AppError(409, "username already exists");
+    }
+
+    const user = this.store.createUser({
+      externalSubject: `player:${normalizedUsername}`,
+      email: `${normalizedUsername}@players.celeris.local`
+    });
+    this.store.createPlayerAccount({
+      userId: user.userId,
+      username: normalizedUsername,
+      password
+    });
+
+    const session = this.createSessionForUser({
+      userId: user.userId,
+      provider: "dummy"
+    });
+    this.store.setIdempotent(`player-sign-up:${normalizedUsername}`, idempotencyKey, session);
+    return session;
+  }
+
+  signInPlayer({ username, password }: { username: string; password: string }): SessionResponse {
+    const normalizedUsername = username.trim().toLowerCase();
+    if (!normalizedUsername || !password) {
+      throw new AppError(400, "username and password are required");
+    }
+
+    const account = this.store.getPlayerAccountByUsername(normalizedUsername);
+    if (!account || account.password !== password) {
+      throw new AppError(401, "invalid username or password");
+    }
+
+    return this.createSessionForUser({
+      userId: account.userId,
+      provider: "dummy"
+    });
   }
 
   authenticatePlayerToken(token: string): AuthenticatedSession {
@@ -115,6 +172,28 @@ export class AuthService {
       provider: provider as AuthProvider,
       email: normalizedEmail,
       subject: `dummy:${normalizedEmail}`
+    };
+  }
+
+  private createSessionForUser({ userId, provider }: { userId: string; provider: AuthProvider }): SessionResponse {
+    const sessionId = crypto.randomUUID();
+    const token = this.signToken({
+      userId,
+      provider,
+      sessionId
+    });
+    const expiresAt = new Date(Date.now() + this.sessionTtlSeconds * 1000).toISOString();
+    this.store.createUserSession({
+      sessionId,
+      userId,
+      provider,
+      token,
+      expiresAt
+    });
+
+    return {
+      userId,
+      token
     };
   }
 

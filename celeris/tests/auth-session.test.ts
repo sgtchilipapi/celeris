@@ -80,3 +80,72 @@ test("POST /auth/session rejects invalid dummy login requests", async () => {
   assert.equal(unsupportedProvider.statusCode, 400);
   assert.equal(unsupportedProvider.body.error, "unsupported auth provider: magic_link");
 });
+
+test("player username/password sign-up and sign-in create and reuse the same canonical user", async () => {
+  const services = buildServices();
+  const api = createApi(services);
+
+  const signedUp = await api.handle({
+    method: "POST",
+    url: "/player/sign-up",
+    headers: { "idempotency-key": "player-sign-up-1" },
+    body: {
+      username: "player-one",
+      password: "secret-pass"
+    }
+  });
+
+  const signedIn = await api.handle({
+    method: "POST",
+    url: "/player/sign-in",
+    body: {
+      username: "player-one",
+      password: "secret-pass"
+    }
+  });
+
+  assert.equal(signedUp.statusCode, 201);
+  assert.equal(signedIn.statusCode, 200);
+  assert.equal(signedIn.body.userId, signedUp.body.userId);
+  assert.match(signedIn.body.token as string, /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+  assert.equal(services.store.playerAccounts.size, 1);
+});
+
+test("player username/password auth rejects duplicate usernames and bad passwords", async () => {
+  const services = buildServices();
+  const api = createApi(services);
+
+  await api.handle({
+    method: "POST",
+    url: "/player/sign-up",
+    headers: { "idempotency-key": "player-sign-up-2" },
+    body: {
+      username: "player-two",
+      password: "secret-pass"
+    }
+  });
+
+  const duplicate = await api.handle({
+    method: "POST",
+    url: "/player/sign-up",
+    headers: { "idempotency-key": "player-sign-up-3" },
+    body: {
+      username: "player-two",
+      password: "other-pass"
+    }
+  });
+
+  const invalidLogin = await api.handle({
+    method: "POST",
+    url: "/player/sign-in",
+    body: {
+      username: "player-two",
+      password: "wrong-pass"
+    }
+  });
+
+  assert.equal(duplicate.statusCode, 409);
+  assert.equal(duplicate.body.error, "username already exists");
+  assert.equal(invalidLogin.statusCode, 401);
+  assert.equal(invalidLogin.body.error, "invalid username or password");
+});

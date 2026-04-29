@@ -6,7 +6,7 @@ Backend:
 - metrics now include chart-ready series for credit flow, transaction outcomes, and per-user activity
 
 UI:
-- served from `/dashboard`
+- served from `/` (`/dashboard` remains as a compatibility alias)
 - app list in a sidebar
 - per-app metric cards
 - simple charts for credit flow and transaction success/failure

@@ -278,6 +278,12 @@ select {
   flex-shrink: 0;
 }
 
+.wallet-balance {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .panel-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -298,6 +304,10 @@ select {
 
 .detail-list dd {
   margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.detail-list code {
   overflow-wrap: anywhere;
 }
 
@@ -388,6 +398,10 @@ code {
 
 .modal-card {
   margin: 0;
+}
+
+.list-row button {
+  color: inherit;
 }
 
 @media (max-width: 860px) {

@@ -122,7 +122,7 @@ echo "${METRICS_JSON}"
 
 echo
 echo "Checking dashboard page..."
-DASHBOARD_STATUS="$(curl -sS -o /tmp/celeris-dashboard.html -w '%{http_code}' "${BASE_URL}/dashboard")"
+DASHBOARD_STATUS="$(curl -sS -o /tmp/celeris-dashboard.html -w '%{http_code}' "${BASE_URL}/")"
 echo "dashboardStatus: ${DASHBOARD_STATUS}"
 
 echo

@@ -27,6 +27,13 @@ export interface DeveloperAccount {
   createdAt: string;
 }
 
+export interface PlayerAccount {
+  userId: UUID;
+  username: string;
+  password: string;
+  createdAt: string;
+}
+
 export interface User {
   userId: UUID;
   externalSubject: string | null;
@@ -221,6 +228,12 @@ export interface DeveloperCredentialsRequest {
   idempotencyKey: string;
 }
 
+export interface PlayerCredentialsRequest {
+  username: string;
+  password: string;
+  idempotencyKey: string;
+}
+
 export interface AppListItem {
   appId: UUID;
   developerId: UUID;
@@ -385,6 +398,7 @@ export interface AppMetrics {
 export interface MemoryStore {
   developers: Map<UUID, Developer>;
   developerAccounts: Map<string, DeveloperAccount>;
+  playerAccounts: Map<string, PlayerAccount>;
   users: Map<UUID, User>;
   userSessions: Map<UUID, UserSession>;
   apps: Map<UUID, App>;
@@ -401,6 +415,8 @@ export interface MemoryStore {
   createDeveloper(input: { developerId?: UUID; email: string }): Developer;
   createDeveloperAccount(input: { developerId: UUID; username: string; password: string }): DeveloperAccount;
   getDeveloperAccountByUsername(username: string): DeveloperAccount | null;
+  createPlayerAccount(input: { userId: UUID; username: string; password: string }): PlayerAccount;
+  getPlayerAccountByUsername(username: string): PlayerAccount | null;
   createUser(input: { userId?: UUID; externalSubject?: string | null; email?: string | null }): User;
   findUserByExternalSubject(externalSubject: string): User | null;
   findUserByEmail(email: string): User | null;

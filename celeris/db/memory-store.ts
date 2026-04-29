@@ -10,6 +10,7 @@ import type {
   DeveloperAccount,
   MemoryStore as MemoryStoreContract,
   Payment,
+  PlayerAccount,
   PendingAction,
   TransactionRecord,
   UsageEvent,
@@ -21,6 +22,7 @@ import type {
 export class MemoryStore implements MemoryStoreContract {
   developers = new Map<UUID, Developer>();
   developerAccounts = new Map<string, DeveloperAccount>();
+  playerAccounts = new Map<string, PlayerAccount>();
   users = new Map<UUID, User>();
   userSessions = new Map<UUID, UserSession>();
   apps = new Map<UUID, App>();
@@ -62,6 +64,21 @@ export class MemoryStore implements MemoryStoreContract {
 
   getDeveloperAccountByUsername(username: string): DeveloperAccount | null {
     return this.developerAccounts.get(username.toLowerCase()) ?? null;
+  }
+
+  createPlayerAccount({ userId, username, password }: { userId: UUID; username: string; password: string }): PlayerAccount {
+    const account: PlayerAccount = {
+      userId,
+      username,
+      password,
+      createdAt: new Date().toISOString()
+    };
+    this.playerAccounts.set(username.toLowerCase(), account);
+    return account;
+  }
+
+  getPlayerAccountByUsername(username: string): PlayerAccount | null {
+    return this.playerAccounts.get(username.toLowerCase()) ?? null;
   }
 
   createUser({

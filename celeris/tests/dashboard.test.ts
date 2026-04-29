@@ -141,7 +141,7 @@ test("dashboard endpoints expose app list and aggregated per-app metrics", async
   });
   const dashboardPage = await api.handle({
     method: "GET",
-    url: "/dashboard"
+    url: "/"
   });
 
   assert.equal(apps.statusCode, 200);
