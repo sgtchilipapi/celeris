@@ -170,6 +170,26 @@ test("demo developer session can be created and app list can be filtered per dev
   const services = buildServices();
   const api = createApi(services);
 
+  const signedUp = await api.handle({
+    method: "POST",
+    url: "/developer/sign-up",
+    headers: { "idempotency-key": "dashboard-sign-up-1" },
+    body: {
+      username: "dashboard-dev",
+      password: "dashboard-pass",
+      developerId: "dev-local-1"
+    }
+  });
+
+  const signedIn = await api.handle({
+    method: "POST",
+    url: "/developer/sign-in",
+    body: {
+      username: "dashboard-dev",
+      password: "dashboard-pass"
+    }
+  });
+
   const developerSession = await api.handle({
     method: "POST",
     url: "/demo/developer/session",
@@ -208,6 +228,10 @@ test("demo developer session can be created and app list can be filtered per dev
     url: "/apps?developerId=dev-local-1"
   });
 
+  assert.equal(signedUp.statusCode, 201);
+  assert.equal(signedUp.body.developerId, "dev-local-1");
+  assert.equal(signedIn.statusCode, 200);
+  assert.equal(signedIn.body.developerId, "dev-local-1");
   assert.equal(developerSession.statusCode, 200);
   assert.equal(developerSession.body.developerId, "dev-local-1");
   assert.equal(filteredApps.statusCode, 200);

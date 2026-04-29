@@ -6,6 +6,7 @@ import type {
   ConfigureActionRequest,
   CreateAppRequest,
   CreateAppResponse,
+  DeveloperCredentialsRequest,
   DeveloperSessionResponse,
   MemoryStore,
   StoredAppSetup
@@ -111,6 +112,53 @@ export class AppService {
         createdAt: app.createdAt
       }))
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  }
+
+  signUpDeveloper({ username, password, developerId, idempotencyKey }: DeveloperCredentialsRequest): DeveloperSessionResponse {
+    const normalizedUsername = username.trim();
+    if (!normalizedUsername || !password) {
+      throw new AppError(400, "username and password are required");
+    }
+
+    const cached = this.store.getIdempotent<DeveloperSessionResponse>(`developer-sign-up:${normalizedUsername.toLowerCase()}`, idempotencyKey);
+    if (cached) {
+      return cached;
+    }
+
+    if (this.store.getDeveloperAccountByUsername(normalizedUsername)) {
+      throw new AppError(409, "username already exists");
+    }
+
+    const session = this.createDemoDeveloperSession(developerId);
+    this.store.createDeveloperAccount({
+      developerId: session.developerId,
+      username: normalizedUsername,
+      password
+    });
+    this.store.setIdempotent(`developer-sign-up:${normalizedUsername.toLowerCase()}`, idempotencyKey, session);
+    return session;
+  }
+
+  signInDeveloper({ username, password }: { username: string; password: string }): DeveloperSessionResponse {
+    const normalizedUsername = username.trim();
+    if (!normalizedUsername || !password) {
+      throw new AppError(400, "username and password are required");
+    }
+
+    const account = this.store.getDeveloperAccountByUsername(normalizedUsername);
+    if (!account || account.password !== password) {
+      throw new AppError(401, "invalid username or password");
+    }
+
+    const developer = this.store.developers.get(account.developerId);
+    if (!developer) {
+      throw new AppError(404, "developer not found");
+    }
+
+    return {
+      developerId: developer.developerId,
+      email: developer.email
+    };
   }
 
   createDemoDeveloperSession(developerId?: string): DeveloperSessionResponse {

@@ -9,7 +9,7 @@ export class MockStripeGateway {
     this.webhookSecret = webhookSecret;
   }
 
-  createCheckoutSession({
+  async createCheckoutSession({
     userId,
     appId,
     credits,

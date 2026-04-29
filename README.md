@@ -20,6 +20,18 @@ Celeris lets developers:
 
 Build the game. Celeris handles money and execution.
 
+### Local services
+
+- API: `npm run dev`
+- Mock developer backend: `npm run dev:mock-developer`
+- Mock game frontend: `npm run dev:mock-game-frontend -- --app-id=<app-id>`
+- Full demo orchestrator: `npm run start:full-demo`
+
+For a real Stripe-hosted checkout in test mode, create a local `.env` or `.env.local` from [.env.example](.env.example) and set `STRIPE_SECRET_KEY`.
+Without it, checkout session creation stays in the local mock mode.
+
+`npm run start:full-demo` starts the API, provisions a demo developer and app, configures the demo action, starts the mock developer backend, starts the standalone game frontend against that app, and opens Cloudflare tunnels for the dashboard and game frontend. Pass `-- --no-tunnel` to skip tunnel startup locally.
+
 
 ### Overview
 

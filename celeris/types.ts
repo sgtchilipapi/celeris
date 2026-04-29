@@ -20,6 +20,13 @@ export interface Developer {
   createdAt: string;
 }
 
+export interface DeveloperAccount {
+  developerId: UUID;
+  username: string;
+  password: string;
+  createdAt: string;
+}
+
 export interface User {
   userId: UUID;
   externalSubject: string | null;
@@ -207,6 +214,13 @@ export interface DeveloperSessionResponse {
   email: string;
 }
 
+export interface DeveloperCredentialsRequest {
+  username: string;
+  password: string;
+  developerId?: UUID;
+  idempotencyKey: string;
+}
+
 export interface AppListItem {
   appId: UUID;
   developerId: UUID;
@@ -370,6 +384,7 @@ export interface AppMetrics {
 
 export interface MemoryStore {
   developers: Map<UUID, Developer>;
+  developerAccounts: Map<string, DeveloperAccount>;
   users: Map<UUID, User>;
   userSessions: Map<UUID, UserSession>;
   apps: Map<UUID, App>;
@@ -384,6 +399,8 @@ export interface MemoryStore {
   usageEvents: UsageEvent[];
   idempotency: Map<string, unknown>;
   createDeveloper(input: { developerId?: UUID; email: string }): Developer;
+  createDeveloperAccount(input: { developerId: UUID; username: string; password: string }): DeveloperAccount;
+  getDeveloperAccountByUsername(username: string): DeveloperAccount | null;
   createUser(input: { userId?: UUID; externalSubject?: string | null; email?: string | null }): User;
   findUserByExternalSubject(externalSubject: string): User | null;
   findUserByEmail(email: string): User | null;

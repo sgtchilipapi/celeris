@@ -9,19 +9,41 @@ import type {
 } from "../types.js";
 import { CreditLedgerService } from "./credit-ledger-service.js";
 import { MockStripeGateway } from "./mock-stripe-gateway.js";
+import { StripeTestCheckoutGateway } from "./stripe-test-checkout-gateway.js";
+
+type CheckoutGateway = MockStripeGateway | StripeTestCheckoutGateway;
 
 export class PaymentService {
   readonly store: MemoryStore;
   readonly ledgerService: CreditLedgerService;
   readonly stripeGateway: MockStripeGateway;
+  readonly stripeCheckoutGateway: StripeTestCheckoutGateway | null;
 
-  constructor({ store, ledgerService, stripeGateway }: { store: MemoryStore; ledgerService: CreditLedgerService; stripeGateway: MockStripeGateway }) {
+  constructor({
+    store,
+    ledgerService,
+    stripeCheckoutGateway,
+    stripeGateway
+  }: {
+    store: MemoryStore;
+    ledgerService: CreditLedgerService;
+    stripeCheckoutGateway: StripeTestCheckoutGateway | null;
+    stripeGateway: MockStripeGateway;
+  }) {
     this.store = store;
     this.ledgerService = ledgerService;
+    this.stripeCheckoutGateway = stripeCheckoutGateway;
     this.stripeGateway = stripeGateway;
   }
 
-  createCheckoutSession({ appId, userId, packageId, successUrl, cancelUrl, idempotencyKey }: CreateCheckoutSessionRequest): CheckoutSessionResponse {
+  async createCheckoutSession({
+    appId,
+    userId,
+    packageId,
+    successUrl,
+    cancelUrl,
+    idempotencyKey
+  }: CreateCheckoutSessionRequest): Promise<CheckoutSessionResponse> {
     const cached = this.store.getIdempotent<CheckoutSessionResponse>(`checkout:${appId}:${userId}`, idempotencyKey);
     if (cached) {
       return cached;
@@ -30,9 +52,14 @@ export class PaymentService {
     if (!pkg || pkg.appId !== appId) {
       throw new AppError(404, "credit package not found");
     }
-    const checkoutSession = this.stripeGateway.createCheckoutSession({
+    const app = this.store.apps.get(appId);
+    const checkoutGateway: CheckoutGateway =
+      this.stripeCheckoutGateway && successUrl && cancelUrl ? this.stripeCheckoutGateway : this.stripeGateway;
+
+    const checkoutSession = await checkoutGateway.createCheckoutSession({
       userId,
       appId,
+      appName: app?.name,
       credits: pkg.credits,
       amountCents: pkg.priceCents,
       successUrl,

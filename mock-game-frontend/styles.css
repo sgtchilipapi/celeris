@@ -1,0 +1,181 @@
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  background: #fcf5ee;
+  color: #23160d;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.shell {
+  min-height: 100vh;
+}
+
+.view {
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+.view-login {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.view-game {
+  padding: 24px;
+  display: grid;
+  gap: 20px;
+}
+
+.card {
+  border: 1px solid #d8b79b;
+  background: #fffdfb;
+  padding: 20px;
+}
+
+.auth-card {
+  width: min(100%, 420px);
+  display: grid;
+  gap: 14px;
+}
+
+.card-copy,
+.field,
+.hero,
+.panel {
+  display: grid;
+  gap: 8px;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9d5e2d;
+}
+
+.card-copy h1,
+.hero h1,
+.result-panel h2 {
+  margin: 0;
+}
+
+.card-copy p,
+.hero p,
+.status-label {
+  margin: 0;
+  color: #80563a;
+}
+
+.field span {
+  font-size: 13px;
+}
+
+.field input {
+  width: 100%;
+  border: 1px solid #d8b79b;
+  background: #fff;
+  color: #23160d;
+  padding: 10px 12px;
+}
+
+.button {
+  border: 1px solid #c97331;
+  background: #fff5ee;
+  color: #9f5217;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+.button-primary {
+  background: #d97c36;
+  color: #fff8f2;
+}
+
+.button-primary:hover,
+.button-primary:focus-visible {
+  background: #c96f2b;
+}
+
+.button-secondary:hover,
+.button-secondary:focus-visible {
+  background: #fdecdc;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.feedback {
+  margin: 0;
+  border: 1px solid #d8b79b;
+  background: #fff1e4;
+  color: #8b4714;
+  padding: 10px 12px;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) minmax(320px, 1fr);
+  gap: 20px;
+}
+
+.panel {
+  align-content: start;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.status-card {
+  border: 1px solid #e4cbb4;
+  background: #fff7f0;
+  padding: 12px;
+  display: grid;
+  gap: 6px;
+}
+
+pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #2a1c12;
+  color: #fff4e9;
+  padding: 14px;
+  min-height: 320px;
+}
+
+@media (max-width: 900px) {
+  .view-game {
+    padding: 18px;
+  }
+
+  .layout,
+  .status-grid {
+    grid-template-columns: 1fr;
+  }
+}

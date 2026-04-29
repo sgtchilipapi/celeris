@@ -52,7 +52,6 @@ const metricGridEl = document.getElementById("metric-grid");
 const transactionListEl = document.getElementById("transaction-list");
 const userListEl = document.getElementById("user-list");
 
-const ACCOUNT_STORAGE_KEY = "celeris-dashboard-accounts";
 const SESSION_STORAGE_KEY = "celeris-dashboard-session";
 
 const state = {
@@ -91,19 +90,6 @@ async function fetchJson(path, init = undefined) {
   return response.json();
 }
 
-function loadAccounts() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(ACCOUNT_STORAGE_KEY) ?? "{}");
-    return typeof parsed === "object" && parsed ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function saveAccounts(accounts) {
-  localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(accounts));
-}
-
 function loadStoredSession() {
   try {
     const parsed = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) ?? "null");
@@ -111,6 +97,20 @@ function loadStoredSession() {
   } catch {
     return null;
   }
+}
+
+function readDemoBootstrap() {
+  const params = new URLSearchParams(window.location.search);
+  const username = params.get("demoUsername");
+  const password = params.get("demoPassword");
+  const developerId = params.get("developerId");
+  const appId = params.get("appId");
+
+  if (!username || !password) {
+    return null;
+  }
+
+  return { username, password, developerId, appId };
 }
 
 function saveStoredSession(session) {
@@ -200,6 +200,16 @@ function requireCredentials() {
   return { username, password };
 }
 
+function getCredentials(input = null) {
+  if (input?.username && input?.password) {
+    return {
+      username: String(input.username).trim(),
+      password: String(input.password)
+    };
+  }
+  return requireCredentials();
+}
+
 async function createOrRestoreDeveloper(developerId) {
   return fetchJson("/demo/developer/session", {
     method: "POST",
@@ -208,15 +218,13 @@ async function createOrRestoreDeveloper(developerId) {
   });
 }
 
-async function signIn() {
-  const { username, password } = requireCredentials();
-  const accounts = loadAccounts();
-  const account = accounts[username];
-  if (!account || account.password !== password) {
-    throw new Error("Invalid username or password.");
-  }
-
-  const backendSession = await createOrRestoreDeveloper(account.developerId);
+async function signIn(credentials = null) {
+  const { username, password } = getCredentials(credentials);
+  const backendSession = await fetchJson("/developer/sign-in", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username, password })
+  });
   state.session = {
     username,
     developerId: backendSession.developerId,
@@ -228,18 +236,20 @@ async function signIn() {
   setView("home");
 }
 
-async function signUp() {
-  const { username, password } = requireCredentials();
-  const accounts = loadAccounts();
-  if (accounts[username]) {
-    throw new Error("Username already exists. Sign in instead.");
-  }
-
-  const developerId = `dev-${crypto.randomUUID()}`;
-  const backendSession = await createOrRestoreDeveloper(developerId);
-  accounts[username] = { developerId: backendSession.developerId, password };
-  saveAccounts(accounts);
-
+async function signUp(credentials = null) {
+  const { username, password } = getCredentials(credentials);
+  const backendSession = await fetchJson("/developer/sign-up", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "idempotency-key": `dashboard-sign-up-${crypto.randomUUID()}`
+    },
+    body: JSON.stringify({
+      username,
+      password,
+      developerId: credentials?.developerId
+    })
+  });
   state.session = {
     username,
     developerId: backendSession.developerId,
@@ -728,6 +738,17 @@ async function restoreSession() {
   return true;
 }
 
+function applyDemoBootstrap() {
+  const bootstrap = readDemoBootstrap();
+  if (!bootstrap) {
+    return null;
+  }
+
+  authUsernameEl.value = bootstrap.username;
+  authPasswordEl.value = bootstrap.password;
+  return bootstrap;
+}
+
 authFormEl.addEventListener("submit", (event) => {
   event.preventDefault();
   showFeedback(authFeedbackEl, "");
@@ -827,11 +848,20 @@ async function boot() {
   actionCostInputEl.value = "";
   syncCustomActionField();
   setView("login");
+  const bootstrap = applyDemoBootstrap();
   try {
+    if (bootstrap) {
+      await signIn(bootstrap);
+      if (bootstrap.appId) {
+        await openAppOverview(bootstrap.appId).catch(() => {});
+      }
+      return;
+    }
     const restored = await restoreSession();
     if (!restored) {
       updateSessionSummary();
       setView("login");
+      return;
     }
   } catch {
     clearStoredSession();

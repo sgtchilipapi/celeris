@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mock Game Frontend</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section id="login-view" class="view view-login">
+        <form id="login-form" class="card auth-card">
+          <div class="card-copy">
+            <p class="eyebrow">Mock Game</p>
+            <h1>Sign in</h1>
+            <p id="login-subtitle">Enter the game with your player account.</p>
+          </div>
+
+          <label class="field">
+            <span>Email</span>
+            <input id="email-input" type="email" value="demo-player@example.com" autocomplete="email" />
+          </label>
+
+          <p id="login-feedback" class="feedback" hidden></p>
+
+          <button id="sign-in-btn" class="button button-primary" type="submit">Sign in</button>
+        </form>
+      </section>
+
+      <section id="game-view" class="view view-game" hidden>
+        <header class="hero card">
+          <div>
+            <p class="eyebrow">Mock Game</p>
+            <h1 id="game-title">Player flow</h1>
+            <p id="game-subtitle">Sign in, buy credits, and trigger an on-chain action.</p>
+          </div>
+        </header>
+
+        <section class="layout">
+          <section class="card panel">
+            <div class="status-grid">
+              <div class="status-card">
+                <span class="status-label">Player</span>
+                <strong id="player-email">-</strong>
+              </div>
+              <div class="status-card">
+                <span class="status-label">Balance</span>
+                <strong id="balance-value">0</strong>
+              </div>
+              <div class="status-card">
+                <span class="status-label">Reserved</span>
+                <strong id="reserved-value">0</strong>
+              </div>
+            </div>
+
+            <div class="actions">
+              <button id="buy-credits-btn" class="button button-secondary" type="button">Buy Credits</button>
+              <button id="mint-item-btn" class="button button-primary" type="button">Mint Item</button>
+            </div>
+          </section>
+
+          <section class="card result-panel">
+            <h2>Result</h2>
+            <pre id="result-output">Ready.</pre>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

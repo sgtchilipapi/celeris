@@ -118,6 +118,23 @@ export function createApi(services: Services) {
     })
   }));
 
+  addRoute("POST", "/developer/sign-up", ({ headers, body }) => ({
+    statusCode: 201,
+    body: services.appService.signUpDeveloper({
+      username: body.username as string,
+      password: body.password as string,
+      developerId: body.developerId as string | undefined,
+      idempotencyKey: requireIdempotency(headers, body)
+    })
+  }));
+
+  addRoute("POST", "/developer/sign-in", ({ body }) => ({
+    body: services.appService.signInDeveloper({
+      username: body.username as string,
+      password: body.password as string
+    })
+  }));
+
   addRoute("POST", "/apps", ({ headers, body }) => ({
     statusCode: 201,
     body: services.appService.toCreateAppResponse(
@@ -198,9 +215,9 @@ export function createApi(services: Services) {
     body: services.appService.getAppSetupDetails(params.appId)
   }));
 
-  addRoute("POST", "/checkout/session", ({ headers, body }) => ({
+  addRoute("POST", "/checkout/session", async ({ headers, body }) => ({
     statusCode: 201,
-    body: services.paymentService.createCheckoutSession({
+    body: await services.paymentService.createCheckoutSession({
       appId: body.appId as string,
       userId: body.userId as string,
       packageId: body.packageId as string,

@@ -7,6 +7,7 @@ import type {
   CreditLedgerEntry,
   CreditPackage,
   Developer,
+  DeveloperAccount,
   MemoryStore as MemoryStoreContract,
   Payment,
   PendingAction,
@@ -19,6 +20,7 @@ import type {
 
 export class MemoryStore implements MemoryStoreContract {
   developers = new Map<UUID, Developer>();
+  developerAccounts = new Map<string, DeveloperAccount>();
   users = new Map<UUID, User>();
   userSessions = new Map<UUID, UserSession>();
   apps = new Map<UUID, App>();
@@ -37,6 +39,29 @@ export class MemoryStore implements MemoryStoreContract {
     const developer: Developer = { developerId, email, createdAt: new Date().toISOString() };
     this.developers.set(developerId, developer);
     return developer;
+  }
+
+  createDeveloperAccount({
+    developerId,
+    username,
+    password
+  }: {
+    developerId: UUID;
+    username: string;
+    password: string;
+  }): DeveloperAccount {
+    const account: DeveloperAccount = {
+      developerId,
+      username,
+      password,
+      createdAt: new Date().toISOString()
+    };
+    this.developerAccounts.set(username.toLowerCase(), account);
+    return account;
+  }
+
+  getDeveloperAccountByUsername(username: string): DeveloperAccount | null {
+    return this.developerAccounts.get(username.toLowerCase()) ?? null;
   }
 
   createUser({
