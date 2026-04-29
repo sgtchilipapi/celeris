@@ -192,11 +192,17 @@ const state = {
   userId: null,
   username: null,
   appId: null,
+  programId: null,
   appName: null,
   packageId: null,
   itemDefId: null,
+  firstTimeClaimActionId: null,
+  mintItemActionId: null,
+  claimRewardsActionId: null,
   packageCredits: null,
   packageAmountCents: null,
+  firstTimeClaimCost: null,
+  claimRewardsCost: null,
   pendingCheckout: null,
   currentView: "home",
   characters: [],
@@ -497,6 +503,10 @@ function getQuestHistoryEntry(character, questId) {
   return character.questHistory.find((entry) => entry.questId === questId) ?? null;
 }
 
+function hasClaimedAnyQuest(character) {
+  return character.questHistory.some((entry) => entry.status === "claimed");
+}
+
 function upsertQuestHistoryEntry(character, questId, status) {
   const existing = getQuestHistoryEntry(character, questId);
   if (existing) {
@@ -631,9 +641,13 @@ function renderQuestsView() {
   }
 
   for (const button of questsListEl.querySelectorAll("[data-claim-quest]")) {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const [characterId, questId] = button.getAttribute("data-claim-quest").split(":");
-      claimQuestRewards(characterId, questId);
+      try {
+        await claimQuestRewards(characterId, questId);
+      } catch (error) {
+        showFeedback(gameFeedbackEl, error.message);
+      }
     });
   }
 }
@@ -901,7 +915,7 @@ function abandonQuest() {
   showFeedback(gameFeedbackEl, `${questTitle} abandoned.`);
 }
 
-function claimQuestRewards(characterId = state.selectedCharacterId, questId = null) {
+async function claimQuestRewards(characterId = state.selectedCharacterId, questId = null) {
   const character = state.characters.find((entry) => entry.id === characterId);
   if (!character) {
     return;
@@ -911,6 +925,44 @@ function claimQuestRewards(characterId = state.selectedCharacterId, questId = nu
   const historyEntry = resolvedQuestId ? getQuestHistoryEntry(character, resolvedQuestId) : null;
   if (!resolvedQuestId || historyEntry?.status !== "completed") {
     return;
+  }
+
+  if (!state.appId || !state.token) {
+    throw new Error("Sign in first.");
+  }
+  const isFirstClaim = !hasClaimedAnyQuest(character);
+  const actionId = isFirstClaim ? state.firstTimeClaimActionId : state.claimRewardsActionId;
+  const actionCost = isFirstClaim ? state.firstTimeClaimCost : state.claimRewardsCost;
+  if (!actionId || actionCost == null) {
+    throw new Error(isFirstClaim ? "First time claim action is not configured for this app." : "Claim rewards action is not configured for this app.");
+  }
+
+  try {
+    await fetchApi("/actions/claim_rewards", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${state.token}`,
+        "idempotency-key": randomKey("claim-rewards")
+      },
+      body: JSON.stringify({
+        appId: state.appId,
+        programId: state.programId,
+        actionId
+      })
+    });
+  } catch (error) {
+    if (error.message === "insufficient credits") {
+      showFeedback(
+        gameFeedbackEl,
+        isFirstClaim
+          ? "Not enough credits for first time claim. Add credits to continue."
+          : "Not enough credits to claim rewards. Add credits to continue."
+      );
+      openCreditsModal();
+      return;
+    }
+    throw error;
   }
 
   const quest = questDefinitions[resolvedQuestId];
@@ -925,23 +977,34 @@ function claimQuestRewards(characterId = state.selectedCharacterId, questId = nu
   renderCharacterDetail();
   renderQuestsView();
   renderInventoryView();
+  await refreshBalance();
   showFeedback(gameFeedbackEl, `${quest.title} rewards claimed.`);
 }
 
 async function loadConfig() {
   const config = await fetchJson("/config.json");
-  if (!config.appId) {
+  if (!config?.celeris?.appId) {
     throw new Error("Mock game frontend is missing an appId configuration.");
   }
 
-  state.appId = config.appId;
+  state.appId = config.celeris.appId;
+  state.programId = config.celeris.programId || "core_gameplay";
+  state.firstTimeClaimActionId = config.celeris.actionIds?.firstTimeClaim || "first_time_claim";
+  state.claimRewardsActionId = config.celeris.actionIds?.claimRewards || "claim_rewards";
+  state.mintItemActionId = config.celeris.actionIds?.mintItem || "mint_item";
   state.itemDefId = config.itemDefId || "iron_sword";
 
   const setup = await fetchApi(`/apps/${encodeURIComponent(state.appId)}/setup`);
   const selectedPackage = setup.creditPackages[0] ?? null;
+  const firstTimeClaimAction =
+    setup.actions.find((action) => action.actionType === state.firstTimeClaimActionId) ?? null;
+  const claimRewardsAction =
+    setup.actions.find((action) => action.actionType === state.claimRewardsActionId) ?? null;
   state.packageId = selectedPackage?.packageId ?? null;
   state.packageCredits = selectedPackage?.credits ?? null;
   state.packageAmountCents = selectedPackage?.priceCents ?? null;
+  state.firstTimeClaimCost = firstTimeClaimAction?.cost ?? null;
+  state.claimRewardsCost = claimRewardsAction?.cost ?? null;
 
   const apps = await fetchApi("/apps");
   const app = apps.find((entry) => entry.appId === state.appId);
@@ -1219,8 +1282,12 @@ abandonQuestBtn.addEventListener("click", () => {
   abandonQuest();
 });
 
-claimRewardsBtn.addEventListener("click", () => {
-  claimQuestRewards();
+claimRewardsBtn.addEventListener("click", async () => {
+  try {
+    await claimQuestRewards();
+  } catch (error) {
+    showFeedback(gameFeedbackEl, error.message);
+  }
 });
 
 openCreditsModalBtn.addEventListener("click", () => {

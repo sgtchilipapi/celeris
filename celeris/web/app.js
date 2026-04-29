@@ -264,7 +264,43 @@ function ensureAppUi(appId) {
   if (!Array.isArray(state.appUi[appId].programs)) {
     state.appUi[appId].programs = [];
   }
+  state.appUi[appId].programs = state.appUi[appId].programs.map(normalizeProgramRecord);
   return state.appUi[appId];
+}
+
+function canonicalProgramActionId(actionType) {
+  if (actionType === "Claim Rewards") {
+    return "claim_rewards";
+  }
+  if (actionType === "First Time Claim") {
+    return "first_time_claim";
+  }
+  return String(actionType)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function normalizeProgramActionRecord(action) {
+  return {
+    id: action?.id ?? crypto.randomUUID(),
+    actionType: action?.actionType ?? "Custom action",
+    actionId: action?.actionId ?? canonicalProgramActionId(action?.actionType ?? "custom"),
+    cost: Number(action?.cost ?? 0)
+  };
+}
+
+const backendMirroredActionIds = new Set(["claim_rewards", "first_time_claim"]);
+
+function normalizeProgramRecord(program) {
+  return {
+    id: program?.id ?? crypto.randomUUID(),
+    programId: program?.programId ?? "",
+    network: program?.network ?? "mainnet",
+    alias: program?.alias ?? "Program",
+    actions: Array.isArray(program?.actions) ? program.actions.map(normalizeProgramActionRecord) : []
+  };
 }
 
 function getSelectedAppUi() {
@@ -595,7 +631,9 @@ function renderProgramActions(program) {
 
   for (const button of programActionsListEl.querySelectorAll("[data-delete-program-action]")) {
     button.addEventListener("click", () => {
-      deleteProgramAction(button.dataset.deleteProgramAction);
+      deleteProgramAction(button.dataset.deleteProgramAction).catch((error) => {
+        showFeedback(programFeedbackPageEl, error.message);
+      });
     });
   }
 }
@@ -914,13 +952,45 @@ function getSelectedActionType() {
   return actionTypeSelectEl.value;
 }
 
-function saveProgramAction() {
+async function syncBackendProgramAction(nextAction, previousActionId = null) {
+  if (!state.selectedApp) {
+    throw new Error("Choose an app first.");
+  }
+
+  const appId = state.selectedApp.appId;
+  const requestHeaders = {
+    "content-type": "application/json",
+    "idempotency-key": `dashboard-program-action-${crypto.randomUUID()}`
+  };
+
+  if (previousActionId && backendMirroredActionIds.has(previousActionId) && previousActionId !== nextAction.actionId) {
+    await fetchJson(`/apps/${encodeURIComponent(appId)}/actions/${encodeURIComponent(previousActionId)}`, {
+      method: "DELETE",
+      headers: requestHeaders,
+      body: JSON.stringify({})
+    });
+  }
+
+  if (backendMirroredActionIds.has(nextAction.actionId)) {
+    await fetchJson(`/apps/${encodeURIComponent(appId)}/actions`, {
+      method: "POST",
+      headers: requestHeaders,
+      body: JSON.stringify({
+        actionType: nextAction.actionId,
+        cost: nextAction.cost
+      })
+    });
+  }
+}
+
+async function saveProgramAction() {
   const program = getSelectedProgram();
   if (!program) {
     throw new Error("Choose a program first.");
   }
 
   const actionType = getSelectedActionType();
+  const actionId = canonicalProgramActionId(actionType);
   const cost = parseWholeNumber(actionCostInputEl.value);
   if (!Number.isInteger(cost) || cost < 0) {
     throw new Error("Credit consumption must be zero or a positive whole number.");
@@ -931,14 +1001,20 @@ function saveProgramAction() {
     if (!action) {
       throw new Error("Action not found.");
     }
+    const previousActionId = action.actionId ?? canonicalProgramActionId(action.actionType);
     action.actionType = actionType;
+    action.actionId = actionId;
     action.cost = cost;
+    await syncBackendProgramAction(action, previousActionId);
   } else {
-    program.actions.push({
+    const action = {
       id: crypto.randomUUID(),
       actionType,
+      actionId,
       cost
-    });
+    };
+    program.actions.push(action);
+    await syncBackendProgramAction(action);
   }
 
   saveStoredAppUi();
@@ -946,12 +1022,23 @@ function saveProgramAction() {
   closeActionModal();
 }
 
-function deleteProgramAction(actionId) {
+async function deleteProgramAction(actionId) {
   const program = getSelectedProgram();
   if (!program) {
     return;
   }
+  const removedAction = program.actions.find((entry) => entry.id === actionId);
   program.actions = program.actions.filter((entry) => entry.id !== actionId);
+  if (removedAction?.actionId && backendMirroredActionIds.has(removedAction.actionId) && state.selectedApp) {
+    await fetchJson(`/apps/${encodeURIComponent(state.selectedApp.appId)}/actions/${encodeURIComponent(removedAction.actionId)}`, {
+      method: "DELETE",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": `dashboard-program-action-delete-${crypto.randomUUID()}`
+      },
+      body: JSON.stringify({})
+    });
+  }
   saveStoredAppUi();
   openProgramView(program.id);
 }
@@ -1095,11 +1182,11 @@ closeActionModalBtn.addEventListener("click", () => {
   closeActionModal();
 });
 
-actionFormEl.addEventListener("submit", (event) => {
+actionFormEl.addEventListener("submit", async (event) => {
   event.preventDefault();
   showFeedback(actionFeedbackEl, "");
   try {
-    saveProgramAction();
+    await saveProgramAction();
   } catch (error) {
     showFeedback(actionFeedbackEl, error.message);
   }

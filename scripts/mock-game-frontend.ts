@@ -7,7 +7,16 @@ const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 
 const port = Number(process.env.MOCK_GAME_FRONTEND_PORT ?? 3002);
 const apiOrigin = process.env.CELERIS_API_ORIGIN ?? "http://localhost:3000";
 const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
-const runConfig = isMainModule ? parseArgs(process.argv.slice(2)) : { appId: "", itemDefId: "iron_sword" };
+const runConfig = isMainModule
+  ? parseArgs(process.argv.slice(2))
+  : buildRunConfig({
+      appId: "",
+      programId: "core_gameplay",
+      firstTimeClaimActionId: "first_time_claim",
+      claimRewardsActionId: "claim_rewards",
+      mintItemActionId: "mint_item",
+      itemDefId: "iron_sword"
+    });
 
 const contentTypes = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -118,12 +127,32 @@ async function readBody(req: http.IncomingMessage) {
 function parseArgs(args: string[]) {
   const config = {
     appId: "",
+    programId: "core_gameplay",
+    firstTimeClaimActionId: "first_time_claim",
+    claimRewardsActionId: "claim_rewards",
+    mintItemActionId: "mint_item",
     itemDefId: "iron_sword"
   };
 
   for (const arg of args) {
     if (arg.startsWith("--app-id=")) {
       config.appId = arg.slice("--app-id=".length);
+      continue;
+    }
+    if (arg.startsWith("--program-id=")) {
+      config.programId = arg.slice("--program-id=".length);
+      continue;
+    }
+    if (arg.startsWith("--claim-rewards-action-id=")) {
+      config.claimRewardsActionId = arg.slice("--claim-rewards-action-id=".length);
+      continue;
+    }
+    if (arg.startsWith("--first-time-claim-action-id=")) {
+      config.firstTimeClaimActionId = arg.slice("--first-time-claim-action-id=".length);
+      continue;
+    }
+    if (arg.startsWith("--mint-item-action-id=")) {
+      config.mintItemActionId = arg.slice("--mint-item-action-id=".length);
       continue;
     }
     if (arg.startsWith("--item-def-id=")) {
@@ -135,13 +164,36 @@ function parseArgs(args: string[]) {
     throw new Error("mock-game-frontend requires --app-id=<app-id>");
   }
 
-  return config;
+  return buildRunConfig(config);
+}
+
+function buildRunConfig(config: {
+  appId: string;
+  programId: string;
+  firstTimeClaimActionId: string;
+  claimRewardsActionId: string;
+  mintItemActionId: string;
+  itemDefId: string;
+}) {
+  return {
+    celeris: {
+      appId: config.appId,
+      programId: config.programId,
+      actionIds: {
+        firstTimeClaim: config.firstTimeClaimActionId,
+        claimRewards: config.claimRewardsActionId,
+        mintItem: config.mintItemActionId
+      }
+    },
+    itemDefId: config.itemDefId
+  };
 }
 
 if (isMainModule) {
   createMockGameFrontendServer().listen(port, () => {
     console.log(`Mock game frontend listening on http://localhost:${port}`);
     console.log(`Proxying API requests to ${apiOrigin}`);
-    console.log(`Configured appId: ${runConfig.appId}`);
+    console.log(`Configured appId: ${runConfig.celeris.appId}`);
+    console.log(`Configured programId: ${runConfig.celeris.programId}`);
   });
 }

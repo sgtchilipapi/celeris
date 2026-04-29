@@ -9,6 +9,7 @@ import type { AppService } from "../services/app-service.js";
 import type { PaymentService } from "../services/payment-service.js";
 import type { MintItemService } from "../services/mint-item-service.js";
 import type { MetricsService } from "../services/metrics-service.js";
+import type { ClaimRewardsService } from "../services/claim-rewards-service.js";
 
 function json(statusCode: number, body: any) {
   return { statusCode, headers: { "content-type": "application/json" }, body };
@@ -40,6 +41,7 @@ type Services = {
   authService: AuthService;
   appService: AppService;
   paymentService: PaymentService;
+  claimRewardsService: ClaimRewardsService;
   mintItemService: MintItemService;
   metricsService: MetricsService;
 };
@@ -265,6 +267,22 @@ export function createApi(services: Services) {
       payload: body.payload as { itemDefId: string },
       idempotencyKey: requireIdempotency(headers, body)
     })
+  }));
+
+  addRoute("POST", "/actions/claim_rewards", ({ headers, body }) => ({
+    body: (() => {
+      const requestedActionId = body.actionId ?? "claim_rewards";
+      if (requestedActionId !== "claim_rewards" && requestedActionId !== "first_time_claim") {
+        throw new AppError(400, "unsupported claim rewards action id");
+      }
+
+      return services.claimRewardsService.execute({
+        appId: body.appId as string,
+        userId: requireAuthenticatedUserId(services.authService, headers, body),
+        actionId: requestedActionId,
+        idempotencyKey: requireIdempotency(headers, body)
+      });
+    })()
   }));
 
   addRoute("GET", "/metrics", ({ query }) => ({

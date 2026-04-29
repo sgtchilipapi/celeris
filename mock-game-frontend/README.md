@@ -19,7 +19,28 @@ npm run dev:mock-game-frontend -- --app-id=<app-id>
 Supported arguments:
 
 - `--app-id=<app-id>` required
+- `--program-id=<program-id>` optional, defaults to `core_gameplay`
+- `--first-time-claim-action-id=<action-id>` optional, defaults to `first_time_claim`
+- `--claim-rewards-action-id=<action-id>` optional, defaults to `claim_rewards`
+- `--mint-item-action-id=<action-id>` optional, defaults to `mint_item`
 - `--item-def-id=<item-def-id>` optional, defaults to `iron_sword`
+
+The frontend config served from `/config.json` is shaped like:
+
+```json
+{
+  "celeris": {
+    "appId": "app-id",
+    "programId": "core_gameplay",
+    "actionIds": {
+      "firstTimeClaim": "first_time_claim",
+      "claimRewards": "claim_rewards",
+      "mintItem": "mint_item"
+    }
+  },
+  "itemDefId": "iron_sword"
+}
+```
 
 Stripe test mode:
 

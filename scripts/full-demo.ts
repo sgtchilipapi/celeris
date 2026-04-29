@@ -14,7 +14,13 @@ type DemoConfig = {
   appName: string;
   creditsPerDollar: number;
   actionCost: number;
+  claimRewardsCost: number;
+  firstTimeClaimCost: number;
   itemDefId: string;
+  programId: string;
+  firstTimeClaimActionId: string;
+  mintItemActionId: string;
+  claimRewardsActionId: string;
   webhookUrl: string;
   enableTunnels: boolean;
 };
@@ -60,6 +66,10 @@ async function main() {
     "tsx",
     "scripts/mock-game-frontend.ts",
     `--app-id=${demoSession.appId}`,
+    `--program-id=${config.programId}`,
+    `--first-time-claim-action-id=${config.firstTimeClaimActionId}`,
+    `--mint-item-action-id=${config.mintItemActionId}`,
+    `--claim-rewards-action-id=${config.claimRewardsActionId}`,
     `--item-def-id=${config.itemDefId}`
   ]);
   await waitForHttp(defaultFrontendOrigin, { expectJson: false });
@@ -109,7 +119,13 @@ function parseArgs(args: string[]): DemoConfig {
     appName: "Celeris Demo Game",
     creditsPerDollar: 500,
     actionCost: 50,
+    claimRewardsCost: 25,
+    firstTimeClaimCost: 50,
     itemDefId: "iron_sword",
+    programId: "core_gameplay",
+    firstTimeClaimActionId: "first_time_claim",
+    mintItemActionId: "mint_item",
+    claimRewardsActionId: "claim_rewards",
     webhookUrl: "http://localhost:3001",
     enableTunnels: true
   };
@@ -129,6 +145,30 @@ function parseArgs(args: string[]): DemoConfig {
     }
     if (arg.startsWith("--action-cost=")) {
       config.actionCost = Number(arg.slice("--action-cost=".length));
+      continue;
+    }
+    if (arg.startsWith("--claim-rewards-cost=")) {
+      config.claimRewardsCost = Number(arg.slice("--claim-rewards-cost=".length));
+      continue;
+    }
+    if (arg.startsWith("--first-time-claim-cost=")) {
+      config.firstTimeClaimCost = Number(arg.slice("--first-time-claim-cost=".length));
+      continue;
+    }
+    if (arg.startsWith("--program-id=")) {
+      config.programId = arg.slice("--program-id=".length);
+      continue;
+    }
+    if (arg.startsWith("--first-time-claim-action-id=")) {
+      config.firstTimeClaimActionId = arg.slice("--first-time-claim-action-id=".length);
+      continue;
+    }
+    if (arg.startsWith("--mint-item-action-id=")) {
+      config.mintItemActionId = arg.slice("--mint-item-action-id=".length);
+      continue;
+    }
+    if (arg.startsWith("--claim-rewards-action-id=")) {
+      config.claimRewardsActionId = arg.slice("--claim-rewards-action-id=".length);
       continue;
     }
     if (arg.startsWith("--item-def-id=")) {
@@ -216,8 +256,18 @@ async function provisionDemo(config: DemoConfig): Promise<DemoSession> {
   });
 
   await postJson(`/apps/${encodeURIComponent(app.appId)}/actions`, {
-    actionType: "mint_item",
+    actionType: config.mintItemActionId,
     cost: config.actionCost
+  });
+
+  await postJson(`/apps/${encodeURIComponent(app.appId)}/actions`, {
+    actionType: config.firstTimeClaimActionId,
+    cost: config.firstTimeClaimCost
+  });
+
+  await postJson(`/apps/${encodeURIComponent(app.appId)}/actions`, {
+    actionType: config.claimRewardsActionId,
+    cost: config.claimRewardsCost
   });
 
   return {

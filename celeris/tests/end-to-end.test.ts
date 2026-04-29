@@ -118,6 +118,20 @@ async function createHarness({
     body: { actionType: "mint_item", cost: 50 }
   });
 
+  await api.handle({
+    method: "POST",
+    url: `/apps/${appId}/actions`,
+    headers: { "idempotency-key": "e2e-action-first-claim-1" },
+    body: { actionType: "first_time_claim", cost: 50 }
+  });
+
+  await api.handle({
+    method: "POST",
+    url: `/apps/${appId}/actions`,
+    headers: { "idempotency-key": "e2e-action-claim-1" },
+    body: { actionType: "claim_rewards", cost: 25 }
+  });
+
   const checkout = await api.handle({
     method: "POST",
     url: "/checkout/session",
@@ -230,6 +244,51 @@ test("end-to-end insufficient credits blocks the next mint", async () => {
   assert.equal(firstMint.statusCode, 200);
   assert.equal(secondMint.statusCode, 409);
   assert.equal(secondMint.body.error, "insufficient credits");
+});
+
+test("end-to-end claim rewards consumes configured credits", async () => {
+  const { api, appId, userId, token, services } = await createHarness({ checkoutCredits: 100 });
+
+  const claim = await api.handle({
+    method: "POST",
+    url: "/actions/claim_rewards",
+    headers: {
+      "idempotency-key": "e2e-claim-1",
+      authorization: `Bearer ${token}`
+    },
+    body: {
+      appId
+    }
+  });
+
+  assert.equal(claim.statusCode, 200);
+  assert.equal(claim.body.actionType, "claim_rewards");
+  assert.equal(claim.body.debitedCredits, 25);
+  assert.equal(claim.body.remainingCredits, 75);
+  assert.equal(services.store.getBalance(userId, appId).balance, 75);
+});
+
+test("end-to-end first time claim consumes its higher configured credits", async () => {
+  const { api, appId, userId, token, services } = await createHarness({ checkoutCredits: 100 });
+
+  const claim = await api.handle({
+    method: "POST",
+    url: "/actions/claim_rewards",
+    headers: {
+      "idempotency-key": "e2e-first-claim-1",
+      authorization: `Bearer ${token}`
+    },
+    body: {
+      appId,
+      actionId: "first_time_claim"
+    }
+  });
+
+  assert.equal(claim.statusCode, 200);
+  assert.equal(claim.body.actionType, "first_time_claim");
+  assert.equal(claim.body.debitedCredits, 50);
+  assert.equal(claim.body.remainingCredits, 50);
+  assert.equal(services.store.getBalance(userId, appId).balance, 50);
 });
 
 test("end-to-end duplicate payment webhook only grants credits once", async () => {

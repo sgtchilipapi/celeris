@@ -321,6 +321,13 @@ export interface ExecuteMintItemRequest {
   idempotencyKey: string;
 }
 
+export interface ExecuteClaimRewardsRequest {
+  appId: UUID;
+  userId: UUID;
+  actionId: "claim_rewards" | "first_time_claim";
+  idempotencyKey: string;
+}
+
 export interface MintItemApprovalRequest {
   pendingActionId: UUID;
   appId: UUID;
@@ -346,6 +353,13 @@ export interface MintItemExecutionResult {
   transactionId: UUID;
   assetId: UUID;
   status: TransactionStatus;
+}
+
+export interface ClaimRewardsExecutionResult {
+  actionType: "claim_rewards" | "first_time_claim";
+  debitedCredits: number;
+  remainingCredits: number;
+  status: "success";
 }
 
 export interface RejectedMintItemResult {

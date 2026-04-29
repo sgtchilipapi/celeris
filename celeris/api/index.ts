@@ -16,6 +16,7 @@ import { PendingActionService } from "../services/pending-action-service.js";
 import { RelayerService } from "../services/relayer-service.js";
 import { MockRelayerNetwork } from "../services/mock-relayer-network.js";
 import { AssetService } from "../services/asset-service.js";
+import { ClaimRewardsService } from "../services/claim-rewards-service.js";
 import type { RelayerNetworkClient } from "../types.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -47,6 +48,7 @@ export function buildServices({
     authService: new AuthService({ store }),
     appService: new AppService({ store }),
     paymentService: new PaymentService({ store, ledgerService, stripeCheckoutGateway, stripeGateway }),
+    claimRewardsService: new ClaimRewardsService({ store, ledgerService }),
     mintItemService: new MintItemService({
       store,
       ledgerService,
