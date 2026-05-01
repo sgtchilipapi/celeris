@@ -62,12 +62,15 @@ The current MVP focuses on backend primitives and action orchestration.
 
 A possible long-term direction is for Celeris to evolve into a managed game backend platform with:
 
+- SDK-first frontend and backend integration
+- standard user-token-authenticated player APIs
 - an opinionated backend scaffold
 - baked-in database infrastructure
 - a frontend starter such as a Godot project
 - shared Celeris configuration
 - repo generation and optional hosting
 
+See [docs/sdk-pivot.md](docs/sdk-pivot.md) for the planned SDK/auth pivot and demo backend removal.
 See [docs/future-direction.md](docs/future-direction.md) for the full concept.
 See [docs/future-refactorings.md](docs/future-refactorings.md) for deferred architecture backlog items.
 
