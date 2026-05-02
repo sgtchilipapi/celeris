@@ -76,6 +76,24 @@ const sessionStorageKey = "mock-game-frontend-session";
 const checkoutStorageKey = "mock-game-frontend-checkout";
 const charactersStorageKey = "mock-game-frontend-characters";
 
+function createUuid() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((value) => value.toString(16).padStart(2, "0"));
+  return [
+    hex.slice(0, 4).join(""),
+    hex.slice(4, 6).join(""),
+    hex.slice(6, 8).join(""),
+    hex.slice(8, 10).join(""),
+    hex.slice(10, 16).join("")
+  ].join("-");
+}
+
 const classIcons = {
   fighter: '<svg viewBox="0 0 24 24"><path d="M14.5 3 21 9.5l-2 2-1.5-1.5-3 3L17 15.5 8.5 24 7 22.5l2.5-2.5-3-3L5 18.5 0 13.5 8.5 5l2.5 2.5 3-3L12.5 3h2Z" /></svg>',
   ranger: '<svg viewBox="0 0 24 24"><path d="M20.5 3A8.5 8.5 0 0 0 12 11.5v1.09L2.29 22.29l1.42 1.42L7 20.41V23h2v-4.59L12 15.41V18h2v-4.59L17 10.41V13h2V8.41A8.47 8.47 0 0 0 20.5 3Zm0 2A6.5 6.5 0 1 1 14 11.5 6.5 6.5 0 0 1 20.5 5Z" /></svg>',
@@ -216,7 +234,7 @@ const changeIcon = `
 `;
 
 function randomKey(prefix) {
-  return `${prefix}-${crypto.randomUUID()}`;
+  return `${prefix}-${createUuid()}`;
 }
 
 function showFeedback(element, message) {
@@ -360,7 +378,7 @@ function normalizeCharacter(record) {
   const questHistory = normalizeQuestHistory(record?.questHistory);
 
   return {
-    id: record?.id ?? crypto.randomUUID(),
+    id: record?.id ?? createUuid(),
     name: record?.name ?? "Adventurer",
     classType,
     experience: Number(record?.experience ?? 0),
@@ -438,7 +456,7 @@ function persistCharacters() {
 function createCharacterRecord(name, classType) {
   const definition = classDefinitions[classType];
   return {
-    id: crypto.randomUUID(),
+    id: createUuid(),
     name,
     classType,
     experience: 0,

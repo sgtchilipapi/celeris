@@ -108,6 +108,24 @@ const COPY_ICON = `
   </svg>
 `;
 
+function createUuid() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((value) => value.toString(16).padStart(2, "0"));
+  return [
+    hex.slice(0, 4).join(""),
+    hex.slice(4, 6).join(""),
+    hex.slice(6, 8).join(""),
+    hex.slice(8, 10).join(""),
+    hex.slice(10, 16).join("")
+  ].join("-");
+}
+
 async function fetchJson(path, init = undefined) {
   const response = await fetch(path, init);
   if (!response.ok) {
@@ -284,7 +302,7 @@ function canonicalProgramActionId(actionType) {
 
 function normalizeProgramActionRecord(action) {
   return {
-    id: action?.id ?? crypto.randomUUID(),
+    id: action?.id ?? createUuid(),
     actionType: action?.actionType ?? "Custom action",
     actionId: action?.actionId ?? canonicalProgramActionId(action?.actionType ?? "custom"),
     cost: Number(action?.cost ?? 0)
@@ -295,7 +313,7 @@ const backendMirroredActionIds = new Set(["claim_rewards", "first_time_claim"]);
 
 function normalizeProgramRecord(program) {
   return {
-    id: program?.id ?? crypto.randomUUID(),
+    id: program?.id ?? createUuid(),
     programId: program?.programId ?? "",
     network: program?.network ?? "mainnet",
     alias: program?.alias ?? "Program",
@@ -373,7 +391,7 @@ async function signUp(credentials = null) {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "idempotency-key": `dashboard-sign-up-${crypto.randomUUID()}`
+      "idempotency-key": `dashboard-sign-up-${createUuid()}`
     },
     body: JSON.stringify({
       username,
@@ -755,7 +773,7 @@ async function createApp() {
     method: state.editingAppId ? "PUT" : "POST",
     headers: {
       "content-type": "application/json",
-      "idempotency-key": `dashboard-app-${crypto.randomUUID()}`
+      "idempotency-key": `dashboard-app-${createUuid()}`
     },
     body: JSON.stringify({
       ...(state.editingAppId ? {} : { developerId: state.session.developerId }),
@@ -800,7 +818,7 @@ async function deleteApp(appId) {
     method: "DELETE",
     headers: {
       "content-type": "application/json",
-      "idempotency-key": `dashboard-app-delete-${crypto.randomUUID()}`
+      "idempotency-key": `dashboard-app-delete-${createUuid()}`
     },
     body: JSON.stringify({})
   });
@@ -866,7 +884,7 @@ function saveProgram() {
     program.alias = alias;
   } else {
     appUi.programs.push({
-      id: crypto.randomUUID(),
+      id: createUuid(),
       programId,
       network,
       alias,
@@ -960,7 +978,7 @@ async function syncBackendProgramAction(nextAction, previousActionId = null) {
   const appId = state.selectedApp.appId;
   const requestHeaders = {
     "content-type": "application/json",
-    "idempotency-key": `dashboard-program-action-${crypto.randomUUID()}`
+    "idempotency-key": `dashboard-program-action-${createUuid()}`
   };
 
   if (previousActionId && backendMirroredActionIds.has(previousActionId) && previousActionId !== nextAction.actionId) {
@@ -1008,7 +1026,7 @@ async function saveProgramAction() {
     await syncBackendProgramAction(action, previousActionId);
   } else {
     const action = {
-      id: crypto.randomUUID(),
+      id: createUuid(),
       actionType,
       actionId,
       cost
@@ -1034,7 +1052,7 @@ async function deleteProgramAction(actionId) {
       method: "DELETE",
       headers: {
         "content-type": "application/json",
-        "idempotency-key": `dashboard-program-action-delete-${crypto.randomUUID()}`
+        "idempotency-key": `dashboard-program-action-delete-${createUuid()}`
       },
       body: JSON.stringify({})
     });

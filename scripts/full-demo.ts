@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
+import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,9 +15,6 @@ const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
 type DemoConfig = {
   appName: string;
   creditsPerDollar: number;
-  actionCost: number;
-  claimRewardsCost: number;
-  firstTimeClaimCost: number;
   itemDefId: string;
   programId: string;
   firstTimeClaimActionId: string;
@@ -35,6 +34,7 @@ type DemoSession = {
 };
 
 const children: ChildProcess[] = [];
+const base58Alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
@@ -83,9 +83,20 @@ async function main() {
       console.log("Warning: STRIPE_SECRET_KEY is not configured. Checkout will stay in mock mode.");
     }
 
-    console.log("Starting cloudflared tunnels...");
-    apiTunnelUrl = await spawnTunnel("dashboard-tunnel", defaultApiOrigin);
-    gameTunnelUrl = await spawnTunnel("game-tunnel", defaultFrontendOrigin);
+    if (process.env.CLOUDFLARED_TUNNEL_TOKEN) {
+      console.log("Starting named cloudflared tunnel...");
+      const namedTunnelUrls = await spawnNamedTunnel({
+        token: process.env.CLOUDFLARED_TUNNEL_TOKEN,
+        dashboardHostname: process.env.CLOUDFLARED_DASHBOARD_HOSTNAME,
+        gameHostname: process.env.CLOUDFLARED_GAME_HOSTNAME
+      });
+      apiTunnelUrl = namedTunnelUrls.dashboardUrl;
+      gameTunnelUrl = namedTunnelUrls.gameUrl;
+    } else {
+      console.log("Starting cloudflared tunnels...");
+      apiTunnelUrl = await spawnTunnel("dashboard-tunnel", defaultApiOrigin);
+      gameTunnelUrl = await spawnTunnel("game-tunnel", defaultFrontendOrigin);
+    }
   }
 
   const dashboardUrl = buildDashboardUrl(apiTunnelUrl ?? defaultDashboardOrigin, demoSession);
@@ -99,6 +110,9 @@ async function main() {
   console.log(`Developer email: ${demoSession.developerEmail}`);
   console.log(`App ID: ${demoSession.appId}`);
   console.log(`API key: ${demoSession.apiKey}`);
+  console.log(`Mock Solana program ID: ${config.programId}`);
+  console.log("");
+  console.log("Add the program and actions manually in the developer dashboard before testing player actions.");
   console.log("");
   console.log(`Local dashboard: ${buildDashboardUrl(defaultDashboardOrigin, demoSession)}`);
   console.log(`Local game frontend: ${defaultFrontendOrigin}`);
@@ -118,11 +132,8 @@ function parseArgs(args: string[]): DemoConfig {
   const config: DemoConfig = {
     appName: "Celeris Demo Game",
     creditsPerDollar: 500,
-    actionCost: 50,
-    claimRewardsCost: 25,
-    firstTimeClaimCost: 50,
     itemDefId: "iron_sword",
-    programId: "core_gameplay",
+    programId: createMockSolanaProgramId(),
     firstTimeClaimActionId: "first_time_claim",
     mintItemActionId: "mint_item",
     claimRewardsActionId: "claim_rewards",
@@ -141,18 +152,6 @@ function parseArgs(args: string[]): DemoConfig {
     }
     if (arg.startsWith("--credits-per-dollar=")) {
       config.creditsPerDollar = Number(arg.slice("--credits-per-dollar=".length));
-      continue;
-    }
-    if (arg.startsWith("--action-cost=")) {
-      config.actionCost = Number(arg.slice("--action-cost=".length));
-      continue;
-    }
-    if (arg.startsWith("--claim-rewards-cost=")) {
-      config.claimRewardsCost = Number(arg.slice("--claim-rewards-cost=".length));
-      continue;
-    }
-    if (arg.startsWith("--first-time-claim-cost=")) {
-      config.firstTimeClaimCost = Number(arg.slice("--first-time-claim-cost=".length));
       continue;
     }
     if (arg.startsWith("--program-id=")) {
@@ -255,21 +254,6 @@ async function provisionDemo(config: DemoConfig): Promise<DemoSession> {
     webhookUrl: config.webhookUrl
   });
 
-  await postJson(`/apps/${encodeURIComponent(app.appId)}/actions`, {
-    actionType: config.mintItemActionId,
-    cost: config.actionCost
-  });
-
-  await postJson(`/apps/${encodeURIComponent(app.appId)}/actions`, {
-    actionType: config.firstTimeClaimActionId,
-    cost: config.firstTimeClaimCost
-  });
-
-  await postJson(`/apps/${encodeURIComponent(app.appId)}/actions`, {
-    actionType: config.claimRewardsActionId,
-    cost: config.claimRewardsCost
-  });
-
   return {
     developerId: developerSession.developerId,
     developerEmail: developerSession.email,
@@ -303,9 +287,22 @@ async function detectStripeMode() {
 }
 
 async function spawnTunnel(name: string, url: string) {
-  const child = spawn(cloudflaredPath, ["tunnel", "--url", url], {
+  const isolatedHome = await fs.mkdtemp(path.join(os.tmpdir(), `cloudflared-${name}-`));
+  const isolatedConfigPath = path.join(isolatedHome, "config.yml");
+  await fs.writeFile(isolatedConfigPath, "", "utf8");
+
+  const tunnelEnv = { ...process.env };
+  for (const key of Object.keys(tunnelEnv)) {
+    if (key.startsWith("TUNNEL_") || key.startsWith("CLOUDFLARED_") || key === "CF_API_TOKEN") {
+      delete tunnelEnv[key];
+    }
+  }
+  tunnelEnv.HOME = isolatedHome;
+  tunnelEnv.XDG_CONFIG_HOME = isolatedHome;
+
+  const child = spawn(cloudflaredPath, ["tunnel", "--config", isolatedConfigPath, "--url", url], {
     cwd: rootDir,
-    env: process.env,
+    env: tunnelEnv,
     stdio: ["ignore", "pipe", "pipe"]
   });
   children.push(child);
@@ -350,6 +347,102 @@ async function spawnTunnel(name: string, url: string) {
   });
 }
 
+async function spawnNamedTunnel({
+  token,
+  dashboardHostname,
+  gameHostname
+}: {
+  token: string;
+  dashboardHostname?: string;
+  gameHostname?: string;
+}) {
+  if (!dashboardHostname || !gameHostname) {
+    throw new Error(
+      "Named tunnel mode requires CLOUDFLARED_DASHBOARD_HOSTNAME and CLOUDFLARED_GAME_HOSTNAME."
+    );
+  }
+
+  const isolatedHome = await fs.mkdtemp(path.join(os.tmpdir(), "cloudflared-named-"));
+  const isolatedConfigPath = path.join(isolatedHome, "config.yml");
+  const configSource = [
+    "ingress:",
+    `  - hostname: ${dashboardHostname}`,
+    `    service: ${defaultApiOrigin}`,
+    `  - hostname: ${gameHostname}`,
+    `    service: ${defaultFrontendOrigin}`,
+    "  - service: http_status:404",
+    ""
+  ].join("\n");
+  await fs.writeFile(isolatedConfigPath, configSource, "utf8");
+
+  const tunnelEnv = { ...process.env };
+  for (const key of Object.keys(tunnelEnv)) {
+    if (key.startsWith("TUNNEL_") || key.startsWith("CLOUDFLARED_") || key === "CF_API_TOKEN") {
+      delete tunnelEnv[key];
+    }
+  }
+  tunnelEnv.HOME = isolatedHome;
+  tunnelEnv.XDG_CONFIG_HOME = isolatedHome;
+
+  const child = spawn(
+    cloudflaredPath,
+    ["tunnel", "--config", isolatedConfigPath, "run", "--token", token],
+    {
+      cwd: rootDir,
+      env: tunnelEnv,
+      stdio: ["ignore", "pipe", "pipe"]
+    }
+  );
+  children.push(child);
+
+  return await new Promise<{ dashboardUrl: string; gameUrl: string }>((resolve, reject) => {
+    let settled = false;
+    let lastOutput = "";
+    const timeout = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        reject(
+          new Error(
+            `Timed out waiting for named tunnel to start.${lastOutput ? ` Last tunnel output: ${lastOutput}` : ""}`
+          )
+        );
+      }
+    }, 30_000);
+
+    const handleChunk = (chunk: Buffer | string) => {
+      const text = String(chunk);
+      const trimmed = text.trim();
+      if (trimmed) {
+        lastOutput = trimmed.split(/\r?\n/).slice(-3).join(" | ");
+      }
+      if (text.includes("Registered tunnel connection") && !settled) {
+        settled = true;
+        clearTimeout(timeout);
+        resolve({
+          dashboardUrl: `https://${dashboardHostname}`,
+          gameUrl: `https://${gameHostname}`
+        });
+      }
+    };
+
+    child.stdout?.on("data", handleChunk);
+    child.stderr?.on("data", handleChunk);
+    child.on("exit", (code, signal) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timeout);
+        reject(
+          new Error(
+            `Named tunnel exited before becoming ready (${signal ?? code ?? "unknown"}).${
+              lastOutput ? ` Last tunnel output: ${lastOutput}` : ""
+            }`
+          )
+        );
+      }
+    });
+  });
+}
+
 function buildDashboardUrl(base: string, demoSession: DemoSession) {
   const url = new URL(base);
   if (!url.pathname || url.pathname === "/") {
@@ -360,6 +453,14 @@ function buildDashboardUrl(base: string, demoSession: DemoSession) {
   url.searchParams.set("developerId", demoSession.developerId);
   url.searchParams.set("appId", demoSession.appId);
   return url.toString();
+}
+
+function createMockSolanaProgramId(length = 44) {
+  let value = "";
+  for (let index = 0; index < length; index += 1) {
+    value += base58Alphabet[Math.floor(Math.random() * base58Alphabet.length)];
+  }
+  return value;
 }
 
 function sleep(ms: number) {

@@ -16,7 +16,8 @@ In this model:
 
 - frontend clients use a player-safe browser SDK
 - game backends use a developer/service SDK
-- player-facing flows authenticate with standard bearer user tokens
+- player-facing flows authenticate through Privy's embedded wallet sign-in
+- wallet addresses become the primary player reference for credits and asset delivery
 - the demo no longer depends on an external mock developer backend
 
 ### Why this is being considered
@@ -26,6 +27,7 @@ The current MVP proves the domain logic, but its public boundary is still shaped
 - mixed player and developer routes
 - a mock developer webhook for action approval
 - local Celeris-issued demo auth tokens
+- custody-oriented asset semantics
 - flat route semantics that are not yet SDK-oriented
 
 An SDK-first refactor would provide:
@@ -33,6 +35,7 @@ An SDK-first refactor would provide:
 - one clear player integration path
 - one clear developer/backend integration path
 - safer auth boundaries
+- wallet-native credit and asset semantics
 - better frontend ergonomics
 - a demo architecture that matches the intended platform story
 
@@ -69,21 +72,23 @@ The target model is:
 
 1. `client -> Celeris browser SDK -> Celeris player API`
 2. `game backend -> Celeris server SDK -> Celeris developer API`
-3. `Celeris` verifies user tokens and maps them to canonical `userId`
-4. `Celeris` executes managed demo actions internally
-5. optional custom integrations continue through server SDK or compatibility webhook mode
+3. `Privy` handles player sign-up/sign-in and embedded wallet authentication
+4. `Celeris` verifies the authenticated player session and uses wallet address as the player reference
+5. `Celeris` executes managed demo actions internally and delivers assets directly to wallet
+6. optional custom integrations continue through server SDK or compatibility webhook mode
 
 ### Recommended future migration strategy
 
 When this refactor is taken on, the safest path is likely:
 
 1. Keep Celeris domain services intact.
-2. Introduce a token verification abstraction.
-3. Add `v1` player routes that derive identity from bearer tokens.
+2. Introduce Privy token verification and wallet resolution.
+3. Add `v1` player routes that derive wallet identity from the authenticated session.
 4. Add managed action execution for the demo.
-5. Move the demo frontend to the browser SDK.
-6. Add developer/service auth and a server SDK.
-7. Keep webhook mode as a compatibility path during migration.
+5. Remove custody semantics from demo asset handling.
+6. Move the demo frontend to the browser SDK.
+7. Add developer/service auth and a server SDK.
+8. Keep webhook mode as a compatibility path during migration.
 
 ### Blast radius
 
@@ -91,15 +96,19 @@ This future refactor affects:
 
 - public Celeris API semantics
 - auth and identity ownership
+- wallet-address-based credit ownership
 - checkout session creation
 - action execution entrypoints
 - demo app architecture
+- asset delivery and custody semantics
 - dashboard route protections
 - mock developer backend behavior
 - test strategy and fixture setup
 - documentation and onboarding model
 
-The core domain services such as credits, pending actions, relayer handling, and asset recording should remain mostly reusable.
+The core domain services such as credits, pending actions, relayer handling, and payments should remain mostly reusable.
+
+Asset handling will need a more meaningful change because the target model is no longer custodial.
 
 ### Backlog status
 
