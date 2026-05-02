@@ -4,12 +4,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { AppError } from "../services/errors.js";
 import type { AppMetrics, MemoryStore } from "../types.js";
-import type { AuthService } from "../services/auth-service.js";
 import type { AppService } from "../services/app-service.js";
 import type { PaymentService } from "../services/payment-service.js";
 import type { MintItemService } from "../services/mint-item-service.js";
 import type { MetricsService } from "../services/metrics-service.js";
 import type { ClaimRewardsService } from "../services/claim-rewards-service.js";
+import type { PrivyAuthService } from "../services/privy-auth-service.js";
 
 function json(statusCode: number, body: any) {
   return { statusCode, headers: { "content-type": "application/json" }, body };
@@ -38,7 +38,7 @@ function parsePath(pattern: string, path: string): Record<string, string> | null
 
 type Services = {
   store: MemoryStore;
-  authService: AuthService;
+  privyAuthService: PrivyAuthService;
   appService: AppService;
   paymentService: PaymentService;
   claimRewardsService: ClaimRewardsService;
@@ -112,29 +112,25 @@ export function createApi(services: Services) {
     }
   }
 
-  addRoute("POST", "/auth/session", ({ headers, body }) => ({
-    body: services.authService.createSession({
-      provider: body.provider as string | undefined,
-      email: body.email as string | undefined,
-      idempotencyKey: requireIdempotency(headers, body)
-    })
+  addRoute("GET", "/v1/me", ({ headers, body }) => ({
+    body: requireAuthenticatedWalletPrincipal(services, headers, body)
   }));
 
-  addRoute("POST", "/player/sign-up", ({ headers, body }) => ({
-    statusCode: 201,
-    body: services.authService.signUpPlayer({
-      username: body.username as string,
-      password: body.password as string,
-      idempotencyKey: requireIdempotency(headers, body)
-    })
-  }));
+  addRoute("GET", "/v1/apps/:appId/me/credits", ({ params, headers, body }) => {
+    const player = requireAuthenticatedPlayer(services, headers, body, params.appId);
+    const balance = services.store.getBalance(player.userId, params.appId);
 
-  addRoute("POST", "/player/sign-in", ({ body }) => ({
-    body: services.authService.signInPlayer({
-      username: body.username as string,
-      password: body.password as string
-    })
-  }));
+    return {
+      body: {
+        appId: params.appId,
+        walletAddress: player.walletPrincipal.walletAddress,
+        chainId: player.walletPrincipal.chainId,
+        balance: balance.balance,
+        reserved: balance.reserved,
+        updatedAt: balance.updatedAt
+      }
+    };
+  });
 
   addRoute("POST", "/developer/sign-up", ({ headers, body }) => ({
     statusCode: 201,
@@ -267,7 +263,7 @@ export function createApi(services: Services) {
   addRoute("POST", "/actions/mint_item", async ({ headers, body }) => ({
     body: await services.mintItemService.execute({
       appId: body.appId as string,
-      userId: requireAuthenticatedUserId(services.authService, headers, body),
+      userId: requireAuthenticatedPlayer(services, headers, body, body.appId as string | undefined).userId,
       payload: body.payload as { itemDefId: string },
       idempotencyKey: requireIdempotency(headers, body)
     })
@@ -282,7 +278,7 @@ export function createApi(services: Services) {
 
       return services.claimRewardsService.execute({
         appId: body.appId as string,
-        userId: requireAuthenticatedUserId(services.authService, headers, body),
+        userId: requireAuthenticatedPlayer(services, headers, body, body.appId as string | undefined).userId,
         actionId: requestedActionId,
         idempotencyKey: requireIdempotency(headers, body)
       });
@@ -356,20 +352,42 @@ function requireIdempotency(headers: http.IncomingHttpHeaders, body: Record<stri
   return key;
 }
 
-function requireAuthenticatedUserId(authService: AuthService, headers: http.IncomingHttpHeaders, body: Record<string, unknown>) {
+function requireAuthenticatedPlayer(
+  services: Services,
+  headers: http.IncomingHttpHeaders,
+  body: Record<string, unknown>,
+  appId?: string
+) {
+  rejectPlayerIdentityInput(body);
   const authorization = headers.authorization;
   if (typeof authorization !== "string" || !authorization.startsWith("Bearer ")) {
     throw new AppError(401, "authorization token required");
   }
 
   const token = authorization.slice("Bearer ".length).trim();
-  const session = authService.authenticatePlayerToken(token);
-
-  if (typeof body.userId === "string" && body.userId !== session.userId) {
-    throw new AppError(403, "userId does not match authenticated session");
+  const allowedChainId = appId ? services.store.appAuthConfigs.get(appId)?.allowedChainId : undefined;
+  if (appId && !services.store.apps.has(appId)) {
+    throw new AppError(404, "app not found");
+  }
+  if (appId && !allowedChainId) {
+    throw new AppError(404, "app auth config not found");
   }
 
-  return session.userId;
+  return services.privyAuthService.authenticatePlayerToken(token, { allowedChainId });
+}
+
+function requireAuthenticatedWalletPrincipal(
+  services: Services,
+  headers: http.IncomingHttpHeaders,
+  body: Record<string, unknown>
+) {
+  return requireAuthenticatedPlayer(services, headers, body).walletPrincipal;
+}
+
+function rejectPlayerIdentityInput(body: Record<string, unknown>) {
+  if (typeof body.userId === "string" || typeof body.walletAddress === "string" || typeof body.chainId === "string") {
+    throw new AppError(400, "player identity must come from the authenticated session");
+  }
 }
 
 async function tryServeWebAsset(pathname: string) {

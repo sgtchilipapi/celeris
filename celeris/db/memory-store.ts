@@ -11,21 +11,17 @@ import type {
   DeveloperAccount,
   MemoryStore as MemoryStoreContract,
   Payment,
-  PlayerAccount,
   PendingAction,
   TransactionRecord,
   UsageEvent,
   User,
-  UserSession,
   UUID
 } from "../types.js";
 
 export class MemoryStore implements MemoryStoreContract {
   developers = new Map<UUID, Developer>();
   developerAccounts = new Map<string, DeveloperAccount>();
-  playerAccounts = new Map<string, PlayerAccount>();
   users = new Map<UUID, User>();
-  userSessions = new Map<UUID, UserSession>();
   apps = new Map<UUID, App>();
   appAuthConfigs = new Map<UUID, AppAuthConfig>();
   creditPackages = new Map<UUID, CreditPackage>();
@@ -68,21 +64,6 @@ export class MemoryStore implements MemoryStoreContract {
     return this.developerAccounts.get(username.toLowerCase()) ?? null;
   }
 
-  createPlayerAccount({ userId, username, password }: { userId: UUID; username: string; password: string }): PlayerAccount {
-    const account: PlayerAccount = {
-      userId,
-      username,
-      password,
-      createdAt: new Date().toISOString()
-    };
-    this.playerAccounts.set(username.toLowerCase(), account);
-    return account;
-  }
-
-  getPlayerAccountByUsername(username: string): PlayerAccount | null {
-    return this.playerAccounts.get(username.toLowerCase()) ?? null;
-  }
-
   createUser({
     userId = randomUUID(),
     externalSubject = null,
@@ -104,31 +85,6 @@ export class MemoryStore implements MemoryStoreContract {
   findUserByEmail(email: string): User | null {
     const normalized = email.toLowerCase();
     return [...this.users.values()].find((user) => user.email?.toLowerCase() === normalized) ?? null;
-  }
-
-  createUserSession({
-    sessionId = randomUUID(),
-    userId,
-    provider,
-    token,
-    expiresAt
-  }: {
-    sessionId?: UUID;
-    userId: UUID;
-    provider: "dummy";
-    token: string;
-    expiresAt: string;
-  }): UserSession {
-    const session: UserSession = {
-      sessionId,
-      userId,
-      provider,
-      token,
-      expiresAt,
-      createdAt: new Date().toISOString()
-    };
-    this.userSessions.set(sessionId, session);
-    return session;
   }
 
   createApp({

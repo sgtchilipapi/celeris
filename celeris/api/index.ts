@@ -9,7 +9,6 @@ import { DeveloperBackendClient } from "../services/developer-backend-client.js"
 import { MintItemService } from "../services/mint-item-service.js";
 import { MetricsService } from "../services/metrics-service.js";
 import { AppService } from "../services/app-service.js";
-import { AuthService } from "../services/auth-service.js";
 import { MockStripeGateway } from "../services/mock-stripe-gateway.js";
 import { StripeTestCheckoutGateway } from "../services/stripe-test-checkout-gateway.js";
 import { PendingActionService } from "../services/pending-action-service.js";
@@ -18,6 +17,7 @@ import { MockRelayerNetwork } from "../services/mock-relayer-network.js";
 import { AssetService } from "../services/asset-service.js";
 import { ClaimRewardsService } from "../services/claim-rewards-service.js";
 import type { RelayerNetworkClient } from "../types.js";
+import { LocalPrivyTokenVerifier, PrivyAuthService } from "../services/privy-auth-service.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -43,9 +43,12 @@ export function buildServices({
   const pendingActionService = new PendingActionService({ store, ledgerService });
   const relayerService = new RelayerService({ networkClient: relayerNetworkClient });
   const assetService = new AssetService({ store });
+  const privyVerifier = new LocalPrivyTokenVerifier({
+    secret: process.env.PRIVY_VERIFIER_SECRET ?? "privy-dev-secret"
+  });
   const services = {
     store,
-    authService: new AuthService({ store }),
+    privyAuthService: new PrivyAuthService({ store, verifier: privyVerifier }),
     appService: new AppService({ store }),
     paymentService: new PaymentService({ store, ledgerService, stripeCheckoutGateway, stripeGateway }),
     claimRewardsService: new ClaimRewardsService({ store, ledgerService }),
@@ -59,6 +62,7 @@ export function buildServices({
     }),
     metricsService: new MetricsService({ store }),
     stripeGateway,
+    privyVerifier,
     pendingActionService,
     relayerService,
     assetService
