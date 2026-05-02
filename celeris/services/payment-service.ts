@@ -38,13 +38,16 @@ export class PaymentService {
 
   async createCheckoutSession({
     appId,
-    userId,
+    walletPrincipal,
     packageId,
     successUrl,
     cancelUrl,
     idempotencyKey
   }: CreateCheckoutSessionRequest): Promise<CheckoutSessionResponse> {
-    const cached = this.store.getIdempotent<CheckoutSessionResponse>(`checkout:${appId}:${userId}`, idempotencyKey);
+    const cached = this.store.getIdempotent<CheckoutSessionResponse>(
+      `checkout:${appId}:${walletPrincipal.chainId}:${walletPrincipal.walletAddress}`,
+      idempotencyKey
+    );
     if (cached) {
       return cached;
     }
@@ -57,7 +60,7 @@ export class PaymentService {
       this.stripeCheckoutGateway && successUrl && cancelUrl ? this.stripeCheckoutGateway : this.stripeGateway;
 
     const checkoutSession = await checkoutGateway.createCheckoutSession({
-      userId,
+      walletPrincipal,
       appId,
       appName: app?.name,
       credits: pkg.credits,
@@ -67,8 +70,9 @@ export class PaymentService {
     });
     const payment = this.store.createPayment({
       paymentId: randomUUID(),
-      userId,
       appId,
+      walletAddress: walletPrincipal.walletAddress,
+      chainId: walletPrincipal.chainId,
       packageId,
       provider: checkoutSession.provider,
       providerSessionId: checkoutSession.sessionId,
@@ -88,7 +92,11 @@ export class PaymentService {
       provider: payment.provider,
       metadata: checkoutSession.metadata
     };
-    this.store.setIdempotent(`checkout:${appId}:${userId}`, idempotencyKey, result);
+    this.store.setIdempotent(
+      `checkout:${appId}:${walletPrincipal.chainId}:${walletPrincipal.walletAddress}`,
+      idempotencyKey,
+      result
+    );
     return result;
   }
 
@@ -114,7 +122,7 @@ export class PaymentService {
     }
 
     const session = event.data?.object;
-    if (!session?.id || !session.metadata?.userId || !session.metadata?.appId || !session.metadata?.credits) {
+    if (!session?.id || !session.metadata?.walletAddress || !session.metadata?.chainId || !session.metadata?.appId || !session.metadata?.credits) {
       throw new AppError(422, "stripe event missing required checkout metadata");
     }
 
@@ -131,8 +139,9 @@ export class PaymentService {
       }
       payment = this.store.createPayment({
         paymentId: randomUUID(),
-        userId: session.metadata.userId,
         appId: session.metadata.appId,
+        walletAddress: session.metadata.walletAddress,
+        chainId: session.metadata.chainId,
         packageId: packageMatch.packageId,
         provider: "stripe",
         providerSessionId: session.id,
@@ -151,8 +160,9 @@ export class PaymentService {
     if (this.store.getPaymentByProviderEventId(event.id)) {
       const duplicate: PaymentWebhookResponse = {
         paymentId: payment.paymentId,
-        userId: payment.userId,
         appId: payment.appId,
+        walletAddress: payment.walletAddress,
+        chainId: payment.chainId,
         grantedCredits: payment.credits,
         status: payment.status,
         providerEventId: event.id
@@ -163,8 +173,9 @@ export class PaymentService {
     if (payment.status === "paid") {
       const existing: PaymentWebhookResponse = {
         paymentId: payment.paymentId,
-        userId: payment.userId,
         appId: payment.appId,
+        walletAddress: payment.walletAddress,
+        chainId: payment.chainId,
         grantedCredits: payment.credits,
         status: payment.status,
         providerEventId: event.id
@@ -176,7 +187,10 @@ export class PaymentService {
     payment.status = "paid";
     this.store.savePayment(payment);
     this.ledgerService.grantCredits({
-      userId: payment.userId,
+      walletPrincipal: {
+        walletAddress: payment.walletAddress,
+        chainId: payment.chainId
+      },
       appId: payment.appId,
       amount: payment.credits,
       idempotencyKey: `payment:${payment.paymentId}`,
@@ -186,7 +200,8 @@ export class PaymentService {
     this.store.recordUsageEvent({
       eventId: randomUUID(),
       appId: payment.appId,
-      userId: payment.userId,
+      walletAddress: payment.walletAddress,
+      chainId: payment.chainId,
       eventType: "credits_purchased",
       value: payment.credits,
       metadata: { paymentId: payment.paymentId },
@@ -194,8 +209,9 @@ export class PaymentService {
     });
     const result: PaymentWebhookResponse = {
       paymentId: payment.paymentId,
-      userId: payment.userId,
       appId: payment.appId,
+      walletAddress: payment.walletAddress,
+      chainId: payment.chainId,
       grantedCredits: payment.credits,
       status: payment.status,
       providerEventId: event.id
@@ -224,7 +240,8 @@ export class PaymentService {
           id: payment.providerSessionId,
           amount_total: payment.amountCents,
           metadata: {
-            userId: payment.userId,
+            walletAddress: payment.walletAddress,
+            chainId: payment.chainId,
             appId: payment.appId,
             credits: payment.credits
           }

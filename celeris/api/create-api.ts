@@ -118,7 +118,7 @@ export function createApi(services: Services) {
 
   addRoute("GET", "/v1/apps/:appId/me/credits", ({ params, headers, body }) => {
     const player = requireAuthenticatedPlayer(services, headers, body, params.appId);
-    const balance = services.store.getBalance(player.userId, params.appId);
+    const balance = services.store.getBalance(player.walletPrincipal, params.appId);
 
     return {
       body: {
@@ -233,11 +233,11 @@ export function createApi(services: Services) {
     body: services.appService.getAppSetupDetails(params.appId)
   }));
 
-  addRoute("POST", "/checkout/session", async ({ headers, body }) => ({
+  addRoute("POST", "/v1/apps/:appId/checkout-sessions", async ({ params, headers, body }) => ({
     statusCode: 201,
     body: await services.paymentService.createCheckoutSession({
-      appId: body.appId as string,
-      userId: body.userId as string,
+      appId: params.appId,
+      walletPrincipal: requireAuthenticatedPlayer(services, headers, body, params.appId).walletPrincipal,
       packageId: body.packageId as string,
       successUrl: body.successUrl as string | undefined,
       cancelUrl: body.cancelUrl as string | undefined,
@@ -252,7 +252,7 @@ export function createApi(services: Services) {
     })
   }));
 
-  addRoute("POST", "/webhooks/payment", ({ headers, body }) => ({
+  addRoute("POST", "/v1/webhooks/stripe", ({ headers, body }) => ({
     body: services.paymentService.applyPaymentWebhook({
       payload: body as never,
       stripeSignature: typeof headers["stripe-signature"] === "string" ? headers["stripe-signature"] : undefined,
@@ -297,7 +297,8 @@ export function createApi(services: Services) {
     body: [...services.store.creditBalances.values()]
       .filter((balance) => !query.appId || balance.appId === query.appId)
       .map((balance) => ({
-        userId: balance.userId,
+        walletAddress: balance.walletAddress,
+        chainId: balance.chainId,
         appId: balance.appId,
         balance: balance.balance,
         reserved: balance.reserved

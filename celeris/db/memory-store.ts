@@ -15,6 +15,7 @@ import type {
   TransactionRecord,
   UsageEvent,
   User,
+  WalletPrincipal,
   UUID
 } from "../types.js";
 
@@ -211,29 +212,49 @@ export class MemoryStore implements MemoryStoreContract {
     return this.actionTypes.delete(`${appId}:${actionType}`);
   }
 
-  getBalance(userId: UUID, appId: UUID): CreditBalance {
-    const key = `${userId}:${appId}`;
+  getBalance(walletPrincipal: WalletPrincipal | UUID, appId: UUID): CreditBalance {
+    const resolved = this.resolveWalletPrincipal(walletPrincipal);
+    const key = `${appId}:${resolved.chainId}:${resolved.walletAddress}`;
     if (!this.creditBalances.has(key)) {
-      this.creditBalances.set(key, { userId, appId, balance: 0, reserved: 0, updatedAt: new Date().toISOString() });
+      this.creditBalances.set(key, {
+        appId,
+        walletAddress: resolved.walletAddress,
+        chainId: resolved.chainId,
+        balance: 0,
+        reserved: 0,
+        updatedAt: new Date().toISOString()
+      });
     }
     return this.creditBalances.get(key)!;
   }
 
-  withLockedBalance<T>(userId: UUID, appId: UUID, callback: (balance: CreditBalance) => T): T {
-    const balance = this.getBalance(userId, appId);
+  withLockedBalance<T>(walletPrincipal: WalletPrincipal | UUID, appId: UUID, callback: (balance: CreditBalance) => T): T {
+    const resolved = this.resolveWalletPrincipal(walletPrincipal);
+    const balance = this.getBalance(resolved, appId);
     const snapshot = { ...balance };
     try {
       return callback(balance);
     } catch (error) {
-      this.creditBalances.set(`${userId}:${appId}`, snapshot);
+      this.creditBalances.set(`${appId}:${resolved.chainId}:${resolved.walletAddress}`, snapshot);
       throw error;
     }
   }
 
   saveBalance(balance: CreditBalance): CreditBalance {
     balance.updatedAt = new Date().toISOString();
-    this.creditBalances.set(`${balance.userId}:${balance.appId}`, balance);
+    this.creditBalances.set(`${balance.appId}:${balance.chainId}:${balance.walletAddress}`, balance);
     return balance;
+  }
+
+  private resolveWalletPrincipal(input: WalletPrincipal | UUID): WalletPrincipal {
+    if (typeof input !== "string") {
+      return input;
+    }
+
+    return {
+      walletAddress: input.toLowerCase(),
+      chainId: "legacy:test"
+    };
   }
 
   addLedgerEntry(entry: CreditLedgerEntry): CreditLedgerEntry {

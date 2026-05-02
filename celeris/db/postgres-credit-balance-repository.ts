@@ -1,4 +1,4 @@
-import type { CreditBalance, UUID } from "../types.js";
+import type { CreditBalance, UUID, WalletPrincipal } from "../types.js";
 
 type TxLike = {
   oneOrNone<T>(query: string, values: unknown[]): Promise<T | null>;
@@ -16,26 +16,28 @@ export class PostgresCreditBalanceRepository {
     this.db = db;
   }
 
-  async withLockedBalance(userId: UUID, appId: UUID, callback: (balance: CreditBalance) => Promise<CreditBalance> | CreditBalance) {
+  async withLockedBalance(walletPrincipal: WalletPrincipal, appId: UUID, callback: (balance: CreditBalance) => Promise<CreditBalance> | CreditBalance) {
     return this.db.transaction(async (tx) => {
       const balance = await tx.oneOrNone<{
-        user_id: UUID;
+        wallet_address: string;
+        chain_id: string;
         app_id: UUID;
         balance: number;
         reserved: number;
         updated_at: string;
       }>(
         `
-          SELECT user_id, app_id, balance, reserved, updated_at
+          SELECT wallet_address, chain_id, app_id, balance, reserved, updated_at
           FROM credit_balances
-          WHERE user_id = $1 AND app_id = $2
+          WHERE wallet_address = $1 AND chain_id = $2 AND app_id = $3
           FOR UPDATE
         `,
-        [userId, appId]
+        [walletPrincipal.walletAddress, walletPrincipal.chainId, appId]
       );
 
       const current = balance ?? {
-        user_id: userId,
+        wallet_address: walletPrincipal.walletAddress,
+        chain_id: walletPrincipal.chainId,
         app_id: appId,
         balance: 0,
         reserved: 0,
@@ -43,8 +45,9 @@ export class PostgresCreditBalanceRepository {
       };
 
       const next = await callback({
-        userId: current.user_id,
         appId: current.app_id,
+        walletAddress: current.wallet_address,
+        chainId: current.chain_id,
         balance: current.balance,
         reserved: current.reserved,
         updatedAt: current.updated_at
@@ -52,15 +55,15 @@ export class PostgresCreditBalanceRepository {
 
       await tx.none(
         `
-          INSERT INTO credit_balances (user_id, app_id, balance, reserved, updated_at)
-          VALUES ($1, $2, $3, $4, NOW())
-          ON CONFLICT (user_id, app_id)
+          INSERT INTO credit_balances (wallet_address, chain_id, app_id, balance, reserved, updated_at)
+          VALUES ($1, $2, $3, $4, $5, NOW())
+          ON CONFLICT (app_id, chain_id, wallet_address)
           DO UPDATE SET
             balance = EXCLUDED.balance,
             reserved = EXCLUDED.reserved,
             updated_at = NOW()
         `,
-        [userId, appId, next.balance, next.reserved]
+        [walletPrincipal.walletAddress, walletPrincipal.chainId, appId, next.balance, next.reserved]
       );
 
       return next;

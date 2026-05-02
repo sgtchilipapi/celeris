@@ -33,15 +33,27 @@ export class MetricsService {
           { label: "Failed", value: transactions.filter((tx) => tx.status === "failed").length }
         ],
         userActivity: users.map((balance) => ({
-          userId: balance.userId,
-          value: this.store.usageEvents.filter((event) => event.appId === appId && event.userId === balance.userId).length
+          walletAddress: balance.walletAddress,
+          chainId: balance.chainId,
+          value: this.store.usageEvents.filter(
+            (event) =>
+              event.appId === appId &&
+              event.walletAddress === balance.walletAddress &&
+              event.chainId === balance.chainId
+          ).length
         }))
       },
       users: users.map((balance) => ({
-        userId: balance.userId,
+        walletAddress: balance.walletAddress,
+        chainId: balance.chainId,
         balance: balance.balance,
         reserved: balance.reserved,
-        activityEvents: this.store.usageEvents.filter((event) => event.appId === appId && event.userId === balance.userId).length
+        activityEvents: this.store.usageEvents.filter(
+          (event) =>
+            event.appId === appId &&
+            event.walletAddress === balance.walletAddress &&
+            event.chainId === balance.chainId
+        ).length
       }))
     };
   }

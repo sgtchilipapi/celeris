@@ -1,5 +1,5 @@
 import { AppError } from "./errors.js";
-import type { CheckoutSessionMetadata, UUID } from "../types.js";
+import type { CheckoutSessionMetadata, WalletPrincipal, UUID } from "../types.js";
 
 export class StripeTestCheckoutGateway {
   readonly secretKey: string;
@@ -9,7 +9,7 @@ export class StripeTestCheckoutGateway {
   }
 
   async createCheckoutSession({
-    userId,
+    walletPrincipal,
     appId,
     appName,
     credits,
@@ -17,7 +17,7 @@ export class StripeTestCheckoutGateway {
     successUrl,
     cancelUrl
   }: {
-    userId: UUID;
+    walletPrincipal: WalletPrincipal;
     appId: UUID;
     appName?: string;
     credits: number;
@@ -29,7 +29,12 @@ export class StripeTestCheckoutGateway {
       throw new AppError(422, "successUrl and cancelUrl are required for Stripe Checkout");
     }
 
-    const metadata: CheckoutSessionMetadata = { userId, appId, credits };
+    const metadata: CheckoutSessionMetadata = {
+      walletAddress: walletPrincipal.walletAddress,
+      chainId: walletPrincipal.chainId,
+      appId,
+      credits
+    };
     const form = new URLSearchParams();
     form.set("mode", "payment");
     form.set("success_url", successUrl);
@@ -40,7 +45,8 @@ export class StripeTestCheckoutGateway {
     form.set("line_items[0][price_data][unit_amount]", String(amountCents));
     form.set("line_items[0][price_data][product_data][name]", `${appName ?? "Celeris"} Credits`);
     form.set("line_items[0][price_data][product_data][description]", `${credits} credits`);
-    form.set("metadata[userId]", userId);
+    form.set("metadata[walletAddress]", walletPrincipal.walletAddress);
+    form.set("metadata[chainId]", walletPrincipal.chainId);
     form.set("metadata[appId]", appId);
     form.set("metadata[credits]", String(credits));
 

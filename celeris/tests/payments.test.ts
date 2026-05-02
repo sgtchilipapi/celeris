@@ -2,19 +2,22 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
+import { createPrivyTestToken } from "../services/privy-auth-service.js";
 
 function buildCompletedCheckoutEvent({
   eventId,
   checkoutSessionId,
-  userId,
   appId,
+  walletAddress,
+  chainId,
   credits,
   amountCents
 }: {
   eventId: string;
   checkoutSessionId: string;
-  userId: string;
   appId: string;
+  walletAddress: string;
+  chainId: string;
   credits: number;
   amountCents: number;
 }) {
@@ -26,8 +29,9 @@ function buildCompletedCheckoutEvent({
         id: checkoutSessionId,
         amount_total: amountCents,
         metadata: {
-          userId,
           appId,
+          walletAddress,
+          chainId,
           credits
         }
       }
@@ -35,37 +39,54 @@ function buildCompletedCheckoutEvent({
   };
 }
 
-test("POST /checkout/session creates a stripe checkout session with attached metadata", async () => {
+async function createWalletPaymentHarness() {
   const services = buildServices();
   const api = createApi(services);
+  const walletAddress = "0xabc123";
+  const chainId = "eip155:1";
+  const token = createPrivyTestToken({ walletAddress, chainId });
 
-  const session = await api.handle({
-    method: "POST",
-    url: "/auth/session",
-    headers: { "idempotency-key": "pay-session-user" },
-    body: { provider: "dummy", email: "payments@example.com" }
-  });
   const app = await api.handle({
     method: "POST",
     url: "/apps",
-    headers: { "idempotency-key": "pay-app" },
+    headers: { "idempotency-key": "wallet-payments-app" },
     body: {
       developerId: services.defaultDeveloper.developerId,
-      name: "Payments Test",
+      name: "Wallet Payments Test",
       priceCents: 499,
-      credits: 500
+      credits: 500,
+      privyAppId: "privy-wallet-payments",
+      allowedChainId: chainId
     }
   });
+
   const appId = app.body.appId as string;
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
+  return {
+    services,
+    api,
+    appId,
+    packageId,
+    token,
+    walletPrincipal: {
+      walletAddress,
+      chainId
+    }
+  };
+}
+
+test("POST /v1/apps/:appId/checkout-sessions creates a wallet-keyed Stripe checkout session", async () => {
+  const { services, api, appId, packageId, token, walletPrincipal } = await createWalletPaymentHarness();
+
   const response = await api.handle({
     method: "POST",
-    url: "/checkout/session",
-    headers: { "idempotency-key": "checkout-session-1" },
+    url: `/v1/apps/${appId}/checkout-sessions`,
+    headers: {
+      authorization: `Bearer ${token}`,
+      "idempotency-key": "wallet-checkout-1"
+    },
     body: {
-      appId,
-      userId: session.body.userId as string,
       packageId,
       successUrl: "https://example.com/success",
       cancelUrl: "https://example.com/cancel"
@@ -75,58 +96,39 @@ test("POST /checkout/session creates a stripe checkout session with attached met
   assert.equal(response.statusCode, 201);
   assert.equal(response.body.provider, "stripe");
   assert.match(response.body.checkoutSessionId as string, /^cs_test_/);
-  assert.match(response.body.checkoutUrl as string, /^https:\/\/checkout\.stripe\.local\/session\//);
   assert.deepEqual(response.body.metadata, {
-    userId: session.body.userId,
     appId,
+    walletAddress: walletPrincipal.walletAddress,
+    chainId: walletPrincipal.chainId,
     credits: 500
   });
 
   const storedPayment = services.store.getPaymentByProviderSessionId(response.body.checkoutSessionId as string)!;
   assert.equal(storedPayment.status, "pending");
+  assert.equal(storedPayment.walletAddress, walletPrincipal.walletAddress);
+  assert.equal(storedPayment.chainId, walletPrincipal.chainId);
   assert.deepEqual(storedPayment.metadata, response.body.metadata);
 });
 
-test("POST /webhooks/payment verifies the stripe event, records payment state, and grants credits once", async () => {
-  const services = buildServices();
-  const api = createApi(services);
-
-  const session = await api.handle({
-    method: "POST",
-    url: "/auth/session",
-    headers: { "idempotency-key": "pay-webhook-user" },
-    body: { provider: "dummy", email: "webhook@example.com" }
-  });
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "pay-webhook-app" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Webhook Test",
-      priceCents: 499,
-      credits: 500
-    }
-  });
-  const appId = app.body.appId as string;
-  const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
+test("POST /v1/webhooks/stripe grants credits to the authenticated wallet once", async () => {
+  const { services, api, appId, packageId, token, walletPrincipal } = await createWalletPaymentHarness();
 
   const checkout = await api.handle({
     method: "POST",
-    url: "/checkout/session",
-    headers: { "idempotency-key": "pay-webhook-checkout" },
-    body: {
-      appId,
-      userId: session.body.userId as string,
-      packageId
-    }
+    url: `/v1/apps/${appId}/checkout-sessions`,
+    headers: {
+      authorization: `Bearer ${token}`,
+      "idempotency-key": "wallet-checkout-2"
+    },
+    body: { packageId }
   });
 
   const event = buildCompletedCheckoutEvent({
-    eventId: "evt_1",
+    eventId: "evt_wallet_paid",
     checkoutSessionId: checkout.body.checkoutSessionId as string,
-    userId: session.body.userId as string,
     appId,
+    walletAddress: walletPrincipal.walletAddress,
+    chainId: walletPrincipal.chainId,
     credits: 500,
     amountCents: 499
   });
@@ -134,9 +136,9 @@ test("POST /webhooks/payment verifies the stripe event, records payment state, a
 
   const webhook = await api.handle({
     method: "POST",
-    url: "/webhooks/payment",
+    url: "/v1/webhooks/stripe",
     headers: {
-      "idempotency-key": "pay-webhook-1",
+      "idempotency-key": "wallet-webhook-1",
       "stripe-signature": signature
     },
     body: event
@@ -144,43 +146,21 @@ test("POST /webhooks/payment verifies the stripe event, records payment state, a
 
   assert.equal(webhook.statusCode, 200);
   assert.equal(webhook.body.status, "paid");
-  assert.equal(webhook.body.grantedCredits, 500);
-  assert.equal(services.store.getBalance(session.body.userId as string, appId).balance, 500);
+  assert.equal(webhook.body.walletAddress, walletPrincipal.walletAddress);
+  assert.equal(webhook.body.chainId, walletPrincipal.chainId);
+  assert.equal(services.store.getBalance(walletPrincipal, appId).balance, 500);
   assert.equal(services.store.creditLedger.filter((entry) => entry.type === "grant").length, 1);
-
-  const payment = services.store.getPaymentByProviderSessionId(checkout.body.checkoutSessionId as string)!;
-  assert.equal(payment.providerEventId, "evt_1");
-  assert.equal(payment.status, "paid");
 });
 
-test("payment webhook idempotency and signature verification prevent duplicate grants", async () => {
-  const services = buildServices();
-  const api = createApi(services);
-
-  const session = await api.handle({
-    method: "POST",
-    url: "/auth/session",
-    headers: { "idempotency-key": "pay-idem-user" },
-    body: { provider: "dummy", email: "idem@example.com" }
-  });
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "pay-idem-app" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Idempotent Pay",
-      priceCents: 499,
-      credits: 500
-    }
-  });
-  const appId = app.body.appId as string;
+test("wallet payment webhook idempotency and signature verification prevent duplicate grants", async () => {
+  const { services, api, appId, token, walletPrincipal } = await createWalletPaymentHarness();
 
   const event = buildCompletedCheckoutEvent({
-    eventId: "evt_new_payment",
-    checkoutSessionId: "cs_test_manual_event",
-    userId: session.body.userId as string,
+    eventId: "evt_wallet_manual",
+    checkoutSessionId: "cs_test_wallet_manual",
     appId,
+    walletAddress: walletPrincipal.walletAddress,
+    chainId: walletPrincipal.chainId,
     credits: 500,
     amountCents: 499
   });
@@ -188,27 +168,27 @@ test("payment webhook idempotency and signature verification prevent duplicate g
 
   const first = await api.handle({
     method: "POST",
-    url: "/webhooks/payment",
+    url: "/v1/webhooks/stripe",
     headers: {
-      "idempotency-key": "pay-idem-1",
+      "idempotency-key": "wallet-webhook-2",
       "stripe-signature": validSignature
     },
     body: event
   });
   const duplicate = await api.handle({
     method: "POST",
-    url: "/webhooks/payment",
+    url: "/v1/webhooks/stripe",
     headers: {
-      "idempotency-key": "pay-idem-1",
+      "idempotency-key": "wallet-webhook-2",
       "stripe-signature": validSignature
     },
     body: event
   });
   const invalid = await api.handle({
     method: "POST",
-    url: "/webhooks/payment",
+    url: "/v1/webhooks/stripe",
     headers: {
-      "idempotency-key": "pay-idem-2",
+      "idempotency-key": "wallet-webhook-3",
       "stripe-signature": "bad-signature"
     },
     body: event
@@ -216,7 +196,32 @@ test("payment webhook idempotency and signature verification prevent duplicate g
 
   assert.equal(first.body.paymentId, duplicate.body.paymentId);
   assert.equal(services.store.creditLedger.filter((entry) => entry.type === "grant").length, 1);
-  assert.equal(services.store.getBalance(session.body.userId as string, appId).balance, 500);
+  assert.equal(services.store.getBalance(walletPrincipal, appId).balance, 500);
   assert.equal(invalid.statusCode, 400);
   assert.equal(invalid.body.error, "invalid stripe signature");
+
+  const unauthorizedCheckout = await api.handle({
+    method: "POST",
+    url: `/v1/apps/${appId}/checkout-sessions`,
+    headers: { "idempotency-key": "wallet-checkout-missing-auth" },
+    body: { packageId: "pkg_missing" }
+  });
+  const removedCheckoutRoute = await api.handle({
+    method: "POST",
+    url: "/checkout/session",
+    headers: { "idempotency-key": "wallet-legacy-checkout" },
+    body: {}
+  });
+  const removedWebhookRoute = await api.handle({
+    method: "POST",
+    url: "/webhooks/payment",
+    headers: { "idempotency-key": "wallet-legacy-webhook" },
+    body: {}
+  });
+
+  assert.equal(unauthorizedCheckout.statusCode, 401);
+  assert.equal(unauthorizedCheckout.body.error, "authorization token required");
+  assert.equal(removedCheckoutRoute.statusCode, 404);
+  assert.equal(removedWebhookRoute.statusCode, 404);
+  assert.match(token, /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
 });

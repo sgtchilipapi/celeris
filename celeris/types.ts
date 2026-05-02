@@ -68,8 +68,9 @@ export interface CreditPackage {
 }
 
 export interface CreditBalance {
-  userId: UUID;
   appId: UUID;
+  walletAddress: WalletAddress;
+  chainId: ChainId;
   balance: number;
   reserved: number;
   updatedAt: string;
@@ -77,8 +78,9 @@ export interface CreditBalance {
 
 export interface CreditLedgerEntry {
   entryId: UUID;
-  userId: UUID;
   appId: UUID;
+  walletAddress: WalletAddress;
+  chainId: ChainId;
   pendingActionId: UUID | null;
   paymentId: UUID | null;
   type: LedgerEntryType;
@@ -161,8 +163,9 @@ export interface AssetDeliveryRecord {
 
 export interface Payment {
   paymentId: UUID;
-  userId: UUID;
   appId: UUID;
+  walletAddress: WalletAddress;
+  chainId: ChainId;
   packageId: UUID;
   provider: string;
   providerSessionId: string;
@@ -179,6 +182,8 @@ export interface UsageEvent {
   eventId: UUID;
   appId: UUID;
   userId?: UUID;
+  walletAddress?: WalletAddress;
+  chainId?: ChainId;
   eventType: string;
   value?: number;
   metadata: JsonObject;
@@ -272,7 +277,7 @@ export interface UpdateActionRequest {
 
 export interface CreateCheckoutSessionRequest {
   appId: UUID;
-  userId: UUID;
+  walletPrincipal: WalletPrincipal;
   packageId: UUID;
   successUrl?: string;
   cancelUrl?: string;
@@ -280,8 +285,10 @@ export interface CreateCheckoutSessionRequest {
 }
 
 export interface CheckoutSessionMetadata extends JsonObject {
-  userId: UUID;
+  userId?: UUID;
   appId: UUID;
+  walletAddress?: WalletAddress;
+  chainId?: ChainId;
   credits: number;
 }
 
@@ -309,8 +316,9 @@ export interface StripeCheckoutSessionCompletedEvent {
 
 export interface PaymentWebhookResponse {
   paymentId: UUID;
-  userId: UUID;
   appId: UUID;
+  walletAddress: WalletAddress;
+  chainId: ChainId;
   grantedCredits: number;
   status: PaymentStatus;
   providerEventId: string;
@@ -392,7 +400,8 @@ export interface RelayerNetworkClient {
 }
 
 export interface AppMetricsUser {
-  userId: UUID;
+  walletAddress: WalletAddress;
+  chainId: ChainId;
   balance: number;
   reserved: number;
   activityEvents: number;
@@ -410,7 +419,7 @@ export interface AppMetrics {
   chartSeries: {
     creditFlow: Array<{ label: string; value: number }>;
     transactionOutcomes: Array<{ label: string; value: number }>;
-    userActivity: Array<{ userId: UUID; value: number }>;
+    userActivity: Array<{ walletAddress: WalletAddress; chainId: ChainId; value: number }>;
   };
   users: AppMetricsUser[];
 }
@@ -456,8 +465,8 @@ export interface MemoryStore {
   upsertActionType(input: { appId: UUID; actionType: string; cost: number; executionMode: ActionExecutionMode }): ActionType;
   getActionType(appId: UUID, actionType: string): ActionType | null;
   deleteActionType(appId: UUID, actionType: string): boolean;
-  getBalance(userId: UUID, appId: UUID): CreditBalance;
-  withLockedBalance<T>(userId: UUID, appId: UUID, callback: (balance: CreditBalance) => T): T;
+  getBalance(walletPrincipal: WalletPrincipal | UUID, appId: UUID): CreditBalance;
+  withLockedBalance<T>(walletPrincipal: WalletPrincipal | UUID, appId: UUID, callback: (balance: CreditBalance) => T): T;
   saveBalance(balance: CreditBalance): CreditBalance;
   addLedgerEntry(entry: CreditLedgerEntry): CreditLedgerEntry;
   createPendingAction(record: PendingAction): PendingAction;

@@ -1,6 +1,6 @@
 import crypto, { randomUUID } from "node:crypto";
 import { AppError } from "./errors.js";
-import type { CheckoutSessionMetadata, StripeCheckoutSessionCompletedEvent, UUID } from "../types.js";
+import type { CheckoutSessionMetadata, StripeCheckoutSessionCompletedEvent, WalletPrincipal, UUID } from "../types.js";
 
 export class MockStripeGateway {
   readonly webhookSecret: string;
@@ -10,14 +10,14 @@ export class MockStripeGateway {
   }
 
   async createCheckoutSession({
-    userId,
+    walletPrincipal,
     appId,
     credits,
     amountCents,
     successUrl,
     cancelUrl
   }: {
-    userId: UUID;
+    walletPrincipal: WalletPrincipal;
     appId: UUID;
     credits: number;
     amountCents: number;
@@ -25,7 +25,12 @@ export class MockStripeGateway {
     cancelUrl?: string;
   }) {
     const sessionId = `cs_test_${randomUUID()}`;
-    const metadata: CheckoutSessionMetadata = { userId, appId, credits };
+    const metadata: CheckoutSessionMetadata = {
+      walletAddress: walletPrincipal.walletAddress,
+      chainId: walletPrincipal.chainId,
+      appId,
+      credits
+    };
     return {
       provider: "stripe",
       sessionId,
