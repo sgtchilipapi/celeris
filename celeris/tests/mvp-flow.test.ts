@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
-import { createPrivyTestToken } from "../services/privy-auth-service.js";
 import type { WalletPrincipal } from "../types.js";
+import { createHostedPlayerSession } from "./helpers/auth.js";
 
 function buildCompletedCheckoutEvent({
   eventId,
@@ -42,7 +42,6 @@ async function createFlowHarness() {
   const services = buildServices();
   const api = createApi(services);
   const walletPrincipal = { walletAddress: "0xmvp123", chainId: "eip155:1" } satisfies WalletPrincipal;
-  const token = createPrivyTestToken(walletPrincipal);
 
   const app = await api.handle({
     method: "POST",
@@ -57,6 +56,11 @@ async function createFlowHarness() {
     }
   });
   const appId = app.body.appId as string;
+  const session = await createHostedPlayerSession({
+    api,
+    appId,
+    walletAddress: walletPrincipal.walletAddress
+  });
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
   await api.handle({
@@ -69,7 +73,7 @@ async function createFlowHarness() {
   const checkout = await api.handle({
     method: "POST",
     url: `/v1/apps/${appId}/checkout-sessions`,
-    headers: { "idempotency-key": "mvp-checkout-1", authorization: `Bearer ${token}` },
+    headers: { "idempotency-key": "mvp-checkout-1", authorization: `Bearer ${session.accessToken}` },
     body: { packageId }
   });
 
@@ -92,7 +96,7 @@ async function createFlowHarness() {
     body: paymentEvent
   });
 
-  return { services, api, appId, token, walletPrincipal };
+  return { services, api, appId, token: session.accessToken, walletPrincipal };
 }
 
 test("happy path mints an item, captures credits, and records delivery plus transaction", async () => {

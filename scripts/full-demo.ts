@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -7,10 +8,14 @@ import { fileURLToPath } from "node:url";
 import { resolvePlatformPrivyConfigFromEnv } from "../celeris/services/privy-auth-service.js";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+loadDotEnv(path.join(rootDir, ".env"));
+loadDotEnv(path.join(rootDir, ".env.local"));
+
 const cloudflaredPath = path.join(rootDir, ".bin", "cloudflared");
 const defaultApiOrigin = "http://localhost:3000";
 const defaultDashboardOrigin = defaultApiOrigin;
 const defaultFrontendOrigin = "http://localhost:3002";
+const configuredHostedAuthOrigin = String(process.env.CELERIS_HOSTED_AUTH_ORIGIN ?? defaultApiOrigin).trim() || defaultApiOrigin;
 const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
 const platformPrivyConfig = resolvePlatformPrivyConfigFromEnv();
 
@@ -73,12 +78,14 @@ process.on("exit", () => {
 
 async function main() {
   const config = parseArgs(process.argv.slice(2));
+  const tunnelConfig = resolveTunnelConfig({ startPlayerFrontend: config.startPlayerFrontend });
+  validateTunnelConfig(tunnelConfig, config);
 
   console.log("Starting Celeris API...");
   const apiProcess = spawnManagedProcess("api", ["node", "--import", "tsx", "celeris/api/index.ts"]);
   await waitForHttp(`${defaultApiOrigin}/apps`);
 
-  const demoSession = await provisionDemo(config);
+  const demoSession = await provisionDemo(config, tunnelConfig);
   const setup = await getJson<AppSetupDetails>(`/apps/${demoSession.appId}/setup`);
 
   let playerFrontendStarted = false;
@@ -92,6 +99,7 @@ async function main() {
       `--app-id=${demoSession.appId}`,
       `--app-name=${config.appName}`,
       `--program-id=${config.programId}`,
+      `--hosted-auth-origin=${tunnelConfig.hostedAuthOrigin}`,
       `--allowed-chain-id=${config.allowedChainId}`,
       `--first-time-claim-action-id=${config.firstTimeClaimActionId}`,
       `--mint-item-action-id=${config.mintItemActionId}`,
@@ -115,11 +123,11 @@ async function main() {
       console.log("Starting named cloudflared tunnel...");
       const namedTunnelUrls = await spawnNamedTunnel({
         token: process.env.CLOUDFLARED_TUNNEL_TOKEN,
-        dashboardHostname: process.env.CLOUDFLARED_DASHBOARD_HOSTNAME,
-        gameHostname: playerFrontendStarted ? process.env.CLOUDFLARED_GAME_HOSTNAME : undefined
+        apiHostname: tunnelConfig.apiHostname,
+        frontendHostname: playerFrontendStarted ? tunnelConfig.frontendHostname : undefined
       });
-      apiTunnelUrl = namedTunnelUrls.dashboardUrl;
-      gameTunnelUrl = namedTunnelUrls.gameUrl;
+      apiTunnelUrl = namedTunnelUrls.apiUrl;
+      gameTunnelUrl = namedTunnelUrls.frontendUrl;
     } else {
       console.log("Starting cloudflared dashboard tunnel...");
       apiTunnelUrl = await spawnTunnel("dashboard-tunnel", defaultApiOrigin);
@@ -137,7 +145,8 @@ async function main() {
     stripeMode,
     apiTunnelUrl,
     gameTunnelUrl,
-    playerFrontendStarted
+    playerFrontendStarted,
+    hostedAuthOrigin: tunnelConfig.hostedAuthOrigin
   });
 
   await waitForever(apiProcess);
@@ -149,7 +158,7 @@ function parseArgs(args: string[]): DemoConfig {
     creditsPerDollar: 500,
     itemDefId: "iron_sword",
     programId: createMockSolanaProgramId(),
-    allowedChainId: "eip155:1",
+    allowedChainId: "solana:103",
     firstTimeClaimActionId: "first_time_claim",
     mintItemActionId: "mint_item",
     claimRewardsActionId: "claim_rewards",
@@ -277,7 +286,13 @@ async function waitForHttp(url: string, { expectJson = true }: { expectJson?: bo
   throw new Error(`Timed out waiting for ${url}: ${lastError}`);
 }
 
-async function provisionDemo(config: DemoConfig): Promise<DemoSession> {
+async function provisionDemo(
+  config: DemoConfig,
+  tunnelConfig: {
+    allowedFrontendOrigins: string[];
+    allowedRedirectUris: string[];
+  }
+): Promise<DemoSession> {
   const credentialSuffix = randomUUID().slice(0, 8);
   const developerUsername = `demo-dev-${credentialSuffix}`;
   const developerPassword = `demo-pass-${credentialSuffix}`;
@@ -294,7 +309,9 @@ async function provisionDemo(config: DemoConfig): Promise<DemoSession> {
     name: config.appName,
     priceCents: 100,
     credits: config.creditsPerDollar,
-    allowedChainId: config.allowedChainId
+    allowedChainId: config.allowedChainId,
+    allowedFrontendOrigins: tunnelConfig.allowedFrontendOrigins,
+    allowedRedirectUris: tunnelConfig.allowedRedirectUris
   });
 
   await configureAction(app.appId, config.firstTimeClaimActionId, 10, config.firstTimeClaimExecutionMode);
@@ -418,25 +435,27 @@ async function spawnTunnel(name: string, url: string) {
 
 async function spawnNamedTunnel({
   token,
-  dashboardHostname,
-  gameHostname
+  apiHostname,
+  frontendHostname
 }: {
   token: string;
-  dashboardHostname?: string;
-  gameHostname?: string;
+  apiHostname?: string;
+  frontendHostname?: string;
 }) {
-  if (!dashboardHostname) {
-    throw new Error("Named tunnel mode requires CLOUDFLARED_DASHBOARD_HOSTNAME.");
+  if (!apiHostname) {
+    throw new Error(
+      "Named tunnel mode requires CLOUDFLARED_AUTH_HOSTNAME or CLOUDFLARED_DASHBOARD_HOSTNAME."
+    );
   }
 
   const ingress = [
     "ingress:",
-    `  - hostname: ${dashboardHostname}`,
+    `  - hostname: ${apiHostname}`,
     `    service: ${defaultApiOrigin}`
   ];
 
-  if (gameHostname) {
-    ingress.push(`  - hostname: ${gameHostname}`, `    service: ${defaultFrontendOrigin}`);
+  if (frontendHostname) {
+    ingress.push(`  - hostname: ${frontendHostname}`, `    service: ${defaultFrontendOrigin}`);
   }
 
   ingress.push("  - service: http_status:404", "");
@@ -461,7 +480,7 @@ async function spawnNamedTunnel({
   });
   children.push(child);
 
-  return await new Promise<{ dashboardUrl: string; gameUrl: string | null }>((resolve, reject) => {
+  return await new Promise<{ apiUrl: string; frontendUrl: string | null }>((resolve, reject) => {
     let settled = false;
     let lastOutput = "";
     const timeout = setTimeout(() => {
@@ -485,8 +504,8 @@ async function spawnNamedTunnel({
         settled = true;
         clearTimeout(timeout);
         resolve({
-          dashboardUrl: `https://${dashboardHostname}`,
-          gameUrl: gameHostname ? `https://${gameHostname}` : null
+          apiUrl: `https://${apiHostname}`,
+          frontendUrl: frontendHostname ? `https://${frontendHostname}` : null
         });
       }
     };
@@ -516,7 +535,8 @@ function printSummary({
   stripeMode,
   apiTunnelUrl,
   gameTunnelUrl,
-  playerFrontendStarted
+  playerFrontendStarted,
+  hostedAuthOrigin
 }: {
   config: DemoConfig;
   demoSession: DemoSession;
@@ -525,6 +545,7 @@ function printSummary({
   apiTunnelUrl: string | null;
   gameTunnelUrl: string | null;
   playerFrontendStarted: boolean;
+  hostedAuthOrigin: string;
 }) {
   const localDashboardUrl = buildDashboardUrl(defaultDashboardOrigin, demoSession);
   const publicDashboardUrl = apiTunnelUrl ? buildDashboardUrl(apiTunnelUrl, demoSession) : null;
@@ -539,7 +560,7 @@ function printSummary({
   console.log(`Developer ID: ${demoSession.developerId}`);
   console.log(`App ID: ${demoSession.appId}`);
   console.log(`API key: ${demoSession.apiKey}`);
-  console.log(`Platform Privy app ID: ${platformPrivyConfig.privyAppId}`);
+  console.log(`Hosted auth origin: ${hostedAuthOrigin}`);
   console.log(`Allowed chain ID: ${setup.playerPolicy.allowedChainId}`);
   console.log(`Mock program ID: ${config.programId}`);
   console.log("");
@@ -553,13 +574,16 @@ function printSummary({
     console.log(`Local game frontend: ${defaultFrontendOrigin}`);
   } else {
     console.log("Local game frontend: not started");
-    console.log("Reason: the current player demo still targets legacy player APIs. Start it later with --with-player-frontend when that surface is migrated.");
+    console.log("Reason: start it with --with-player-frontend when you want to exercise the hosted browser login flow.");
   }
   if (publicDashboardUrl) {
     console.log(`Public dashboard: ${publicDashboardUrl}`);
   }
   if (gameTunnelUrl) {
     console.log(`Public game frontend: ${gameTunnelUrl}`);
+  }
+  if (hostedAuthOrigin !== defaultApiOrigin) {
+    console.log(`Public hosted login: ${hostedAuthOrigin}/auth/login`);
   }
   console.log("");
   console.log("WO-01 manual checks:");
@@ -582,6 +606,67 @@ function buildDashboardUrl(base: string, demoSession: DemoSession) {
   url.searchParams.set("developerId", demoSession.developerId);
   url.searchParams.set("appId", demoSession.appId);
   return url.toString();
+}
+
+function resolveTunnelConfig({ startPlayerFrontend }: { startPlayerFrontend: boolean }) {
+  const apiHostname = normalizeHostname(
+    process.env.CLOUDFLARED_AUTH_HOSTNAME ?? process.env.CLOUDFLARED_DASHBOARD_HOSTNAME
+  );
+  const frontendHostname = startPlayerFrontend
+    ? normalizeHostname(process.env.CLOUDFLARED_DEMO_FRONTEND_HOSTNAME ?? process.env.CLOUDFLARED_GAME_HOSTNAME)
+    : null;
+  const publicFrontendOrigin = frontendHostname ? `https://${frontendHostname}` : null;
+  const allowedFrontendOrigins = publicFrontendOrigin
+    ? uniqueStrings([defaultFrontendOrigin, publicFrontendOrigin])
+    : [defaultFrontendOrigin];
+  const allowedRedirectUris = allowedFrontendOrigins.map((origin) => `${origin}/auth/callback`);
+
+  return {
+    apiHostname,
+    frontendHostname,
+    hostedAuthOrigin: configuredHostedAuthOrigin,
+    allowedFrontendOrigins,
+    allowedRedirectUris
+  };
+}
+
+function validateTunnelConfig(
+  tunnelConfig: {
+    apiHostname?: string;
+    frontendHostname: string | null;
+    hostedAuthOrigin: string;
+  },
+  config: DemoConfig
+) {
+  if (!config.enableTunnels) {
+    return;
+  }
+
+  const hasNamedHostname = Boolean(tunnelConfig.apiHostname || tunnelConfig.frontendHostname);
+  if (hasNamedHostname && !process.env.CLOUDFLARED_TUNNEL_TOKEN) {
+    throw new Error(
+      "Named Cloudflare hostnames are configured, but CLOUDFLARED_TUNNEL_TOKEN is missing. " +
+        "Set CLOUDFLARED_TUNNEL_TOKEN or remove the CLOUDFLARED_* hostname variables to use quick tunnels."
+    );
+  }
+
+  if (tunnelConfig.apiHostname) {
+    const expectedHostedAuthOrigin = `https://${tunnelConfig.apiHostname}`;
+    if (tunnelConfig.hostedAuthOrigin !== expectedHostedAuthOrigin) {
+      throw new Error(
+        `CELERIS_HOSTED_AUTH_ORIGIN must match the named auth hostname. Expected ${expectedHostedAuthOrigin}, got ${tunnelConfig.hostedAuthOrigin}.`
+      );
+    }
+  }
+}
+
+function normalizeHostname(value?: string | null) {
+  const normalized = String(value ?? "").trim();
+  return normalized || undefined;
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values)];
 }
 
 function createMockSolanaProgramId(length = 44) {
@@ -615,6 +700,40 @@ function shutdown(exitCode = 0) {
     }
   }
   process.exit(exitCode);
+}
+
+function loadDotEnv(filePath: string) {
+  if (!fsSync.existsSync(filePath)) {
+    return;
+  }
+
+  const source = fsSync.readFileSync(filePath, "utf8");
+  for (const line of source.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    const separatorIndex = trimmed.indexOf("=");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+
+    const key = trimmed.slice(0, separatorIndex).trim();
+    if (!key || process.env[key] !== undefined) {
+      continue;
+    }
+
+    let value = trimmed.slice(separatorIndex + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    process.env[key] = value;
+  }
 }
 
 if (isMainModule) {

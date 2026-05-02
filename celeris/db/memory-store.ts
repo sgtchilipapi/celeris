@@ -3,15 +3,20 @@ import type {
   ActionType,
   App,
   AppPlayerPolicy,
+  AuthCode,
   AssetDeliveryRecord,
   CreditBalance,
   CreditLedgerEntry,
   CreditPackage,
+  CelerisUser,
   Developer,
   DeveloperAccount,
+  LoginRequest,
   MemoryStore as MemoryStoreContract,
   Payment,
   PendingAction,
+  PlayerSession,
+  ProjectUser,
   TransactionRecord,
   UsageEvent,
   User,
@@ -23,8 +28,13 @@ export class MemoryStore implements MemoryStoreContract {
   developers = new Map<UUID, Developer>();
   developerAccounts = new Map<string, DeveloperAccount>();
   users = new Map<UUID, User>();
+  celerisUsers = new Map<UUID, CelerisUser>();
+  projectUsers = new Map<UUID, ProjectUser>();
   apps = new Map<UUID, App>();
   appPlayerPolicies = new Map<UUID, AppPlayerPolicy>();
+  loginRequests = new Map<UUID, LoginRequest>();
+  authCodes = new Map<UUID, AuthCode>();
+  playerSessions = new Map<UUID, PlayerSession>();
   creditPackages = new Map<UUID, CreditPackage>();
   creditBalances = new Map<string, CreditBalance>();
   creditLedger: CreditLedgerEntry[] = [];
@@ -86,6 +96,75 @@ export class MemoryStore implements MemoryStoreContract {
   findUserByEmail(email: string): User | null {
     const normalized = email.toLowerCase();
     return [...this.users.values()].find((user) => user.email?.toLowerCase() === normalized) ?? null;
+  }
+
+  upsertCelerisUser({
+    externalSubject,
+    walletAddress,
+    chainId
+  }: {
+    externalSubject: string;
+    walletAddress: string;
+    chainId: string;
+  }): CelerisUser {
+    const existing = this.getCelerisUserByExternalSubject(externalSubject);
+    if (existing) {
+      existing.walletAddress = walletAddress;
+      existing.chainId = chainId;
+      this.celerisUsers.set(existing.celerisUserId, existing);
+      return existing;
+    }
+
+    const created: CelerisUser = {
+      celerisUserId: randomUUID(),
+      externalSubject,
+      walletAddress,
+      chainId,
+      createdAt: new Date().toISOString()
+    };
+    this.celerisUsers.set(created.celerisUserId, created);
+    return created;
+  }
+
+  getCelerisUserByExternalSubject(externalSubject: string): CelerisUser | null {
+    return [...this.celerisUsers.values()].find((user) => user.externalSubject === externalSubject) ?? null;
+  }
+
+  upsertProjectUser({
+    projectId,
+    celerisUserId,
+    walletAddress,
+    chainId
+  }: {
+    projectId: UUID;
+    celerisUserId: UUID;
+    walletAddress: string;
+    chainId: string;
+  }): ProjectUser {
+    const existing = this.getProjectUser(projectId, celerisUserId);
+    if (existing) {
+      existing.walletAddress = walletAddress;
+      existing.chainId = chainId;
+      this.projectUsers.set(existing.projectUserId, existing);
+      return existing;
+    }
+
+    const created: ProjectUser = {
+      projectUserId: randomUUID(),
+      projectId,
+      celerisUserId,
+      walletAddress,
+      chainId,
+      createdAt: new Date().toISOString()
+    };
+    this.projectUsers.set(created.projectUserId, created);
+    return created;
+  }
+
+  getProjectUser(projectId: UUID, celerisUserId: UUID): ProjectUser | null {
+    return [...this.projectUsers.values()].find(
+      (projectUser) => projectUser.projectId === projectId && projectUser.celerisUserId === celerisUserId
+    ) ?? null;
   }
 
   createApp({
@@ -151,6 +230,26 @@ export class MemoryStore implements MemoryStoreContract {
       }
     }
     this.appPlayerPolicies.delete(appId);
+    for (const [id, projectUser] of this.projectUsers.entries()) {
+      if (projectUser.projectId === appId) {
+        this.projectUsers.delete(id);
+      }
+    }
+    for (const [id, loginRequest] of this.loginRequests.entries()) {
+      if (loginRequest.projectId === appId) {
+        this.loginRequests.delete(id);
+      }
+    }
+    for (const [id, authCode] of this.authCodes.entries()) {
+      if (authCode.projectId === appId) {
+        this.authCodes.delete(id);
+      }
+    }
+    for (const [id, session] of this.playerSessions.entries()) {
+      if (session.projectId === appId) {
+        this.playerSessions.delete(id);
+      }
+    }
     for (const [key, action] of this.actionTypes.entries()) {
       if (action.appId === appId) {
         this.actionTypes.delete(key);
@@ -294,6 +393,36 @@ export class MemoryStore implements MemoryStoreContract {
 
   savePayment(record: Payment): Payment {
     this.payments.set(record.paymentId, record);
+    return record;
+  }
+
+  createLoginRequest(record: LoginRequest): LoginRequest {
+    this.loginRequests.set(record.loginRequestId, record);
+    return record;
+  }
+
+  saveLoginRequest(record: LoginRequest): LoginRequest {
+    this.loginRequests.set(record.loginRequestId, record);
+    return record;
+  }
+
+  createAuthCode(record: AuthCode): AuthCode {
+    this.authCodes.set(record.codeId, record);
+    return record;
+  }
+
+  saveAuthCode(record: AuthCode): AuthCode {
+    this.authCodes.set(record.codeId, record);
+    return record;
+  }
+
+  createPlayerSession(record: PlayerSession): PlayerSession {
+    this.playerSessions.set(record.sessionId, record);
+    return record;
+  }
+
+  savePlayerSession(record: PlayerSession): PlayerSession {
+    this.playerSessions.set(record.sessionId, record);
     return record;
   }
 

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
-import { createPrivyTestToken } from "../services/privy-auth-service.js";
+import { createHostedPlayerSession } from "./helpers/auth.js";
 
 function buildCompletedCheckoutEvent({
   eventId,
@@ -44,7 +44,6 @@ async function createWalletPaymentHarness() {
   const api = createApi(services);
   const walletAddress = "0xabc123";
   const chainId = "eip155:1";
-  const token = createPrivyTestToken({ walletAddress, chainId });
 
   const app = await api.handle({
     method: "POST",
@@ -60,6 +59,11 @@ async function createWalletPaymentHarness() {
   });
 
   const appId = app.body.appId as string;
+  const session = await createHostedPlayerSession({
+    api,
+    appId,
+    walletAddress
+  });
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
   return {
@@ -67,7 +71,7 @@ async function createWalletPaymentHarness() {
     api,
     appId,
     packageId,
-    token,
+    token: session.accessToken,
     walletPrincipal: {
       walletAddress,
       chainId

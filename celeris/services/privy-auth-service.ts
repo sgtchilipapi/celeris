@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { PrivyClient } from "@privy-io/node";
 import { AppError } from "./errors.js";
 import type {
   ChainId,
@@ -15,6 +16,11 @@ export interface AuthenticatedPlayer {
   walletPrincipal: WalletPrincipal;
 }
 
+export interface VerifiedPrivyIdentity {
+  externalSubject: string;
+  walletPrincipal: WalletPrincipal;
+}
+
 export class PrivyAuthService {
   readonly store: MemoryStore;
   readonly verifier: PrivyTokenVerifier;
@@ -24,24 +30,41 @@ export class PrivyAuthService {
     this.verifier = verifier;
   }
 
-  authenticatePlayerToken(token: string, { allowedChainId }: { allowedChainId?: ChainId } = {}): AuthenticatedPlayer {
+  async authenticatePlayerToken(token: string, { allowedChainId }: { allowedChainId?: ChainId } = {}): Promise<AuthenticatedPlayer> {
     if (!token) {
       throw new AppError(401, "authorization token required");
     }
 
-    const claims = this.verifier.verifyToken(token);
+    const claims = await this.verifier.verifyToken(token, { allowedChainId });
     const walletPrincipal = this.resolveWalletPrincipal(claims);
+    const externalSubject = this.resolveExternalSubject(claims);
     if (allowedChainId && walletPrincipal.chainId !== allowedChainId) {
       throw new AppError(403, "unsupported chain");
     }
 
-    const user = this.store.findUserByExternalSubject(this.subjectForWallet(walletPrincipal)) ?? this.store.createUser({
-      externalSubject: this.subjectForWallet(walletPrincipal),
+    const user = this.store.findUserByExternalSubject(externalSubject) ?? this.store.createUser({
+      externalSubject,
       email: null
     });
 
     return {
       userId: user.userId,
+      walletPrincipal
+    };
+  }
+
+  async resolveVerifiedToken(token: string, { allowedChainId }: { allowedChainId?: ChainId } = {}): Promise<VerifiedPrivyIdentity> {
+    if (!token) {
+      throw new AppError(401, "authorization token required");
+    }
+    const claims = await this.verifier.verifyToken(token, { allowedChainId });
+    const walletPrincipal = this.resolveWalletPrincipal(claims);
+    const externalSubject = this.resolveExternalSubject(claims);
+    if (allowedChainId && walletPrincipal.chainId !== allowedChainId) {
+      throw new AppError(403, "unsupported chain");
+    }
+    return {
+      externalSubject,
       walletPrincipal
     };
   }
@@ -79,8 +102,12 @@ export class PrivyAuthService {
     return normalized ? normalized : null;
   }
 
-  private subjectForWallet({ walletAddress, chainId }: WalletPrincipal) {
-    return `privy-wallet:${chainId}:${walletAddress}`;
+  private resolveExternalSubject(claims: PrivyClaims) {
+    const normalized = String(claims.sub ?? "").trim();
+    if (!normalized) {
+      throw new AppError(401, "privy token missing subject");
+    }
+    return normalized;
   }
 }
 
@@ -124,34 +151,166 @@ export class LocalPrivyTokenVerifier implements PrivyTokenVerifier {
   }
 }
 
+export class HostedPrivyTokenVerifier implements PrivyTokenVerifier {
+  readonly client: PrivyClient;
+
+  constructor({
+    appId,
+    appSecret
+  }: {
+    appId: string;
+    appSecret: string;
+  }) {
+    this.client = new PrivyClient({
+      appId,
+      appSecret
+    });
+  }
+
+  async verifyToken(token: string, { allowedChainId }: { allowedChainId?: ChainId } = {}): Promise<PrivyClaims> {
+    try {
+      const verified = await this.client.utils().auth().verifyAccessToken(token);
+      const user = await this.client.users()._get(verified.user_id);
+      const walletPrincipal = this.resolveWalletPrincipal(user.linked_accounts, allowedChainId);
+
+      return {
+        sub: verified.user_id,
+        walletAddress: walletPrincipal.walletAddress,
+        chainId: walletPrincipal.chainId,
+        iat: verified.issued_at,
+        exp: verified.expiration
+      };
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      throw new AppError(401, "invalid authorization token", {
+        detail: error instanceof Error ? error.message : "unknown error"
+      });
+    }
+  }
+
+  private resolveWalletPrincipal(
+    linkedAccounts: Array<{
+      type?: string;
+      address?: string;
+      chain_id?: string;
+      chain_type?: string;
+      wallet_client_type?: string;
+    }>,
+    allowedChainId?: ChainId
+  ): WalletPrincipal {
+    return resolveHostedWalletPrincipalFromLinkedAccounts(linkedAccounts, allowedChainId);
+  }
+}
+
+export function resolveHostedWalletPrincipalFromLinkedAccounts(
+  linkedAccounts: Array<{
+    type?: string;
+    address?: string;
+    chain_id?: string;
+    chain_type?: string;
+    wallet_client_type?: string;
+  }>,
+  allowedChainId?: ChainId
+): WalletPrincipal {
+  const walletAccounts = linkedAccounts
+    .map((account) => {
+      if ((account.type !== "wallet" && account.type !== "smart_wallet") || !account.address || !account.chain_id || !account.chain_type) {
+        return null;
+      }
+
+      const chainId = toCaipChainId(account.chain_type, account.chain_id);
+      if (!chainId) {
+        return null;
+      }
+
+      return {
+        walletAddress: account.address.trim().toLowerCase(),
+        chainId,
+        chainFamily: account.chain_type,
+        walletClientType: account.wallet_client_type
+      };
+    })
+    .filter((account) => account !== null);
+
+  const preferred = (accounts: typeof walletAccounts) =>
+    accounts.find((account) => account?.walletClientType === "privy") ?? accounts[0] ?? null;
+
+  const exactMatch = allowedChainId ? preferred(walletAccounts.filter((account) => account?.chainId === allowedChainId)) : null;
+  if (exactMatch) {
+    return {
+      walletAddress: exactMatch.walletAddress,
+      chainId: exactMatch.chainId
+    };
+  }
+
+  if (allowedChainId) {
+    const allowedChainFamily = chainFamilyForCaipChainId(allowedChainId);
+    const familyMatch = allowedChainFamily
+      ? preferred(walletAccounts.filter((account) => account?.chainFamily === allowedChainFamily))
+      : null;
+
+    if (familyMatch) {
+      return {
+        walletAddress: familyMatch.walletAddress,
+        chainId: allowedChainId
+      };
+    }
+
+    throw new AppError(403, "privy user missing wallet on required chain");
+  }
+
+  const selected = preferred(walletAccounts);
+  if (!selected) {
+    throw new AppError(401, "privy user missing linked wallet");
+  }
+
+  return {
+    walletAddress: selected.walletAddress,
+    chainId: selected.chainId
+  };
+}
+
 export function resolvePlatformPrivyConfig({
   appId,
-  verifierSecret
+  appSecret,
+  clientId
 }: {
   appId?: string | null;
-  verifierSecret?: string | null;
+  appSecret?: string | null;
+  clientId?: string | null;
 }): PlatformPrivyConfig {
   const normalizedAppId = String(appId ?? "").trim();
-  const normalizedVerifierSecret = String(verifierSecret ?? "").trim();
+  const normalizedAppSecret = String(appSecret ?? "").trim();
+  const normalizedClientId = String(clientId ?? "").trim();
 
   if (!normalizedAppId) {
     throw new Error("platform Privy app ID is required");
   }
-  if (!normalizedVerifierSecret) {
-    throw new Error("platform Privy verifier secret is required");
+  if (!normalizedAppSecret) {
+    throw new Error("platform Privy app secret is required");
   }
 
   return {
     authProvider: "privy",
     privyAppId: normalizedAppId,
-    verifierSecret: normalizedVerifierSecret
+    appSecret: normalizedAppSecret,
+    ...(normalizedClientId ? { clientId: normalizedClientId } : {})
   };
 }
 
-export function resolvePlatformPrivyConfigFromEnv(env: NodeJS.ProcessEnv = process.env) {
+export function resolvePlatformPrivyConfigFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+  { allowDevelopmentDefaults = false }: { allowDevelopmentDefaults?: boolean } = {}
+) {
   return resolvePlatformPrivyConfig({
-    appId: env.CELERIS_PRIVY_APP_ID ?? "cl-dev-privy-app",
-    verifierSecret: env.PRIVY_VERIFIER_SECRET ?? "privy-dev-secret"
+    appId: env.CELERIS_PRIVY_APP_ID ?? (allowDevelopmentDefaults ? "cl-dev-privy-app" : undefined),
+    appSecret:
+      env.PRIVY_APP_SECRET ??
+      env.PRIVY_VERIFIER_SECRET ??
+      (allowDevelopmentDefaults ? "privy-dev-secret" : undefined),
+    clientId: env.CELERIS_PRIVY_CLIENT_ID
   });
 }
 
@@ -182,4 +341,24 @@ export function createPrivyTestToken(
   ).toString("base64url");
   const signature = crypto.createHmac("sha256", secret).update(`${header}.${payload}`).digest("base64url");
   return `${header}.${payload}.${signature}`;
+}
+
+function toCaipChainId(chainType: string, chainId: string): ChainId | null {
+  if (chainType === "ethereum") {
+    return `eip155:${chainId}`;
+  }
+  if (chainType === "solana") {
+    return `solana:${chainId}`;
+  }
+  return null;
+}
+
+function chainFamilyForCaipChainId(chainId: ChainId) {
+  if (chainId.startsWith("eip155:")) {
+    return "ethereum";
+  }
+  if (chainId.startsWith("solana:")) {
+    return "solana";
+  }
+  return null;
 }

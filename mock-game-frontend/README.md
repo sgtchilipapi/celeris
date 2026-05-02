@@ -3,7 +3,9 @@
 Standalone player-facing frontend for the local Celeris MVP flow.
 
 It is served separately from the API and proxies `/api/*` requests back to the Celeris API server.
-The frontend uses the browser SDK and a local mock Privy token endpoint for development-only embedded-wallet sign-in.
+The frontend uses the browser SDK and the hosted Celeris auth gateway flow for player sign-in.
+Hosted login expects the API runtime to be configured with `CELERIS_PRIVY_APP_ID`, `PRIVY_APP_SECRET`, and `CELERIS_SESSION_SECRET`.
+The frontend never uses a raw Privy token against player routes. Hosted login returns a one-time auth code that the browser SDK exchanges for a Celeris player session.
 
 Default ports:
 
@@ -21,7 +23,7 @@ Supported arguments:
 - `--app-id=<app-id>` required
 - `--app-name=<app-name>` optional, defaults to `Mock Game`
 - `--program-id=<program-id>` optional, defaults to `core_gameplay`
-- `--allowed-chain-id=<chain-id>` optional, defaults to `eip155:1`
+- `--allowed-chain-id=<chain-id>` optional, defaults to `solana:103`
 - `--first-time-claim-action-id=<action-id>` optional, defaults to `first_time_claim`
 - `--claim-rewards-action-id=<action-id>` optional, defaults to `claim_rewards`
 - `--mint-item-action-id=<action-id>` optional, defaults to `mint_item`
@@ -35,13 +37,13 @@ The frontend config served from `/config.json` is shaped like:
     "appId": "app-id",
     "appName": "Mock Game",
     "programId": "core_gameplay",
-    "platformAuth": {
-      "provider": "privy",
-      "privyAppId": "cl-dev-privy-app"
+    "authGateway": {
+      "hostedAuthOrigin": "http://localhost:3000",
+      "redirectUri": "http://localhost:3002/auth/callback"
     },
     "playerPolicy": {
       "provider": "privy",
-      "allowedChainId": "eip155:1"
+      "allowedChainId": "solana:103"
     },
     "actionIds": {
       "firstTimeClaim": "first_time_claim",

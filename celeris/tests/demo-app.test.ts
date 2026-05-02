@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
-import { createPrivyTestToken } from "../services/privy-auth-service.js";
 import { createBrowserClient } from "../sdk/browser-client.js";
+import { createHostedPlayerSession } from "./helpers/auth.js";
 
 function buildCompletedCheckoutEvent({
   eventId,
@@ -106,7 +106,7 @@ test("browser SDK composes player routes with bearer auth and rejects missing to
       })
   });
 
-  await assert.rejects(() => missingTokenClient.me.get(), /player token is required/);
+  await assert.rejects(() => missingTokenClient.me.get(), /player session is required/);
 });
 
 test("player catalog and asset history routes support the standalone SDK flow", async () => {
@@ -114,7 +114,6 @@ test("player catalog and asset history routes support the standalone SDK flow", 
   const api = createApi(services);
   const walletAddress = "0xdemo123";
   const chainId = "eip155:1";
-  const token = createPrivyTestToken({ walletAddress, chainId });
 
   const app = await api.handle({
     method: "POST",
@@ -130,6 +129,11 @@ test("player catalog and asset history routes support the standalone SDK flow", 
   });
 
   const appId = app.body.appId as string;
+  const session = await createHostedPlayerSession({
+    api,
+    appId,
+    walletAddress
+  });
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
   await api.handle({
@@ -142,7 +146,7 @@ test("player catalog and asset history routes support the standalone SDK flow", 
   const checkout = await api.handle({
     method: "POST",
     url: `/v1/apps/${appId}/checkout-sessions`,
-    headers: { "idempotency-key": "demo-sdk-checkout-1", authorization: `Bearer ${token}` },
+    headers: { "idempotency-key": "demo-sdk-checkout-1", authorization: `Bearer ${session.accessToken}` },
     body: { packageId }
   });
 
@@ -169,19 +173,19 @@ test("player catalog and asset history routes support the standalone SDK flow", 
   await api.handle({
     method: "POST",
     url: `/v1/apps/${appId}/actions/mint_item/execute`,
-    headers: { "idempotency-key": "demo-sdk-mint-1", authorization: `Bearer ${token}` },
+    headers: { "idempotency-key": "demo-sdk-mint-1", authorization: `Bearer ${session.accessToken}` },
     body: { payload: { itemDefId: "iron_sword" } }
   });
 
   const catalog = await api.handle({
     method: "GET",
     url: `/v1/apps/${appId}/catalog`,
-    headers: { authorization: `Bearer ${token}` }
+    headers: { authorization: `Bearer ${session.accessToken}` }
   });
   const assetHistory = await api.handle({
     method: "GET",
     url: `/v1/apps/${appId}/me/asset-history`,
-    headers: { authorization: `Bearer ${token}` }
+    headers: { authorization: `Bearer ${session.accessToken}` }
   });
 
   assert.equal(catalog.statusCode, 200);

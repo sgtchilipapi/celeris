@@ -26,6 +26,7 @@ Out of scope:
 - `WO-04`
 - `WO-05.5`
 - `WO-05.6`
+- `WO-05.7`
 
 ## Affected Files / Modules
 

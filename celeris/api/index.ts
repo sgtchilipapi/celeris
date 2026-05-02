@@ -13,11 +13,14 @@ import { MintItemService } from "../services/mint-item-service.js";
 import { MockStripeGateway } from "../services/mock-stripe-gateway.js";
 import { PaymentService } from "../services/payment-service.js";
 import { PendingActionService } from "../services/pending-action-service.js";
+import { PlayerSessionService } from "../services/player-session-service.js";
 import { RelayerService } from "../services/relayer-service.js";
 import { MockRelayerNetwork } from "../services/mock-relayer-network.js";
 import { StripeTestCheckoutGateway } from "../services/stripe-test-checkout-gateway.js";
-import type { PlatformPrivyConfig, RelayerNetworkClient } from "../types.js";
+import type { HostedAuthConfig, PlatformPrivyConfig, PrivyTokenVerifier, RelayerNetworkClient } from "../types.js";
+import { AuthGatewayService } from "../services/auth-gateway-service.js";
 import {
+  HostedPrivyTokenVerifier,
   LocalPrivyTokenVerifier,
   PrivyAuthService,
   resolvePlatformPrivyConfigFromEnv
@@ -33,11 +36,15 @@ const enableStripeCheckout = Boolean(process.env.STRIPE_SECRET_KEY) && !isTestRu
 export function buildServices({
   relayerNetworkClient = new MockRelayerNetwork(),
   managedActionService,
-  platformPrivyConfig = resolveRuntimePlatformPrivyConfig()
+  platformPrivyConfig = resolvePlatformPrivyConfigFromEnv(process.env, { allowDevelopmentDefaults: true }),
+  hostedAuthConfig = resolveHostedAuthConfigFromEnv(process.env, { allowDevelopmentDefaults: true }),
+  privyVerifier
 }: {
   relayerNetworkClient?: RelayerNetworkClient;
   managedActionService?: ManagedActionService;
   platformPrivyConfig?: PlatformPrivyConfig;
+  hostedAuthConfig?: HostedAuthConfig;
+  privyVerifier?: PrivyTokenVerifier;
 } = {}) {
   const store = new MemoryStore();
   const defaultDeveloper = store.createDeveloper({ email: "dev@celeris.local" });
@@ -50,13 +57,25 @@ export function buildServices({
   const relayerService = new RelayerService({ networkClient: relayerNetworkClient });
   const assetDeliveryService = new AssetDeliveryService({ store });
   const resolvedManagedActionService = managedActionService ?? new ManagedActionService();
-  const privyVerifier = new LocalPrivyTokenVerifier({
-    secret: platformPrivyConfig.verifierSecret
-  });
+  const resolvedPrivyVerifier =
+    privyVerifier ??
+    new LocalPrivyTokenVerifier({
+      secret: platformPrivyConfig.appSecret
+    });
+  const privyAuthService = new PrivyAuthService({ store, verifier: resolvedPrivyVerifier });
+  const playerSessionService = new PlayerSessionService({ store, config: hostedAuthConfig });
   const services = {
     store,
     platformPrivyConfig,
-    privyAuthService: new PrivyAuthService({ store, verifier: privyVerifier }),
+    hostedAuthConfig,
+    privyAuthService,
+    playerSessionService,
+    authGatewayService: new AuthGatewayService({
+      store,
+      privyAuthService,
+      playerSessionService,
+      config: hostedAuthConfig
+    }),
     appService: new AppService({ store }),
     paymentService: new PaymentService({ store, ledgerService, stripeCheckoutGateway, stripeGateway }),
     claimRewardsService: new ClaimRewardsService({ store, ledgerService, managedActionService: resolvedManagedActionService }),
@@ -70,7 +89,7 @@ export function buildServices({
     }),
     metricsService: new MetricsService({ store }),
     stripeGateway,
-    privyVerifier,
+    privyVerifier: resolvedPrivyVerifier,
     pendingActionService,
     relayerService,
     assetDeliveryService,
@@ -79,10 +98,18 @@ export function buildServices({
   return { ...services, defaultDeveloper };
 }
 
-const services = buildServices();
 const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
 
 if (isMainModule) {
+  const platformPrivyConfig = resolveRuntimePlatformPrivyConfig();
+  const services = buildServices({
+    platformPrivyConfig,
+    hostedAuthConfig: resolveHostedAuthConfigFromEnv(process.env, { allowDevelopmentDefaults: false }),
+    privyVerifier: new HostedPrivyTokenVerifier({
+      appId: platformPrivyConfig.privyAppId,
+      appSecret: platformPrivyConfig.appSecret
+    })
+  });
   const api = createApi(services);
   const port = Number(process.env.PORT ?? 3000);
   api.createNodeServer().listen(port, () => {
@@ -127,9 +154,42 @@ function loadDotEnv(filePath: string) {
 }
 
 function isTestRuntime() {
-  return Boolean(process.env.NODE_TEST_CONTEXT) || process.env.NODE_ENV === "test";
+  return isTestRuntimeEnv(process.env);
+}
+
+function isTestRuntimeEnv(env: NodeJS.ProcessEnv) {
+  return (
+    Boolean(env.NODE_TEST_CONTEXT) ||
+    env.NODE_ENV === "test" ||
+    process.execArgv.includes("--test") ||
+    process.argv.includes("--test")
+  );
 }
 
 export function resolveRuntimePlatformPrivyConfig(env: NodeJS.ProcessEnv = process.env) {
-  return resolvePlatformPrivyConfigFromEnv(env);
+  return resolvePlatformPrivyConfigFromEnv(env, { allowDevelopmentDefaults: isTestRuntimeEnv(env) });
+}
+
+export function resolveHostedAuthConfigFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+  { allowDevelopmentDefaults = false }: { allowDevelopmentDefaults?: boolean } = {}
+): HostedAuthConfig {
+  const hostedAuthOrigin = String(
+    env.CELERIS_HOSTED_AUTH_ORIGIN ?? (allowDevelopmentDefaults ? "https://auth.celeris.pro" : "")
+  ).trim();
+  const sessionSecret = String(
+    env.CELERIS_SESSION_SECRET ?? (allowDevelopmentDefaults ? "celeris-session-dev-secret" : "")
+  ).trim();
+
+  if (!hostedAuthOrigin) {
+    throw new Error("hosted auth origin is required");
+  }
+  if (!sessionSecret) {
+    throw new Error("session secret is required");
+  }
+
+  return {
+    hostedAuthOrigin,
+    sessionSecret
+  };
 }

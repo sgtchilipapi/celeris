@@ -42,6 +42,23 @@ export interface User {
   createdAt: string;
 }
 
+export interface CelerisUser {
+  celerisUserId: UUID;
+  externalSubject: string;
+  walletAddress: WalletAddress;
+  chainId: ChainId;
+  createdAt: string;
+}
+
+export interface ProjectUser {
+  projectUserId: UUID;
+  projectId: UUID;
+  celerisUserId: UUID;
+  walletAddress: WalletAddress;
+  chainId: ChainId;
+  createdAt: string;
+}
+
 export interface App {
   appId: UUID;
   developerId: UUID;
@@ -54,6 +71,8 @@ export interface AppPlayerPolicy {
   appId: UUID;
   authProvider: "privy";
   allowedChainId: ChainId;
+  allowedFrontendOrigins: string[];
+  allowedRedirectUris: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -61,7 +80,50 @@ export interface AppPlayerPolicy {
 export interface PlatformPrivyConfig {
   authProvider: "privy";
   privyAppId: string;
-  verifierSecret: string;
+  appSecret: string;
+  clientId?: string;
+}
+
+export interface HostedAuthConfig {
+  hostedAuthOrigin: string;
+  sessionSecret: string;
+}
+
+export interface LoginRequest {
+  loginRequestId: UUID;
+  projectId: UUID;
+  origin: string;
+  redirectUri: string;
+  codeChallenge: string;
+  expiresAt: string;
+  consumedAt: string | null;
+  createdAt: string;
+}
+
+export interface AuthCode {
+  codeId: UUID;
+  loginRequestId: UUID;
+  projectId: UUID;
+  celerisUserId: UUID;
+  projectUserId: UUID;
+  walletAddress: WalletAddress;
+  chainId: ChainId;
+  codeChallenge: string;
+  expiresAt: string;
+  consumedAt: string | null;
+  createdAt: string;
+}
+
+export interface PlayerSession {
+  sessionId: UUID;
+  projectId: UUID;
+  celerisUserId: UUID;
+  projectUserId: UUID;
+  walletAddress: WalletAddress;
+  chainId: ChainId;
+  expiresAt: string;
+  revokedAt: string | null;
+  createdAt: string;
 }
 
 export interface CreditPackage {
@@ -194,8 +256,13 @@ export interface PrivyClaims {
   exp?: number;
 }
 
+export interface CompleteHostedLoginWithPrivyTokenRequest {
+  loginRequestId: UUID;
+  privyAccessToken: string;
+}
+
 export interface PrivyTokenVerifier {
-  verifyToken(token: string): PrivyClaims;
+  verifyToken(token: string, options?: { allowedChainId?: ChainId }): PrivyClaims | Promise<PrivyClaims>;
 }
 
 export interface CreateAppRequest {
@@ -204,6 +271,8 @@ export interface CreateAppRequest {
   priceCents: number;
   credits: number;
   allowedChainId: ChainId;
+  allowedFrontendOrigins?: string[];
+  allowedRedirectUris?: string[];
   idempotencyKey: string;
 }
 
@@ -213,6 +282,8 @@ export interface UpdateAppRequest {
   priceCents: number;
   credits: number;
   allowedChainId: ChainId;
+  allowedFrontendOrigins?: string[];
+  allowedRedirectUris?: string[];
   idempotencyKey: string;
 }
 
@@ -250,6 +321,21 @@ export interface AppSetupDetails {
   playerPolicy: AppPlayerPolicy;
   creditPackages: CreditPackage[];
   actions: ActionType[];
+}
+
+export interface AuthLoginRequestResponse {
+  loginRequestId: UUID;
+  hostedLoginUrl: string;
+  expiresAt: string;
+}
+
+export interface AuthCodeExchangeResponse {
+  accessToken: string;
+  expiresAt: string;
+  player: WalletPrincipal;
+  projectId: UUID;
+  celerisUserId: UUID;
+  projectUserId: UUID;
 }
 
 export interface ConfigureActionRequest {
@@ -414,8 +500,13 @@ export interface MemoryStore {
   developers: Map<UUID, Developer>;
   developerAccounts: Map<string, DeveloperAccount>;
   users: Map<UUID, User>;
+  celerisUsers: Map<UUID, CelerisUser>;
+  projectUsers: Map<UUID, ProjectUser>;
   apps: Map<UUID, App>;
   appPlayerPolicies: Map<UUID, AppPlayerPolicy>;
+  loginRequests: Map<UUID, LoginRequest>;
+  authCodes: Map<UUID, AuthCode>;
+  playerSessions: Map<UUID, PlayerSession>;
   creditPackages: Map<UUID, CreditPackage>;
   creditBalances: Map<string, CreditBalance>;
   creditLedger: CreditLedgerEntry[];
@@ -432,6 +523,15 @@ export interface MemoryStore {
   createUser(input: { userId?: UUID; externalSubject?: string | null; email?: string | null }): User;
   findUserByExternalSubject(externalSubject: string): User | null;
   findUserByEmail(email: string): User | null;
+  upsertCelerisUser(input: { externalSubject: string; walletAddress: WalletAddress; chainId: ChainId }): CelerisUser;
+  getCelerisUserByExternalSubject(externalSubject: string): CelerisUser | null;
+  upsertProjectUser(input: {
+    projectId: UUID;
+    celerisUserId: UUID;
+    walletAddress: WalletAddress;
+    chainId: ChainId;
+  }): ProjectUser;
+  getProjectUser(projectId: UUID, celerisUserId: UUID): ProjectUser | null;
   createApp(input: {
     appId?: UUID;
     developerId: UUID;
@@ -465,6 +565,12 @@ export interface MemoryStore {
   getPaymentByProviderSessionId(providerSessionId: string): Payment | null;
   getPaymentByProviderEventId(providerEventId: string): Payment | null;
   savePayment(record: Payment): Payment;
+  createLoginRequest(record: LoginRequest): LoginRequest;
+  saveLoginRequest(record: LoginRequest): LoginRequest;
+  createAuthCode(record: AuthCode): AuthCode;
+  saveAuthCode(record: AuthCode): AuthCode;
+  createPlayerSession(record: PlayerSession): PlayerSession;
+  savePlayerSession(record: PlayerSession): PlayerSession;
   recordUsageEvent(event: UsageEvent): UsageEvent;
   getIdempotent<T>(scope: string, key: string): T | null;
   setIdempotent<T>(scope: string, key: string, value: T): T;

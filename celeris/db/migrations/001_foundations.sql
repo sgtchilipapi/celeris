@@ -35,10 +35,64 @@ CREATE TABLE apps (
 CREATE TABLE app_auth_configs (
   app_id UUID PRIMARY KEY REFERENCES apps(app_id) ON DELETE CASCADE,
   auth_provider TEXT NOT NULL CHECK (auth_provider IN ('privy')),
-  privy_app_id TEXT NOT NULL,
   allowed_chain_id TEXT NOT NULL,
+  allowed_frontend_origins JSONB NOT NULL DEFAULT '[]'::jsonb,
+  allowed_redirect_uris JSONB NOT NULL DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE celeris_users (
+  celeris_user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  external_subject TEXT NOT NULL UNIQUE,
+  wallet_address TEXT NOT NULL,
+  chain_id TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE project_users (
+  project_user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id UUID NOT NULL REFERENCES apps(app_id) ON DELETE CASCADE,
+  celeris_user_id UUID NOT NULL REFERENCES celeris_users(celeris_user_id) ON DELETE CASCADE,
+  wallet_address TEXT NOT NULL,
+  chain_id TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (project_id, celeris_user_id)
+);
+
+CREATE TABLE login_requests (
+  login_request_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id UUID NOT NULL REFERENCES apps(app_id) ON DELETE CASCADE,
+  origin TEXT NOT NULL,
+  redirect_uri TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  consumed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE auth_codes (
+  code_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  login_request_id UUID NOT NULL REFERENCES login_requests(login_request_id) ON DELETE CASCADE,
+  project_id UUID NOT NULL REFERENCES apps(app_id) ON DELETE CASCADE,
+  celeris_user_id UUID NOT NULL REFERENCES celeris_users(celeris_user_id) ON DELETE CASCADE,
+  project_user_id UUID NOT NULL REFERENCES project_users(project_user_id) ON DELETE CASCADE,
+  wallet_address TEXT NOT NULL,
+  chain_id TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  consumed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE player_sessions (
+  session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id UUID NOT NULL REFERENCES apps(app_id) ON DELETE CASCADE,
+  celeris_user_id UUID NOT NULL REFERENCES celeris_users(celeris_user_id) ON DELETE CASCADE,
+  project_user_id UUID NOT NULL REFERENCES project_users(project_user_id) ON DELETE CASCADE,
+  wallet_address TEXT NOT NULL,
+  chain_id TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE credit_packages (

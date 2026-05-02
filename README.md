@@ -29,11 +29,29 @@ Build the game. Celeris handles money and execution.
 For a real Stripe-hosted checkout in test mode, create a local `.env` or `.env.local` from [.env.example](.env.example) and set `STRIPE_SECRET_KEY`.
 Without it, checkout session creation stays in the local mock mode.
 
-`npm run start:full-demo` starts the API, provisions a demo developer and an app using Celeris-owned Privy auth, configures the default demo actions with execution modes, and opens the dashboard ready for manual verification.
+Hosted browser login now expects Privy runtime configuration at startup.
+Set `CELERIS_PRIVY_APP_ID`, `PRIVY_APP_SECRET`, and `CELERIS_SESSION_SECRET` in local `.env` or `.env.local` before running the API outside tests.
+`PRIVY_VERIFIER_SECRET` remains accepted as a legacy alias, but the runtime now uses the Privy app secret server-side.
+Browser sign-in completes on `auth.celeris.pro`, returns a one-time auth code to the app frontend, and exchanges that code for a Celeris player session used on player API routes.
 
-Use `-- --with-player-frontend` to boot the standalone player frontend, which now signs players in through the local mock Privy flow and talks to the player API through the browser SDK.
+`npm run start:full-demo` starts the API, provisions a demo developer and an app using Celeris-owned Privy auth, configures the default demo actions with execution modes, and opens the dashboard ready for manual verification.
+For the MVP demo path, the intended default chain is Solana Devnet (`solana:103`).
+
+Use `-- --with-player-frontend` to boot the standalone player frontend, which now signs players in through the hosted Celeris auth flow and talks to the player API through the browser SDK.
+The hosted auth popup uses the real Privy browser SDK on `auth.celeris.pro`, ensures the embedded wallet exists on the allowed chain, and maps the verified Privy subject to one shared Celeris user across apps before issuing the Celeris player session.
 
 Pass `-- --no-tunnel` to skip Cloudflare tunnel startup locally.
+
+Named Cloudflare tunnel setup for the full demo:
+
+- `CELERIS_HOSTED_AUTH_ORIGIN=https://auth.celeris.pro`
+- `CLOUDFLARED_AUTH_HOSTNAME=auth.celeris.pro`
+- `CLOUDFLARED_DEMO_FRONTEND_HOSTNAME=demo-frontend.celeris.pro`
+
+When `--with-player-frontend` is enabled, the demo script provisions the app to allow both:
+
+- `http://localhost:3002`
+- `https://demo-frontend.celeris.pro`
 
 
 ### Overview

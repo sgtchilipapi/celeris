@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
 import { ManagedActionService } from "../services/managed-action-service.js";
-import { createPrivyTestToken } from "../services/privy-auth-service.js";
 import type { ManagedMintItemRequest, ManagedMintItemResult, WalletPrincipal } from "../types.js";
+import { createHostedPlayerSession } from "./helpers/auth.js";
 
 class TestManagedActionService extends ManagedActionService {
   readonly buildResult: (request: ManagedMintItemRequest) => ManagedMintItemResult;
@@ -59,7 +59,6 @@ async function setupMintFlow(managedActionService: ManagedActionService) {
     walletAddress: "0xtxv123",
     chainId: "eip155:1"
   } satisfies WalletPrincipal;
-  const token = createPrivyTestToken(walletPrincipal);
 
   const app = await api.handle({
     method: "POST",
@@ -75,6 +74,11 @@ async function setupMintFlow(managedActionService: ManagedActionService) {
   });
 
   const appId = app.body.appId as string;
+  const session = await createHostedPlayerSession({
+    api,
+    appId,
+    walletAddress: walletPrincipal.walletAddress
+  });
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
   await api.handle({
@@ -87,7 +91,7 @@ async function setupMintFlow(managedActionService: ManagedActionService) {
   const checkout = await api.handle({
     method: "POST",
     url: `/v1/apps/${appId}/checkout-sessions`,
-    headers: { "idempotency-key": "txv-checkout-1", authorization: `Bearer ${token}` },
+    headers: { "idempotency-key": "txv-checkout-1", authorization: `Bearer ${session.accessToken}` },
     body: { packageId }
   });
 
@@ -110,7 +114,7 @@ async function setupMintFlow(managedActionService: ManagedActionService) {
     body: paymentEvent
   });
 
-  return { services, api, appId, token, walletPrincipal };
+  return { services, api, appId, token: session.accessToken, walletPrincipal };
 }
 
 test("verification rejects mismatched debit and releases reserved credits", async () => {

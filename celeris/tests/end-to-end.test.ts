@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
-import { createPrivyTestToken } from "../services/privy-auth-service.js";
 import type { RelayerNetworkClient, TransactionStatus, WalletPrincipal } from "../types.js";
+import { createHostedPlayerSession } from "./helpers/auth.js";
 
 function buildCompletedCheckoutEvent({
   eventId,
@@ -66,7 +66,6 @@ async function createHarness({
     walletAddress: "0xe2e123",
     chainId: "eip155:1"
   } satisfies WalletPrincipal;
-  const token = createPrivyTestToken(walletPrincipal);
 
   const app = await api.handle({
     method: "POST",
@@ -82,6 +81,11 @@ async function createHarness({
   });
 
   const appId = app.body.appId as string;
+  const session = await createHostedPlayerSession({
+    api,
+    appId,
+    walletAddress: walletPrincipal.walletAddress
+  });
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
   for (const [key, actionType, cost] of [
@@ -100,7 +104,7 @@ async function createHarness({
   const checkout = await api.handle({
     method: "POST",
     url: `/v1/apps/${appId}/checkout-sessions`,
-    headers: { "idempotency-key": "e2e-checkout-1", authorization: `Bearer ${token}` },
+    headers: { "idempotency-key": "e2e-checkout-1", authorization: `Bearer ${session.accessToken}` },
     body: { packageId }
   });
 
@@ -123,7 +127,7 @@ async function createHarness({
     body: paymentEvent
   });
 
-  return { services, api, appId, token, walletPrincipal };
+  return { services, api, appId, token: session.accessToken, walletPrincipal };
 }
 
 test("end-to-end happy path covers checkout, mint, wallet delivery, and dashboard metrics", async () => {
@@ -217,7 +221,6 @@ test("end-to-end duplicate payment webhook only grants credits once", async () =
   const services = buildServices();
   const api = createApi(services);
   const walletPrincipal = { walletAddress: "0xe2edup123", chainId: "eip155:1" } satisfies WalletPrincipal;
-  const token = createPrivyTestToken(walletPrincipal);
 
   const app = await api.handle({
     method: "POST",
@@ -233,12 +236,17 @@ test("end-to-end duplicate payment webhook only grants credits once", async () =
   });
 
   const appId = app.body.appId as string;
+  const session = await createHostedPlayerSession({
+    api,
+    appId,
+    walletAddress: walletPrincipal.walletAddress
+  });
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
   const checkout = await api.handle({
     method: "POST",
     url: `/v1/apps/${appId}/checkout-sessions`,
-    headers: { "idempotency-key": "e2e-dup-checkout-1", authorization: `Bearer ${token}` },
+    headers: { "idempotency-key": "e2e-dup-checkout-1", authorization: `Bearer ${session.accessToken}` },
     body: { packageId }
   });
 

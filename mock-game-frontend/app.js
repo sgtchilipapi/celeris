@@ -12,7 +12,6 @@ const loginFormEl = document.getElementById("login-form");
 const loginSubtitleEl = document.getElementById("login-subtitle");
 const walletChainCopyEl = document.getElementById("wallet-chain-copy");
 const loginFeedbackEl = document.getElementById("login-feedback");
-const walletAddressInputEl = document.getElementById("wallet-address-input");
 const connectWalletBtn = document.getElementById("connect-wallet-btn");
 const signOutBtn = document.getElementById("sign-out-btn");
 
@@ -218,6 +217,8 @@ const state = {
   appName: "Mock Game",
   packageId: null,
   itemDefId: null,
+  hostedAuthOrigin: null,
+  redirectUri: null,
   firstTimeClaimActionId: null,
   mintItemActionId: null,
   claimRewardsActionId: null,
@@ -250,6 +251,17 @@ function showFeedback(element, message) {
   }
   element.hidden = false;
   element.textContent = message;
+}
+
+function safeOrigin(url) {
+  if (!url) {
+    return null;
+  }
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
 }
 
 function setView(name) {
@@ -318,31 +330,24 @@ function clearSession() {
   state.token = null;
   state.walletAddress = null;
   state.chainId = null;
+  state.sdk?.auth.logout?.();
   localStorage.removeItem(sessionStorageKey);
 }
 
 function restoreSession() {
-  const raw = localStorage.getItem(sessionStorageKey);
-  if (!raw) {
+  const session = state.sdk?.auth.getSession?.() ?? null;
+  if (!session) {
     return false;
   }
 
-  try {
-    const session = JSON.parse(raw);
-    state.token = session.token ?? null;
-    state.walletAddress = session.walletAddress ?? null;
-    state.chainId = session.chainId ?? null;
-  } catch {
-    clearSession();
-    return false;
-  }
-
+  state.token = session.accessToken ?? null;
+  state.walletAddress = session.player?.walletAddress ?? null;
+  state.chainId = session.player?.chainId ?? null;
   if (!state.token || !state.walletAddress || !state.chainId) {
     clearSession();
     return false;
   }
 
-  walletAddressInputEl.value = state.walletAddress;
   playerWalletEl.textContent = formatWallet(state.walletAddress);
   return true;
 }
@@ -1035,7 +1040,12 @@ async function loadConfig() {
   state.appId = config.celeris.appId;
   state.appName = config.celeris.appName || "Configured Game";
   state.programId = config.celeris.programId || "core_gameplay";
-  state.allowedChainId = config.celeris.playerPolicy?.allowedChainId || "eip155:1";
+  state.allowedChainId = config.celeris.playerPolicy?.allowedChainId || "solana:103";
+  state.hostedAuthOrigin = config.celeris.authGateway?.hostedAuthOrigin || window.location.origin;
+  state.redirectUri =
+    safeOrigin(config.celeris.authGateway?.redirectUri) === window.location.origin
+      ? config.celeris.authGateway.redirectUri
+      : `${window.location.origin}/auth/callback`;
   state.firstTimeClaimActionId = config.celeris.actionIds?.firstTimeClaim || "first_time_claim";
   state.claimRewardsActionId = config.celeris.actionIds?.claimRewards || "claim_rewards";
   state.mintItemActionId = config.celeris.actionIds?.mintItem || "mint_item";
@@ -1043,10 +1053,13 @@ async function loadConfig() {
   state.sdk = createBrowserClient({
     apiBaseUrl: "/api",
     appId: state.appId,
-    tokenProvider: async () => state.token
+    auth: {
+      hostedAuthOrigin: state.hostedAuthOrigin,
+      redirectUri: state.redirectUri
+    }
   });
 
-  loginSubtitleEl.textContent = `Connect the local Privy-style wallet for ${state.appName}.`;
+  loginSubtitleEl.textContent = `Sign in through the Celeris-hosted auth gateway for ${state.appName}.`;
   walletChainCopyEl.textContent = `Allowed chain: ${state.allowedChainId}`;
   gameTitleEl.textContent = state.appName;
   creditsAppNameEl.textContent = state.appName;
@@ -1068,7 +1081,7 @@ async function loadCatalog() {
   state.firstTimeClaimCost = firstTimeClaimAction?.cost ?? null;
   state.claimRewardsCost = claimRewardsAction?.cost ?? null;
 
-  loginSubtitleEl.textContent = `Connect the local Privy-style wallet for ${state.appName}.`;
+  loginSubtitleEl.textContent = `Sign in through the Celeris-hosted auth gateway for ${state.appName}.`;
   gameTitleEl.textContent = state.appName;
   creditsAppNameEl.textContent = state.appName;
   creditsPackageAmountEl.textContent = `${state.packageCredits ?? 0} credits`;
@@ -1097,13 +1110,12 @@ async function refreshAssetHistory() {
 
 async function hydrateAuthenticatedState() {
   if (!state.sdk || !state.token) {
-    throw new Error("player token is required");
+    throw new Error("player session is required");
   }
 
   const me = await state.sdk.me.get();
   state.walletAddress = me.walletAddress;
   state.chainId = me.chainId;
-  walletAddressInputEl.value = state.walletAddress;
   playerWalletEl.textContent = formatWallet(state.walletAddress);
   persistSession();
   await loadCatalog();
@@ -1118,24 +1130,12 @@ async function hydrateAuthenticatedState() {
 }
 
 async function connectWallet() {
-  const walletAddress = walletAddressInputEl.value.trim().toLowerCase();
-  if (!walletAddress) {
-    throw new Error("Wallet address is required.");
-  }
-
   connectWalletBtn.disabled = true;
   try {
-    const session = await fetchJson("/privy/mock-token", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({ walletAddress })
-    });
-
-    state.token = session.token;
-    state.walletAddress = session.walletAddress;
-    state.chainId = session.chainId;
+    const session = await state.sdk.auth.login();
+    state.token = session.accessToken;
+    state.walletAddress = session.player.walletAddress;
+    state.chainId = session.player.chainId;
     await hydrateAuthenticatedState();
   } finally {
     connectWalletBtn.disabled = false;

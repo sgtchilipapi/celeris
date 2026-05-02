@@ -1,25 +1,27 @@
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  createPrivyTestToken,
-  resolvePlatformPrivyConfigFromEnv
-} from "../celeris/services/privy-auth-service.js";
+import { transform } from "esbuild";
 import { MockStripeGateway } from "../celeris/services/mock-stripe-gateway.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+loadDotEnv(path.join(projectRoot, ".env"));
+loadDotEnv(path.join(projectRoot, ".env.local"));
+
 const frontendRoot = path.join(projectRoot, "mock-game-frontend");
 const browserSdkPath = path.join(projectRoot, "celeris/sdk/browser-client.ts");
 const port = Number(process.env.MOCK_GAME_FRONTEND_PORT ?? 3002);
 const apiOrigin = process.env.CELERIS_API_ORIGIN ?? "http://localhost:3000";
+const hostedAuthOrigin = process.env.CELERIS_HOSTED_AUTH_ORIGIN ?? apiOrigin;
 const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
-const platformPrivyConfig = resolvePlatformPrivyConfigFromEnv();
 const defaultRunConfig = buildRunConfig({
   appId: "",
   appName: "Mock Game",
   programId: "core_gameplay",
-  allowedChainId: "eip155:1",
+  hostedAuthOrigin,
+  allowedChainId: "solana:103",
   firstTimeClaimActionId: "first_time_claim",
   claimRewardsActionId: "claim_rewards",
   mintItemActionId: "mint_item",
@@ -57,44 +59,13 @@ export function createMockGameFrontendServer({
 
       if (requestUrl.pathname === "/sdk/browser-client.ts") {
         const source = await fs.readFile(browserSdkPath, "utf8");
+        const compiled = await transform(source, {
+          loader: "ts",
+          format: "esm",
+          target: "es2022"
+        });
         res.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });
-        res.end(source);
-        return;
-      }
-
-      if (requestUrl.pathname === "/privy/mock-token") {
-        if (method !== "POST") {
-          res.writeHead(405, { "content-type": "application/json" });
-          res.end(JSON.stringify({ error: "method not allowed" }));
-          return;
-        }
-
-        const payload = await readJsonBody(req);
-        const walletAddress = typeof payload.walletAddress === "string" ? payload.walletAddress.trim().toLowerCase() : "";
-        if (!walletAddress) {
-          res.writeHead(400, { "content-type": "application/json" });
-          res.end(JSON.stringify({ error: "walletAddress is required" }));
-          return;
-        }
-
-        const token = createPrivyTestToken(
-          {
-            walletAddress,
-            chainId: config.celeris.playerPolicy.allowedChainId
-          },
-          {
-            secret: platformPrivyConfig.verifierSecret
-          }
-        );
-
-        res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
-        res.end(
-          JSON.stringify({
-            token,
-            walletAddress,
-            chainId: config.celeris.playerPolicy.allowedChainId
-          })
-        );
+        res.end(compiled.code);
         return;
       }
 
@@ -269,24 +240,13 @@ async function readBody(req: http.IncomingMessage) {
   return Buffer.concat(chunks);
 }
 
-async function readJsonBody(req: http.IncomingMessage) {
-  const body = await readBody(req);
-  if (!body.length) {
-    return {};
-  }
-  try {
-    return JSON.parse(body.toString("utf8")) as Record<string, unknown>;
-  } catch {
-    throw new Error("invalid json body");
-  }
-}
-
 function parseArgs(args: string[]) {
   const config = {
     appId: "",
     appName: "Mock Game",
     programId: "core_gameplay",
-    allowedChainId: "eip155:1",
+    hostedAuthOrigin,
+    allowedChainId: "solana:103",
     firstTimeClaimActionId: "first_time_claim",
     claimRewardsActionId: "claim_rewards",
     mintItemActionId: "mint_item",
@@ -304,6 +264,10 @@ function parseArgs(args: string[]) {
     }
     if (arg.startsWith("--program-id=")) {
       config.programId = arg.slice("--program-id=".length);
+      continue;
+    }
+    if (arg.startsWith("--hosted-auth-origin=")) {
+      config.hostedAuthOrigin = arg.slice("--hosted-auth-origin=".length);
       continue;
     }
     if (arg.startsWith("--allowed-chain-id=")) {
@@ -338,6 +302,7 @@ export function buildRunConfig(config: {
   appId: string;
   appName: string;
   programId: string;
+  hostedAuthOrigin: string;
   allowedChainId: string;
   firstTimeClaimActionId: string;
   claimRewardsActionId: string;
@@ -349,9 +314,9 @@ export function buildRunConfig(config: {
       appId: config.appId,
       appName: config.appName,
       programId: config.programId,
-      platformAuth: {
-        provider: platformPrivyConfig.authProvider,
-        privyAppId: platformPrivyConfig.privyAppId
+      authGateway: {
+        hostedAuthOrigin: config.hostedAuthOrigin,
+        redirectUri: "http://localhost:3002/auth/callback"
       },
       playerPolicy: {
         provider: "privy",
@@ -372,6 +337,40 @@ if (isMainModule) {
     console.log(`Mock game frontend listening on http://localhost:${port}`);
     console.log(`Proxying API requests to ${apiOrigin}`);
     console.log(`Configured appId: ${runConfig.celeris.appId}`);
-    console.log(`Platform Privy app: ${runConfig.celeris.platformAuth.privyAppId}`);
+    console.log(`Hosted auth origin: ${runConfig.celeris.authGateway.hostedAuthOrigin}`);
   });
+}
+
+function loadDotEnv(filePath: string) {
+  if (!fsSync.existsSync(filePath)) {
+    return;
+  }
+
+  const source = fsSync.readFileSync(filePath, "utf8");
+  for (const line of source.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    const separatorIndex = trimmed.indexOf("=");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+
+    const key = trimmed.slice(0, separatorIndex).trim();
+    if (!key || process.env[key] !== undefined) {
+      continue;
+    }
+
+    let value = trimmed.slice(separatorIndex + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    process.env[key] = value;
+  }
 }

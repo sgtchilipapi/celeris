@@ -2,8 +2,9 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { build as esbuildBuild } from "esbuild";
 import { AppError } from "../services/errors.js";
-import type { AppMetrics, MemoryStore } from "../types.js";
+import type { AppMetrics, MemoryStore, PlatformPrivyConfig } from "../types.js";
 import type { AppService } from "../services/app-service.js";
 import type { PaymentService } from "../services/payment-service.js";
 import type { MintItemService } from "../services/mint-item-service.js";
@@ -11,6 +12,8 @@ import type { MetricsService } from "../services/metrics-service.js";
 import type { ClaimRewardsService } from "../services/claim-rewards-service.js";
 import type { PrivyAuthService } from "../services/privy-auth-service.js";
 import type { ManagedActionService } from "../services/managed-action-service.js";
+import type { AuthGatewayService } from "../services/auth-gateway-service.js";
+import type { PlayerSessionService } from "../services/player-session-service.js";
 
 function json(statusCode: number, body: any) {
   return { statusCode, headers: { "content-type": "application/json" }, body };
@@ -39,7 +42,11 @@ function parsePath(pattern: string, path: string): Record<string, string> | null
 
 type Services = {
   store: MemoryStore;
+  platformPrivyConfig: PlatformPrivyConfig;
+  hostedAuthConfig: { hostedAuthOrigin: string };
   privyAuthService: PrivyAuthService;
+  authGatewayService: AuthGatewayService;
+  playerSessionService: PlayerSessionService;
   appService: AppService;
   paymentService: PaymentService;
   claimRewardsService: ClaimRewardsService;
@@ -56,6 +63,8 @@ type RouteContext = {
 };
 
 const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../web");
+const hostedAuthClientEntry = path.join(webRoot, "hosted-auth-client.ts");
+let hostedAuthClientBundlePromise: Promise<Buffer> | null = null;
 
 export function createApi(services: Services) {
   const routes: Array<{ method: string; pattern: string; handler: (ctx: RouteContext) => Promise<unknown> | unknown }> = [];
@@ -76,6 +85,12 @@ export function createApi(services: Services) {
     body?: Record<string, unknown>;
   }): Promise<{ statusCode: number; headers: { "content-type": string }; body: any }> {
     const { pathname, searchParams } = new URL(url, "http://localhost");
+    if (method === "GET" && pathname === "/auth/login") {
+      return serveHostedLoginPage(services, typeof searchParams.get("loginRequestId") === "string" ? searchParams.get("loginRequestId")! : "");
+    }
+    if (method === "GET" && pathname === "/auth/client.js") {
+      return serveHostedAuthClientBundle();
+    }
     if (method === "GET") {
       const staticResponse = await tryServeWebAsset(pathname);
       if (staticResponse) {
@@ -117,6 +132,33 @@ export function createApi(services: Services) {
   addRoute("GET", "/v1/me", ({ headers, body }) => ({
     body: requireAuthenticatedWalletPrincipal(services, headers, body)
   }));
+
+  addRoute("POST", "/v1/auth/login-requests", ({ headers, body }) => ({
+    statusCode: 201,
+    body: services.authGatewayService.createLoginRequest({
+      projectId: body.projectId as string,
+      origin: requireOrigin(headers),
+      redirectUri: body.redirectUri as string,
+      codeChallenge: body.codeChallenge as string
+    })
+  }));
+
+  addRoute("POST", "/v1/auth/token", ({ body }) => {
+    if (body.grantType === "authorization_code") {
+      return {
+        body: services.authGatewayService.exchangeAuthorizationCode(body.code as string, body.codeVerifier as string)
+      };
+    }
+
+    if (body.grantType === "privy_access_token") {
+      return services.authGatewayService.completeHostedLoginWithPrivyToken({
+        loginRequestId: body.loginRequestId as string,
+        privyAccessToken: body.privyAccessToken as string
+      });
+    }
+
+    throw new AppError(400, "unsupported grantType");
+  });
 
   addRoute("GET", "/v1/apps/:appId/me/credits", ({ params, headers, body }) => {
     const player = requireAuthenticatedPlayer(services, headers, body, params.appId);
@@ -202,6 +244,8 @@ export function createApi(services: Services) {
         priceCents: body.priceCents as number,
         credits: body.credits as number,
         allowedChainId: body.allowedChainId as string,
+        allowedFrontendOrigins: body.allowedFrontendOrigins as string[] | undefined,
+        allowedRedirectUris: body.allowedRedirectUris as string[] | undefined,
         idempotencyKey: requireIdempotency(headers, body)
       })
     )
@@ -215,6 +259,8 @@ export function createApi(services: Services) {
         priceCents: body.priceCents as number,
         credits: body.credits as number,
         allowedChainId: body.allowedChainId as string,
+        allowedFrontendOrigins: body.allowedFrontendOrigins as string[] | undefined,
+        allowedRedirectUris: body.allowedRedirectUris as string[] | undefined,
         idempotencyKey: requireIdempotency(headers, body)
       })
     )
@@ -413,7 +459,7 @@ function requireAuthenticatedPlayer(
     throw new AppError(404, "app player policy not found");
   }
 
-  return services.privyAuthService.authenticatePlayerToken(token, { allowedChainId });
+  return services.playerSessionService.authenticatePlayerSessionToken(token, { projectId: appId, allowedChainId });
 }
 
 function requireAuthenticatedWalletPrincipal(
@@ -428,6 +474,14 @@ function rejectPlayerIdentityInput(body: Record<string, unknown>) {
   if (typeof body.userId === "string" || typeof body.walletAddress === "string" || typeof body.chainId === "string") {
     throw new AppError(400, "player identity must come from the authenticated session");
   }
+}
+
+function requireOrigin(headers: http.IncomingHttpHeaders) {
+  const origin = headers.origin;
+  if (typeof origin !== "string" || !origin) {
+    throw new AppError(400, "origin header required");
+  }
+  return origin;
 }
 
 async function tryServeWebAsset(pathname: string) {
@@ -458,4 +512,111 @@ async function serveFile(filePath: string, contentType: string) {
       body: JSON.stringify({ error: "not found" })
     };
   }
+}
+
+function serveHostedLoginPage(services: Services, loginRequestId: string) {
+  if (!loginRequestId) {
+    return json(400, { error: "loginRequestId is required" });
+  }
+
+  const loginRequest = services.authGatewayService.getLoginRequest(loginRequestId);
+  const playerPolicy = services.store.appPlayerPolicies.get(loginRequest.projectId);
+  if (!playerPolicy) {
+    return json(404, { error: "app player policy not found" });
+  }
+
+  const body = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Celeris Login</title>
+    <style>
+      body { font-family: sans-serif; background: #f6efe4; color: #1f1a14; margin: 0; min-height: 100vh; display: grid; place-items: center; }
+      main { width: min(420px, calc(100vw - 32px)); background: white; border-radius: 20px; padding: 24px; box-shadow: 0 20px 60px rgba(58, 39, 21, 0.15); }
+      h1 { margin: 0 0 8px; font-size: 1.8rem; }
+      p { margin: 0 0 16px; line-height: 1.5; }
+      label { display: grid; gap: 8px; margin: 16px 0 0; font-weight: 600; }
+      input { border: 1px solid #d7c6ab; border-radius: 12px; padding: 12px 14px; font: inherit; }
+      button { width: 100%; border: 0; border-radius: 999px; padding: 12px 16px; font: inherit; font-weight: 700; color: white; background: #b85c38; cursor: pointer; }
+      button[disabled] { cursor: wait; opacity: 0.7; }
+      .feedback { margin-top: 12px; min-height: 1.25rem; color: #8a2d17; }
+      .step { margin-top: 16px; }
+      .step[hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Celeris Hosted Login</h1>
+      <p>Sign in through Privy on the Celeris-controlled auth origin. The developer app receives only a Celeris auth code and player session, never your raw Privy session.</p>
+      <button id="login-button" type="button">Continue with Privy</button>
+      <div id="email-step" class="step" hidden>
+        <p>Use the configured email login method for this hosted auth flow.</p>
+        <label>
+          Email
+          <input id="email-input" type="email" autocomplete="email" />
+        </label>
+        <button id="send-code-button" type="button">Send code</button>
+      </div>
+      <div id="code-step" class="step" hidden>
+        <label>
+          Verification code
+          <input id="code-input" inputmode="numeric" autocomplete="one-time-code" />
+        </label>
+        <button id="verify-code-button" type="button">Verify and continue</button>
+      </div>
+      <p id="feedback" class="feedback"></p>
+    </main>
+    <script>
+      window.CELERIS_HOSTED_AUTH_CONFIG = ${JSON.stringify({
+        loginRequestId,
+        privyAppId: services.platformPrivyConfig.privyAppId,
+        privyClientId: services.platformPrivyConfig.clientId ?? null,
+        hostedAuthOrigin: services.hostedAuthConfig.hostedAuthOrigin,
+        authApiBaseUrl: services.hostedAuthConfig.hostedAuthOrigin,
+        allowedChainId: playerPolicy.allowedChainId
+      })};
+    </script>
+    <script src="/auth/client.js"></script>
+  </body>
+</html>`;
+
+  return {
+    statusCode: 200,
+    headers: { "content-type": "text/html; charset=utf-8" },
+    body
+  };
+}
+
+async function serveHostedAuthClientBundle() {
+  const body = await getHostedAuthClientBundle();
+  return {
+    statusCode: 200,
+    headers: { "content-type": "text/javascript; charset=utf-8" },
+    body
+  };
+}
+
+async function getHostedAuthClientBundle() {
+  if (!hostedAuthClientBundlePromise) {
+    hostedAuthClientBundlePromise = esbuildBuild({
+      entryPoints: [hostedAuthClientEntry],
+      bundle: true,
+      write: false,
+      platform: "browser",
+      format: "iife",
+      target: "es2022",
+      logLevel: "silent"
+    })
+      .then((result) => {
+        const output = result.outputFiles.find((file) => file.path.endsWith(".js")) ?? result.outputFiles[0];
+        return Buffer.from(output.text, "utf8");
+      })
+      .catch((error) => {
+        hostedAuthClientBundlePromise = null;
+        throw error;
+      });
+  }
+
+  return hostedAuthClientBundlePromise;
 }

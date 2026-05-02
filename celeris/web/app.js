@@ -770,7 +770,7 @@ function resetCreateAppForm() {
   createAppFormEl.reset();
   createAppNameEl.value = "My Demo Game";
   createAppCreditsPerDollarEl.value = formatNumber(500);
-  createAppAllowedChainIdEl.value = "eip155:1";
+  createAppAllowedChainIdEl.value = "solana:103";
   submitCreateAppBtn.textContent = "Create app";
   state.editingAppId = null;
 }

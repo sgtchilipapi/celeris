@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { AppError } from "./errors.js";
+import { normalizeAllowedOrigins, normalizeAllowedRedirectUris } from "./auth-gateway-service.js";
 import type {
   AppListItem,
   AppSetupDetails,
@@ -28,6 +29,8 @@ export class AppService {
     priceCents,
     credits,
     allowedChainId,
+    allowedFrontendOrigins,
+    allowedRedirectUris,
     idempotencyKey
   }: CreateAppRequest): StoredAppSetup {
     const cached = this.store.getIdempotent<StoredAppSetup>(`app:${developerId}`, idempotencyKey);
@@ -46,6 +49,8 @@ export class AppService {
       appId: app.appId,
       authProvider: "privy",
       allowedChainId,
+      allowedFrontendOrigins: normalizeAllowedOrigins(allowedFrontendOrigins, "http://localhost:3002"),
+      allowedRedirectUris: normalizeAllowedRedirectUris(allowedRedirectUris, "http://localhost:3002/auth/callback"),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
@@ -66,7 +71,16 @@ export class AppService {
     };
   }
 
-  updateApp({ appId, name, priceCents, credits, allowedChainId, idempotencyKey }: UpdateAppRequest): StoredAppSetup {
+  updateApp({
+    appId,
+    name,
+    priceCents,
+    credits,
+    allowedChainId,
+    allowedFrontendOrigins,
+    allowedRedirectUris,
+    idempotencyKey
+  }: UpdateAppRequest): StoredAppSetup {
     const cached = this.store.getIdempotent<StoredAppSetup>(`app-update:${appId}`, idempotencyKey);
     if (cached) {
       return cached;
@@ -84,6 +98,14 @@ export class AppService {
       appId,
       authProvider: "privy",
       allowedChainId,
+      allowedFrontendOrigins: normalizeAllowedOrigins(
+        allowedFrontendOrigins,
+        existingPlayerPolicy?.allowedFrontendOrigins[0] ?? "http://localhost:3002"
+      ),
+      allowedRedirectUris: normalizeAllowedRedirectUris(
+        allowedRedirectUris,
+        existingPlayerPolicy?.allowedRedirectUris[0] ?? "http://localhost:3002/auth/callback"
+      ),
       createdAt: existingPlayerPolicy?.createdAt ?? new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });

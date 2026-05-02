@@ -4,8 +4,8 @@ import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
 import { AssetDeliveryService } from "../services/asset-delivery-service.js";
 import { ManagedActionService } from "../services/managed-action-service.js";
-import { createPrivyTestToken } from "../services/privy-auth-service.js";
 import type { WalletPrincipal } from "../types.js";
+import { createHostedPlayerSession } from "./helpers/auth.js";
 
 function buildCompletedCheckoutEvent({
   eventId,
@@ -47,7 +47,6 @@ async function createManagedActionHarness() {
     walletAddress: "0xmanaged123",
     chainId: "eip155:1"
   } satisfies WalletPrincipal;
-  const token = createPrivyTestToken(walletPrincipal);
 
   const app = await api.handle({
     method: "POST",
@@ -63,6 +62,11 @@ async function createManagedActionHarness() {
   });
 
   const appId = app.body.appId as string;
+  const session = await createHostedPlayerSession({
+    api,
+    appId,
+    walletAddress: walletPrincipal.walletAddress
+  });
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
   await api.handle({
@@ -87,7 +91,7 @@ async function createManagedActionHarness() {
   const checkout = await api.handle({
     method: "POST",
     url: `/v1/apps/${appId}/checkout-sessions`,
-    headers: { "idempotency-key": "managed-checkout-1", authorization: `Bearer ${token}` },
+    headers: { "idempotency-key": "managed-checkout-1", authorization: `Bearer ${session.accessToken}` },
     body: { packageId }
   });
 
@@ -110,7 +114,7 @@ async function createManagedActionHarness() {
     body: paymentEvent
   });
 
-  return { services, api, appId, walletPrincipal, token };
+  return { services, api, appId, walletPrincipal, token: session.accessToken };
 }
 
 test("ManagedActionService validates mint payloads and claim action ids", () => {
