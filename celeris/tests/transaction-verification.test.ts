@@ -70,7 +70,6 @@ async function setupMintFlow(managedActionService: ManagedActionService) {
       name: "Transaction Verification App",
       priceCents: 499,
       credits: 500,
-      privyAppId: "txv-privy-app",
       allowedChainId: walletPrincipal.chainId
     }
   });

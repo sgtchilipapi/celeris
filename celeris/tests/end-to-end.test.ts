@@ -77,7 +77,6 @@ async function createHarness({
       name: "End to End App",
       priceCents: 499,
       credits: checkoutCredits,
-      privyAppId: "e2e-privy-app",
       allowedChainId: walletPrincipal.chainId
     }
   });
@@ -229,7 +228,6 @@ test("end-to-end duplicate payment webhook only grants credits once", async () =
       name: "Duplicate Webhook App",
       priceCents: 499,
       credits: 500,
-      privyAppId: "e2e-dup-privy",
       allowedChainId: walletPrincipal.chainId
     }
   });

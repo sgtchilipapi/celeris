@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   ActionType,
   App,
-  AppAuthConfig,
+  AppPlayerPolicy,
   AssetDeliveryRecord,
   CreditBalance,
   CreditLedgerEntry,
@@ -24,7 +24,7 @@ export class MemoryStore implements MemoryStoreContract {
   developerAccounts = new Map<string, DeveloperAccount>();
   users = new Map<UUID, User>();
   apps = new Map<UUID, App>();
-  appAuthConfigs = new Map<UUID, AppAuthConfig>();
+  appPlayerPolicies = new Map<UUID, AppPlayerPolicy>();
   creditPackages = new Map<UUID, CreditPackage>();
   creditBalances = new Map<string, CreditBalance>();
   creditLedger: CreditLedgerEntry[] = [];
@@ -109,12 +109,12 @@ export class MemoryStore implements MemoryStoreContract {
     return record;
   }
 
-  saveAppAuthConfig(record: AppAuthConfig): AppAuthConfig {
-    const next: AppAuthConfig = {
+  saveAppPlayerPolicy(record: AppPlayerPolicy): AppPlayerPolicy {
+    const next: AppPlayerPolicy = {
       ...record,
       updatedAt: new Date().toISOString()
     };
-    this.appAuthConfigs.set(record.appId, next);
+    this.appPlayerPolicies.set(record.appId, next);
     return next;
   }
 
@@ -150,7 +150,7 @@ export class MemoryStore implements MemoryStoreContract {
         this.creditPackages.delete(packageId);
       }
     }
-    this.appAuthConfigs.delete(appId);
+    this.appPlayerPolicies.delete(appId);
     for (const [key, action] of this.actionTypes.entries()) {
       if (action.appId === appId) {
         this.actionTypes.delete(key);

@@ -56,7 +56,6 @@ async function setupRelayerFlow(relayerNetworkClient: RelayerNetworkClient) {
       name: "Relayer App",
       priceCents: 499,
       credits: 500,
-      privyAppId: "relayer-privy",
       allowedChainId: walletPrincipal.chainId
     }
   });

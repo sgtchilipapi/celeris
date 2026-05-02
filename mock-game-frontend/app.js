@@ -212,7 +212,6 @@ const state = {
   walletAddress: null,
   chainId: null,
   allowedChainId: null,
-  privyAppId: null,
   sdk: null,
   appId: null,
   programId: null,
@@ -1036,8 +1035,7 @@ async function loadConfig() {
   state.appId = config.celeris.appId;
   state.appName = config.celeris.appName || "Configured Game";
   state.programId = config.celeris.programId || "core_gameplay";
-  state.allowedChainId = config.celeris.auth?.allowedChainId || "eip155:1";
-  state.privyAppId = config.celeris.auth?.privyAppId || "cl-dev-privy-app";
+  state.allowedChainId = config.celeris.playerPolicy?.allowedChainId || "eip155:1";
   state.firstTimeClaimActionId = config.celeris.actionIds?.firstTimeClaim || "first_time_claim";
   state.claimRewardsActionId = config.celeris.actionIds?.claimRewards || "claim_rewards";
   state.mintItemActionId = config.celeris.actionIds?.mintItem || "mint_item";

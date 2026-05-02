@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
 
-test("POST /apps returns minimal setup data and stores Privy auth config", async () => {
+test("POST /apps returns minimal setup data and stores player policy", async () => {
   const services = buildServices();
   const api = createApi(services);
 
@@ -16,7 +16,6 @@ test("POST /apps returns minimal setup data and stores Privy auth config", async
       name: "Developer Setup App",
       priceCents: 499,
       credits: 500,
-      privyAppId: "privy-app-123",
       allowedChainId: "eip155:1"
     }
   });
@@ -24,11 +23,10 @@ test("POST /apps returns minimal setup data and stores Privy auth config", async
   assert.equal(response.statusCode, 201);
   assert.deepEqual(Object.keys(response.body).sort(), ["apiKey", "appId"]);
 
-  const authConfig = services.store.appAuthConfigs.get(response.body.appId as string);
-  assert.ok(authConfig);
-  assert.equal(authConfig?.authProvider, "privy");
-  assert.equal(authConfig?.privyAppId, "privy-app-123");
-  assert.equal(authConfig?.allowedChainId, "eip155:1");
+  const playerPolicy = services.store.appPlayerPolicies.get(response.body.appId as string);
+  assert.ok(playerPolicy);
+  assert.equal(playerPolicy?.authProvider, "privy");
+  assert.equal(playerPolicy?.allowedChainId, "eip155:1");
 });
 
 test("POST /apps/:appId/actions stores action cost and execution mode", async () => {
@@ -44,7 +42,6 @@ test("POST /apps/:appId/actions stores action cost and execution mode", async ()
       name: "Action Setup App",
       priceCents: 499,
       credits: 500,
-      privyAppId: "privy-app-456",
       allowedChainId: "solana:103"
     }
   });
@@ -66,7 +63,7 @@ test("POST /apps/:appId/actions stores action cost and execution mode", async ()
   assert.equal(response.body.executionMode, "managed");
 });
 
-test("GET /apps/:appId/setup exposes auth config, package, and action setup", async () => {
+test("GET /apps/:appId/setup exposes player policy, package, and action setup", async () => {
   const services = buildServices();
   const api = createApi(services);
 
@@ -79,7 +76,6 @@ test("GET /apps/:appId/setup exposes auth config, package, and action setup", as
       name: "Setup Details App",
       priceCents: 499,
       credits: 500,
-      privyAppId: "privy-app-789",
       allowedChainId: "solana:101"
     }
   });
@@ -101,9 +97,8 @@ test("GET /apps/:appId/setup exposes auth config, package, and action setup", as
   });
 
   assert.equal(setup.statusCode, 200);
-  assert.equal(setup.body.authConfig.authProvider, "privy");
-  assert.equal(setup.body.authConfig.privyAppId, "privy-app-789");
-  assert.equal(setup.body.authConfig.allowedChainId, "solana:101");
+  assert.equal(setup.body.playerPolicy.authProvider, "privy");
+  assert.equal(setup.body.playerPolicy.allowedChainId, "solana:101");
   assert.equal(setup.body.creditPackages[0].credits, 500);
   assert.equal(setup.body.actions[0].executionMode, "server");
 });
@@ -121,7 +116,6 @@ test("PUT and DELETE /apps/:appId/actions/:actionType update and remove configur
       name: "Editable Actions App",
       priceCents: 499,
       credits: 500,
-      privyAppId: "privy-app-edit",
       allowedChainId: "eip155:11155111"
     }
   });
@@ -162,7 +156,7 @@ test("PUT and DELETE /apps/:appId/actions/:actionType update and remove configur
   assert.equal(deleted.body.deleted, true);
 });
 
-test("PUT and DELETE /apps/:appId update auth config and remove app setup", async () => {
+test("PUT and DELETE /apps/:appId update player policy and remove app setup", async () => {
   const services = buildServices();
   const api = createApi(services);
 
@@ -175,7 +169,6 @@ test("PUT and DELETE /apps/:appId update auth config and remove app setup", asyn
       name: "App To Edit",
       priceCents: 100,
       credits: 500,
-      privyAppId: "privy-initial",
       allowedChainId: "eip155:1"
     }
   });
@@ -188,7 +181,6 @@ test("PUT and DELETE /apps/:appId update auth config and remove app setup", asyn
       name: "App Updated",
       priceCents: 100,
       credits: 750,
-      privyAppId: "privy-updated",
       allowedChainId: "solana:103"
     }
   });
@@ -200,8 +192,7 @@ test("PUT and DELETE /apps/:appId update auth config and remove app setup", asyn
     url: `/apps/${app.body.appId as string}/setup`
   });
 
-  assert.equal(setup.body.authConfig.privyAppId, "privy-updated");
-  assert.equal(setup.body.authConfig.allowedChainId, "solana:103");
+  assert.equal(setup.body.playerPolicy.allowedChainId, "solana:103");
   assert.equal(setup.body.creditPackages[0].credits, 750);
 
   const deleted = await api.handle({
@@ -213,5 +204,5 @@ test("PUT and DELETE /apps/:appId update auth config and remove app setup", asyn
   assert.equal(deleted.statusCode, 200);
   assert.equal(deleted.body.deleted, true);
   assert.equal(services.store.apps.has(app.body.appId as string), false);
-  assert.equal(services.store.appAuthConfigs.has(app.body.appId as string), false);
+  assert.equal(services.store.appPlayerPolicies.has(app.body.appId as string), false);
 });

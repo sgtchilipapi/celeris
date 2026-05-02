@@ -53,7 +53,6 @@ async function createFlowHarness() {
       name: "Iron Forge",
       priceCents: 499,
       credits: 500,
-      privyAppId: "mvp-privy-app",
       allowedChainId: walletPrincipal.chainId
     }
   });

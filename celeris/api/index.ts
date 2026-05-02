@@ -16,8 +16,12 @@ import { PendingActionService } from "../services/pending-action-service.js";
 import { RelayerService } from "../services/relayer-service.js";
 import { MockRelayerNetwork } from "../services/mock-relayer-network.js";
 import { StripeTestCheckoutGateway } from "../services/stripe-test-checkout-gateway.js";
-import type { RelayerNetworkClient } from "../types.js";
-import { LocalPrivyTokenVerifier, PrivyAuthService } from "../services/privy-auth-service.js";
+import type { PlatformPrivyConfig, RelayerNetworkClient } from "../types.js";
+import {
+  LocalPrivyTokenVerifier,
+  PrivyAuthService,
+  resolvePlatformPrivyConfigFromEnv
+} from "../services/privy-auth-service.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -28,10 +32,12 @@ const enableStripeCheckout = Boolean(process.env.STRIPE_SECRET_KEY) && !isTestRu
 
 export function buildServices({
   relayerNetworkClient = new MockRelayerNetwork(),
-  managedActionService
+  managedActionService,
+  platformPrivyConfig = resolveRuntimePlatformPrivyConfig()
 }: {
   relayerNetworkClient?: RelayerNetworkClient;
   managedActionService?: ManagedActionService;
+  platformPrivyConfig?: PlatformPrivyConfig;
 } = {}) {
   const store = new MemoryStore();
   const defaultDeveloper = store.createDeveloper({ email: "dev@celeris.local" });
@@ -45,10 +51,11 @@ export function buildServices({
   const assetDeliveryService = new AssetDeliveryService({ store });
   const resolvedManagedActionService = managedActionService ?? new ManagedActionService();
   const privyVerifier = new LocalPrivyTokenVerifier({
-    secret: process.env.PRIVY_VERIFIER_SECRET ?? "privy-dev-secret"
+    secret: platformPrivyConfig.verifierSecret
   });
   const services = {
     store,
+    platformPrivyConfig,
     privyAuthService: new PrivyAuthService({ store, verifier: privyVerifier }),
     appService: new AppService({ store }),
     paymentService: new PaymentService({ store, ledgerService, stripeCheckoutGateway, stripeGateway }),
@@ -121,4 +128,8 @@ function loadDotEnv(filePath: string) {
 
 function isTestRuntime() {
   return Boolean(process.env.NODE_TEST_CONTEXT) || process.env.NODE_ENV === "test";
+}
+
+export function resolveRuntimePlatformPrivyConfig(env: NodeJS.ProcessEnv = process.env) {
+  return resolvePlatformPrivyConfigFromEnv(env);
 }

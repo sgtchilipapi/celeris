@@ -58,7 +58,6 @@ async function createManagedActionHarness() {
       name: "Managed Actions App",
       priceCents: 499,
       credits: 500,
-      privyAppId: "managed-privy-app",
       allowedChainId: walletPrincipal.chainId
     }
   });

@@ -56,7 +56,6 @@ async function setupAssetFlow(relayerNetworkClient: RelayerNetworkClient) {
       name: "Asset App",
       priceCents: 499,
       credits: 500,
-      privyAppId: "asset-privy-app",
       allowedChainId: walletPrincipal.chainId
     }
   });

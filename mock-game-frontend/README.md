@@ -21,7 +21,6 @@ Supported arguments:
 - `--app-id=<app-id>` required
 - `--app-name=<app-name>` optional, defaults to `Mock Game`
 - `--program-id=<program-id>` optional, defaults to `core_gameplay`
-- `--privy-app-id=<privy-app-id>` optional, defaults to `cl-dev-privy-app`
 - `--allowed-chain-id=<chain-id>` optional, defaults to `eip155:1`
 - `--first-time-claim-action-id=<action-id>` optional, defaults to `first_time_claim`
 - `--claim-rewards-action-id=<action-id>` optional, defaults to `claim_rewards`
@@ -36,9 +35,12 @@ The frontend config served from `/config.json` is shaped like:
     "appId": "app-id",
     "appName": "Mock Game",
     "programId": "core_gameplay",
-    "auth": {
+    "platformAuth": {
       "provider": "privy",
-      "privyAppId": "cl-dev-privy-app",
+      "privyAppId": "cl-dev-privy-app"
+    },
+    "playerPolicy": {
+      "provider": "privy",
       "allowedChainId": "eip155:1"
     },
     "actionIds": {

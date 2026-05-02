@@ -160,16 +160,16 @@ export function createApi(services: Services) {
     if (!app) {
       throw new AppError(404, "app not found");
     }
-    const authConfig = services.store.appAuthConfigs.get(params.appId);
-    if (!authConfig) {
-      throw new AppError(404, "app auth config not found");
+    const playerPolicy = services.store.appPlayerPolicies.get(params.appId);
+    if (!playerPolicy) {
+      throw new AppError(404, "app player policy not found");
     }
 
     return {
       body: {
         appId: app.appId,
         name: app.name,
-        authConfig,
+        playerPolicy,
         creditPackages: [...services.store.creditPackages.values()].filter((pkg) => pkg.appId === params.appId),
         actions: [...services.store.actionTypes.values()].filter((action) => action.appId === params.appId)
       }
@@ -201,7 +201,6 @@ export function createApi(services: Services) {
         name: body.name as string,
         priceCents: body.priceCents as number,
         credits: body.credits as number,
-        privyAppId: body.privyAppId as string,
         allowedChainId: body.allowedChainId as string,
         idempotencyKey: requireIdempotency(headers, body)
       })
@@ -215,7 +214,6 @@ export function createApi(services: Services) {
         name: body.name as string,
         priceCents: body.priceCents as number,
         credits: body.credits as number,
-        privyAppId: body.privyAppId as string,
         allowedChainId: body.allowedChainId as string,
         idempotencyKey: requireIdempotency(headers, body)
       })
@@ -407,12 +405,12 @@ function requireAuthenticatedPlayer(
   }
 
   const token = authorization.slice("Bearer ".length).trim();
-  const allowedChainId = appId ? services.store.appAuthConfigs.get(appId)?.allowedChainId : undefined;
+  const allowedChainId = appId ? services.store.appPlayerPolicies.get(appId)?.allowedChainId : undefined;
   if (appId && !services.store.apps.has(appId)) {
     throw new AppError(404, "app not found");
   }
   if (appId && !allowedChainId) {
-    throw new AppError(404, "app auth config not found");
+    throw new AppError(404, "app player policy not found");
   }
 
   return services.privyAuthService.authenticatePlayerToken(token, { allowedChainId });

@@ -55,7 +55,6 @@ async function createWalletPaymentHarness() {
       name: "Wallet Payments Test",
       priceCents: 499,
       credits: 500,
-      privyAppId: "privy-wallet-payments",
       allowedChainId: chainId
     }
   });

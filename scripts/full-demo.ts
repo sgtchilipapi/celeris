@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolvePlatformPrivyConfigFromEnv } from "../celeris/services/privy-auth-service.js";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cloudflaredPath = path.join(rootDir, ".bin", "cloudflared");
@@ -11,13 +12,13 @@ const defaultApiOrigin = "http://localhost:3000";
 const defaultDashboardOrigin = defaultApiOrigin;
 const defaultFrontendOrigin = "http://localhost:3002";
 const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
+const platformPrivyConfig = resolvePlatformPrivyConfigFromEnv();
 
 type DemoConfig = {
   appName: string;
   creditsPerDollar: number;
   itemDefId: string;
   programId: string;
-  privyAppId: string;
   allowedChainId: string;
   firstTimeClaimActionId: string;
   mintItemActionId: string;
@@ -41,9 +42,8 @@ type DemoSession = {
 type AppSetupDetails = {
   appId: string;
   apiKey: string;
-  authConfig: {
+  playerPolicy: {
     authProvider: "privy";
-    privyAppId: string;
     allowedChainId: string;
   };
   creditPackages: Array<{
@@ -92,7 +92,6 @@ async function main() {
       `--app-id=${demoSession.appId}`,
       `--app-name=${config.appName}`,
       `--program-id=${config.programId}`,
-      `--privy-app-id=${config.privyAppId}`,
       `--allowed-chain-id=${config.allowedChainId}`,
       `--first-time-claim-action-id=${config.firstTimeClaimActionId}`,
       `--mint-item-action-id=${config.mintItemActionId}`,
@@ -150,7 +149,6 @@ function parseArgs(args: string[]): DemoConfig {
     creditsPerDollar: 500,
     itemDefId: "iron_sword",
     programId: createMockSolanaProgramId(),
-    privyAppId: "cl-dev-privy-app",
     allowedChainId: "eip155:1",
     firstTimeClaimActionId: "first_time_claim",
     mintItemActionId: "mint_item",
@@ -185,10 +183,6 @@ function parseArgs(args: string[]): DemoConfig {
     }
     if (arg.startsWith("--item-def-id=")) {
       config.itemDefId = arg.slice("--item-def-id=".length);
-      continue;
-    }
-    if (arg.startsWith("--privy-app-id=")) {
-      config.privyAppId = arg.slice("--privy-app-id=".length);
       continue;
     }
     if (arg.startsWith("--allowed-chain-id=")) {
@@ -300,7 +294,6 @@ async function provisionDemo(config: DemoConfig): Promise<DemoSession> {
     name: config.appName,
     priceCents: 100,
     credits: config.creditsPerDollar,
-    privyAppId: config.privyAppId,
     allowedChainId: config.allowedChainId
   });
 
@@ -546,8 +539,8 @@ function printSummary({
   console.log(`Developer ID: ${demoSession.developerId}`);
   console.log(`App ID: ${demoSession.appId}`);
   console.log(`API key: ${demoSession.apiKey}`);
-  console.log(`Privy app ID: ${setup.authConfig.privyAppId}`);
-  console.log(`Allowed chain ID: ${setup.authConfig.allowedChainId}`);
+  console.log(`Platform Privy app ID: ${platformPrivyConfig.privyAppId}`);
+  console.log(`Allowed chain ID: ${setup.playerPolicy.allowedChainId}`);
   console.log(`Mock program ID: ${config.programId}`);
   console.log("");
   console.log("Configured actions:");
@@ -571,7 +564,7 @@ function printSummary({
   console.log("");
   console.log("WO-01 manual checks:");
   console.log(`1. Open the dashboard URL above and sign in with the provisioned developer credentials.`);
-  console.log("2. Open the provisioned app and verify Setup summary shows Privy App ID and Allowed chain.");
+  console.log("2. Open the provisioned app and verify Setup summary shows the shared auth provider and Allowed chain.");
   console.log("3. Verify the dashboard does not show a webhook field or sponsor-wallet section.");
   console.log("4. Open the configured actions and verify each action has the expected execution mode.");
   console.log(`5. Optional API check: curl ${defaultApiOrigin}/apps/${demoSession.appId}/setup`);

@@ -27,7 +27,6 @@ export class AppService {
     name,
     priceCents,
     credits,
-    privyAppId,
     allowedChainId,
     idempotencyKey
   }: CreateAppRequest): StoredAppSetup {
@@ -43,10 +42,9 @@ export class AppService {
       name,
       apiKey: `app_${randomUUID()}`
     });
-    this.store.saveAppAuthConfig({
+    this.store.saveAppPlayerPolicy({
       appId: app.appId,
       authProvider: "privy",
-      privyAppId,
       allowedChainId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -68,7 +66,7 @@ export class AppService {
     };
   }
 
-  updateApp({ appId, name, priceCents, credits, privyAppId, allowedChainId, idempotencyKey }: UpdateAppRequest): StoredAppSetup {
+  updateApp({ appId, name, priceCents, credits, allowedChainId, idempotencyKey }: UpdateAppRequest): StoredAppSetup {
     const cached = this.store.getIdempotent<StoredAppSetup>(`app-update:${appId}`, idempotencyKey);
     if (cached) {
       return cached;
@@ -81,13 +79,12 @@ export class AppService {
 
     app.name = name;
     this.store.saveApp(app);
-    const existingAuthConfig = this.store.appAuthConfigs.get(appId);
-    this.store.saveAppAuthConfig({
+    const existingPlayerPolicy = this.store.appPlayerPolicies.get(appId);
+    this.store.saveAppPlayerPolicy({
       appId,
       authProvider: "privy",
-      privyAppId,
       allowedChainId,
-      createdAt: existingAuthConfig?.createdAt ?? new Date().toISOString(),
+      createdAt: existingPlayerPolicy?.createdAt ?? new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
 
@@ -109,14 +106,14 @@ export class AppService {
     if (!app) {
       throw new AppError(404, "app not found");
     }
-    const authConfig = this.store.appAuthConfigs.get(appId);
-    if (!authConfig) {
-      throw new AppError(404, "app auth config not found");
+    const playerPolicy = this.store.appPlayerPolicies.get(appId);
+    if (!playerPolicy) {
+      throw new AppError(404, "app player policy not found");
     }
     return {
       appId: app.appId,
       apiKey: app.apiKey,
-      authConfig,
+      playerPolicy,
       creditPackages: [...this.store.creditPackages.values()].filter((pkg) => pkg.appId === appId),
       actions: [...this.store.actionTypes.values()].filter((action) => action.appId === appId)
     };

@@ -2,7 +2,10 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createPrivyTestToken } from "../celeris/services/privy-auth-service.js";
+import {
+  createPrivyTestToken,
+  resolvePlatformPrivyConfigFromEnv
+} from "../celeris/services/privy-auth-service.js";
 import { MockStripeGateway } from "../celeris/services/mock-stripe-gateway.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -11,11 +14,11 @@ const browserSdkPath = path.join(projectRoot, "celeris/sdk/browser-client.ts");
 const port = Number(process.env.MOCK_GAME_FRONTEND_PORT ?? 3002);
 const apiOrigin = process.env.CELERIS_API_ORIGIN ?? "http://localhost:3000";
 const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
+const platformPrivyConfig = resolvePlatformPrivyConfigFromEnv();
 const defaultRunConfig = buildRunConfig({
   appId: "",
   appName: "Mock Game",
   programId: "core_gameplay",
-  privyAppId: "cl-dev-privy-app",
   allowedChainId: "eip155:1",
   firstTimeClaimActionId: "first_time_claim",
   claimRewardsActionId: "claim_rewards",
@@ -77,10 +80,10 @@ export function createMockGameFrontendServer({
         const token = createPrivyTestToken(
           {
             walletAddress,
-            chainId: config.celeris.auth.allowedChainId
+            chainId: config.celeris.playerPolicy.allowedChainId
           },
           {
-            secret: process.env.PRIVY_VERIFIER_SECRET ?? "privy-dev-secret"
+            secret: platformPrivyConfig.verifierSecret
           }
         );
 
@@ -89,8 +92,7 @@ export function createMockGameFrontendServer({
           JSON.stringify({
             token,
             walletAddress,
-            chainId: config.celeris.auth.allowedChainId,
-            privyAppId: config.celeris.auth.privyAppId
+            chainId: config.celeris.playerPolicy.allowedChainId
           })
         );
         return;
@@ -284,7 +286,6 @@ function parseArgs(args: string[]) {
     appId: "",
     appName: "Mock Game",
     programId: "core_gameplay",
-    privyAppId: "cl-dev-privy-app",
     allowedChainId: "eip155:1",
     firstTimeClaimActionId: "first_time_claim",
     claimRewardsActionId: "claim_rewards",
@@ -303,10 +304,6 @@ function parseArgs(args: string[]) {
     }
     if (arg.startsWith("--program-id=")) {
       config.programId = arg.slice("--program-id=".length);
-      continue;
-    }
-    if (arg.startsWith("--privy-app-id=")) {
-      config.privyAppId = arg.slice("--privy-app-id=".length);
       continue;
     }
     if (arg.startsWith("--allowed-chain-id=")) {
@@ -341,7 +338,6 @@ export function buildRunConfig(config: {
   appId: string;
   appName: string;
   programId: string;
-  privyAppId: string;
   allowedChainId: string;
   firstTimeClaimActionId: string;
   claimRewardsActionId: string;
@@ -353,9 +349,12 @@ export function buildRunConfig(config: {
       appId: config.appId,
       appName: config.appName,
       programId: config.programId,
-      auth: {
+      platformAuth: {
+        provider: platformPrivyConfig.authProvider,
+        privyAppId: platformPrivyConfig.privyAppId
+      },
+      playerPolicy: {
         provider: "privy",
-        privyAppId: config.privyAppId,
         allowedChainId: config.allowedChainId
       },
       actionIds: {
@@ -373,6 +372,6 @@ if (isMainModule) {
     console.log(`Mock game frontend listening on http://localhost:${port}`);
     console.log(`Proxying API requests to ${apiOrigin}`);
     console.log(`Configured appId: ${runConfig.celeris.appId}`);
-    console.log(`Configured Privy app: ${runConfig.celeris.auth.privyAppId}`);
+    console.log(`Platform Privy app: ${runConfig.celeris.platformAuth.privyAppId}`);
   });
 }

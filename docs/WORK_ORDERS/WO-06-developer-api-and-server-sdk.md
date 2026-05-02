@@ -24,6 +24,8 @@ Out of scope:
 - `WO-01`
 - `WO-03`
 - `WO-04`
+- `WO-05.5`
+- `WO-05.6`
 
 ## Affected Files / Modules
 
@@ -75,7 +77,7 @@ Out of scope:
      - `metrics.getAppMetrics`
      - `players.list`
      - `transactions.list`
-   - Implement `asUser(privyToken)` for on-behalf-of player calls to the player API.
+   - Implement `asUser(playerSessionToken)` or equivalent on-behalf-of player mode for calls to the player API.
 
 5. Rewrite developer and dashboard tests.
    - Update route paths.
@@ -94,7 +96,7 @@ Out of scope:
 
 - Developer auth guard accepts a valid developer token and rejects missing or invalid tokens.
 - Server SDK composes the correct developer API routes and authorization headers.
-- Server SDK `asUser(privyToken)` composes player API calls with the provided user token.
+- Server SDK `asUser(playerSessionToken)` composes player API calls with the provided player session token.
 
 ## Integration Test Cases
 

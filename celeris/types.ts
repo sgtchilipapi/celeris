@@ -50,13 +50,18 @@ export interface App {
   createdAt: string;
 }
 
-export interface AppAuthConfig {
+export interface AppPlayerPolicy {
   appId: UUID;
   authProvider: "privy";
-  privyAppId: string;
   allowedChainId: ChainId;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PlatformPrivyConfig {
+  authProvider: "privy";
+  privyAppId: string;
+  verifierSecret: string;
 }
 
 export interface CreditPackage {
@@ -198,7 +203,6 @@ export interface CreateAppRequest {
   name: string;
   priceCents: number;
   credits: number;
-  privyAppId: string;
   allowedChainId: ChainId;
   idempotencyKey: string;
 }
@@ -208,7 +212,6 @@ export interface UpdateAppRequest {
   name: string;
   priceCents: number;
   credits: number;
-  privyAppId: string;
   allowedChainId: ChainId;
   idempotencyKey: string;
 }
@@ -244,7 +247,7 @@ export interface AppListItem {
 export interface AppSetupDetails {
   appId: UUID;
   apiKey: string;
-  authConfig: AppAuthConfig;
+  playerPolicy: AppPlayerPolicy;
   creditPackages: CreditPackage[];
   actions: ActionType[];
 }
@@ -412,7 +415,7 @@ export interface MemoryStore {
   developerAccounts: Map<string, DeveloperAccount>;
   users: Map<UUID, User>;
   apps: Map<UUID, App>;
-  appAuthConfigs: Map<UUID, AppAuthConfig>;
+  appPlayerPolicies: Map<UUID, AppPlayerPolicy>;
   creditPackages: Map<UUID, CreditPackage>;
   creditBalances: Map<string, CreditBalance>;
   creditLedger: CreditLedgerEntry[];
@@ -435,7 +438,7 @@ export interface MemoryStore {
     name: string;
     apiKey: string;
   }): App;
-  saveAppAuthConfig(record: AppAuthConfig): AppAuthConfig;
+  saveAppPlayerPolicy(record: AppPlayerPolicy): AppPlayerPolicy;
   createCreditPackage(input: {
     packageId?: UUID;
     appId: UUID;

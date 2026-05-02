@@ -1,8 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildServices } from "../api/index.js";
+import { buildServices, resolveRuntimePlatformPrivyConfig } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
-import { createPrivyTestToken, LocalPrivyTokenVerifier, PrivyAuthService } from "../services/privy-auth-service.js";
+import {
+  createPrivyTestToken,
+  LocalPrivyTokenVerifier,
+  PrivyAuthService,
+  resolvePlatformPrivyConfig
+} from "../services/privy-auth-service.js";
 
 test("PrivyAuthService accepts a valid token and resolves a wallet principal", () => {
   const services = buildServices();
@@ -116,7 +121,6 @@ test("GET /v1/apps/:appId/me/credits returns a zero balance for a valid wallet w
       name: "Privy Credits App",
       priceCents: 499,
       credits: 500,
-      privyAppId: "privy-app-123",
       allowedChainId: "eip155:1"
     }
   });
@@ -151,7 +155,6 @@ test("player identity spoofing through request input is rejected and legacy play
       name: "Spoofing App",
       priceCents: 499,
       credits: 500,
-      privyAppId: "privy-app-456",
       allowedChainId: "eip155:1"
     }
   });
@@ -183,4 +186,58 @@ test("player identity spoofing through request input is rejected and legacy play
 
     assert.equal(response.statusCode, 404);
   }
+});
+
+test("shared wallet identity is reused across apps while balances remain app-scoped", async () => {
+  const services = buildServices();
+  const api = createApi(services);
+  const token = createPrivyTestToken({
+    walletAddress: "0xshared123",
+    chainId: "eip155:1"
+  });
+
+  const appIds: string[] = [];
+  for (const [key, name] of [
+    ["shared-app-1", "Shared App One"],
+    ["shared-app-2", "Shared App Two"]
+  ] as const) {
+    const response = await api.handle({
+      method: "POST",
+      url: "/apps",
+      headers: { "idempotency-key": key },
+      body: {
+        developerId: services.defaultDeveloper.developerId,
+        name,
+        priceCents: 499,
+        credits: 500,
+        allowedChainId: "eip155:1"
+      }
+    });
+    appIds.push(response.body.appId as string);
+  }
+
+  for (const appId of appIds) {
+    const response = await api.handle({
+      method: "GET",
+      url: `/v1/apps/${appId}/me/credits`,
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.walletAddress, "0xshared123");
+    assert.equal(response.body.balance, 0);
+  }
+
+  assert.equal(services.store.users.size, 1);
+  assert.equal(services.store.creditBalances.size, 2);
+});
+
+test("platform auth bootstrap resolves shared Privy config and fails closed for invalid input", () => {
+  assert.deepEqual(resolveRuntimePlatformPrivyConfig(), {
+    authProvider: "privy",
+    privyAppId: "cl-dev-privy-app",
+    verifierSecret: "privy-dev-secret"
+  });
+
+  assert.throws(() => resolvePlatformPrivyConfig({ appId: "", verifierSecret: "secret" }), /platform Privy app ID is required/);
+  assert.throws(() => resolvePlatformPrivyConfig({ appId: "app", verifierSecret: "" }), /platform Privy verifier secret is required/);
 });

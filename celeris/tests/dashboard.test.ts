@@ -17,12 +17,11 @@ test("dashboard page removes webhook and sponsor-wallet copy", async () => {
   assert.match(html, /Celeris Dashboard/);
   assert.doesNotMatch(html, /Webhook URL/);
   assert.doesNotMatch(html, /Sponsor wallet/i);
-  assert.match(html, /Privy App ID/);
   assert.match(html, /Allowed Chain ID/);
   assert.match(html, /Execution mode/);
 });
 
-test("dashboard endpoints create apps with Privy config and execution-mode actions", async () => {
+test("dashboard endpoints create apps with player policy and execution-mode actions", async () => {
   const services = buildServices();
   const api = createApi(services);
 
@@ -35,7 +34,6 @@ test("dashboard endpoints create apps with Privy config and execution-mode actio
       name: "Dashboard App",
       priceCents: 499,
       credits: 500,
-      privyAppId: "dashboard-privy-app",
       allowedChainId: "eip155:11155111"
     }
   });
@@ -65,8 +63,7 @@ test("dashboard endpoints create apps with Privy config and execution-mode actio
   assert.equal(apps.body[0].name, "Dashboard App");
 
   assert.equal(setup.statusCode, 200);
-  assert.equal(setup.body.authConfig.privyAppId, "dashboard-privy-app");
-  assert.equal(setup.body.authConfig.allowedChainId, "eip155:11155111");
+  assert.equal(setup.body.playerPolicy.allowedChainId, "eip155:11155111");
   assert.equal(setup.body.actions[0].executionMode, "managed");
 });
 
@@ -109,7 +106,6 @@ test("demo developer session can be created and app list can be filtered per dev
       name: "Developer Owned App",
       priceCents: 499,
       credits: 500,
-      privyAppId: "privy-dev-1",
       allowedChainId: "solana:101"
     }
   });
@@ -124,7 +120,6 @@ test("demo developer session can be created and app list can be filtered per dev
       name: "Another Dev App",
       priceCents: 499,
       credits: 500,
-      privyAppId: "privy-dev-2",
       allowedChainId: "eip155:1"
     }
   });

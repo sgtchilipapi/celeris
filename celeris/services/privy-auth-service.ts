@@ -1,6 +1,14 @@
 import crypto from "node:crypto";
 import { AppError } from "./errors.js";
-import type { ChainId, MemoryStore, PrivyClaims, PrivyTokenVerifier, WalletAddress, WalletPrincipal } from "../types.js";
+import type {
+  ChainId,
+  MemoryStore,
+  PlatformPrivyConfig,
+  PrivyClaims,
+  PrivyTokenVerifier,
+  WalletAddress,
+  WalletPrincipal
+} from "../types.js";
 
 export interface AuthenticatedPlayer {
   userId: string;
@@ -114,6 +122,37 @@ export class LocalPrivyTokenVerifier implements PrivyTokenVerifier {
 
     return payload;
   }
+}
+
+export function resolvePlatformPrivyConfig({
+  appId,
+  verifierSecret
+}: {
+  appId?: string | null;
+  verifierSecret?: string | null;
+}): PlatformPrivyConfig {
+  const normalizedAppId = String(appId ?? "").trim();
+  const normalizedVerifierSecret = String(verifierSecret ?? "").trim();
+
+  if (!normalizedAppId) {
+    throw new Error("platform Privy app ID is required");
+  }
+  if (!normalizedVerifierSecret) {
+    throw new Error("platform Privy verifier secret is required");
+  }
+
+  return {
+    authProvider: "privy",
+    privyAppId: normalizedAppId,
+    verifierSecret: normalizedVerifierSecret
+  };
+}
+
+export function resolvePlatformPrivyConfigFromEnv(env: NodeJS.ProcessEnv = process.env) {
+  return resolvePlatformPrivyConfig({
+    appId: env.CELERIS_PRIVY_APP_ID ?? "cl-dev-privy-app",
+    verifierSecret: env.PRIVY_VERIFIER_SECRET ?? "privy-dev-secret"
+  });
 }
 
 export function createPrivyTestToken(

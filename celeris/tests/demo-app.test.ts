@@ -125,7 +125,6 @@ test("player catalog and asset history routes support the standalone SDK flow", 
       name: "Demo UI App",
       priceCents: 499,
       credits: 500,
-      privyAppId: "demo-privy-app",
       allowedChainId: chainId
     }
   });
@@ -187,7 +186,7 @@ test("player catalog and asset history routes support the standalone SDK flow", 
 
   assert.equal(catalog.statusCode, 200);
   assert.equal(catalog.body.name, "Demo UI App");
-  assert.equal(catalog.body.authConfig.privyAppId, "demo-privy-app");
+  assert.equal(catalog.body.playerPolicy.allowedChainId, chainId);
   assert.equal(catalog.body.creditPackages[0].packageId, packageId);
   assert.equal(catalog.body.actions[0].actionType, "mint_item");
 

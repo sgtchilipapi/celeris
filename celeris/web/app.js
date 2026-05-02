@@ -22,7 +22,6 @@ const homeFeedbackEl = document.getElementById("home-feedback");
 const createAppFormEl = document.getElementById("create-app-form");
 const createAppNameEl = document.getElementById("create-app-name");
 const createAppCreditsPerDollarEl = document.getElementById("create-app-credits-per-dollar");
-const createAppPrivyAppIdEl = document.getElementById("create-app-privy-app-id");
 const createAppAllowedChainIdEl = document.getElementById("create-app-allowed-chain-id");
 const createAppFeedbackEl = document.getElementById("create-app-feedback");
 const cancelCreateAppBtn = document.getElementById("cancel-create-app-btn");
@@ -496,9 +495,8 @@ async function loadApps() {
 function renderSetupSummary(setup) {
   const firstPackage = setup.creditPackages[0] ?? null;
   renderDetailList(setupListEl, [
-    { label: "Auth provider", value: escapeHtml(setup.authConfig.authProvider) },
-    { label: "Privy App ID", value: renderCopyValue(setup.authConfig.privyAppId) },
-    { label: "Allowed chain", value: escapeHtml(setup.authConfig.allowedChainId) },
+    { label: "Auth provider", value: escapeHtml(setup.playerPolicy.authProvider) },
+    { label: "Allowed chain", value: escapeHtml(setup.playerPolicy.allowedChainId) },
     {
       label: "Default package",
       value: firstPackage ? `${formatCurrency(firstPackage.priceCents)} for ${firstPackage.credits} credits` : "Not set"
@@ -687,7 +685,7 @@ function renderMetrics(metrics, transactions, users) {
             (tx) => `
               <div class="list-row">
                 <strong>${tx.summary.actionType} · ${tx.status}</strong>
-                <small>${escapeHtml(tx.userId)}</small>
+                <small>${escapeHtml(tx.walletAddress)} · ${escapeHtml(tx.chainId)}</small>
                 <small>${formatDate(tx.createdAt)}</small>
               </div>
             `
@@ -702,7 +700,8 @@ function renderMetrics(metrics, transactions, users) {
           .map(
             (user) => `
               <div class="list-row">
-                <strong>${escapeHtml(user.userId)}</strong>
+                <strong>${escapeHtml(user.walletAddress)}</strong>
+                <small>${escapeHtml(user.chainId)}</small>
                 <small>Balance ${user.balance}</small>
                 <small>Reserved ${user.reserved}</small>
               </div>
@@ -735,7 +734,6 @@ async function createApp() {
 
   const appName = createAppNameEl.value.trim();
   const credits = parseWholeNumber(createAppCreditsPerDollarEl.value);
-  const privyAppId = createAppPrivyAppIdEl.value.trim();
   const allowedChainId = createAppAllowedChainIdEl.value;
 
   if (!appName) {
@@ -743,9 +741,6 @@ async function createApp() {
   }
   if (!Number.isInteger(credits) || credits <= 0) {
     throw new Error("Credits per $1 must be a positive whole number.");
-  }
-  if (!privyAppId) {
-    throw new Error("Privy App ID is required.");
   }
   if (!allowedChainId) {
     throw new Error("Allowed chain ID is required.");
@@ -762,7 +757,6 @@ async function createApp() {
       name: appName,
       priceCents: 100,
       credits,
-      privyAppId,
       allowedChainId
     })
   });
@@ -776,7 +770,6 @@ function resetCreateAppForm() {
   createAppFormEl.reset();
   createAppNameEl.value = "My Demo Game";
   createAppCreditsPerDollarEl.value = formatNumber(500);
-  createAppPrivyAppIdEl.value = "cl-dev-privy-app";
   createAppAllowedChainIdEl.value = "eip155:1";
   submitCreateAppBtn.textContent = "Create app";
   state.editingAppId = null;
@@ -791,8 +784,7 @@ async function openEditApp(appId) {
   state.editingAppId = appId;
   createAppNameEl.value = app.name;
   createAppCreditsPerDollarEl.value = formatNumber(setup.creditPackages[0]?.credits ?? 500);
-  createAppPrivyAppIdEl.value = setup.authConfig.privyAppId;
-  createAppAllowedChainIdEl.value = setup.authConfig.allowedChainId;
+  createAppAllowedChainIdEl.value = setup.playerPolicy.allowedChainId;
   submitCreateAppBtn.textContent = "Save changes";
   showFeedback(createAppFeedbackEl, "");
   setView("create");

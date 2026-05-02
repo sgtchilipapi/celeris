@@ -27,6 +27,8 @@ Out of scope:
 - `WO-03`
 - `WO-04`
 - `WO-05`
+- `WO-05.5`
+- `WO-05.6`
 - `WO-06`
 
 ## Affected Files / Modules
@@ -110,7 +112,7 @@ Out of scope:
 - `npm run typecheck` passes.
 - The updated end-to-end tests exercise:
   - developer app setup
-  - Privy-authenticated player identity
+  - Celeris-hosted player login backed by Privy identity
   - wallet-based checkout
   - managed action execution
   - direct-to-wallet asset delivery records
@@ -123,8 +125,8 @@ Out of scope:
 ## Integration Test Cases
 
 - End-to-end flow:
-  - developer creates app with Privy config
-  - player authenticates through Privy
+  - developer creates app with player policy and hosted-auth project config
+  - player authenticates through the hosted Celeris auth gateway
   - player creates checkout session
   - signed Stripe webhook grants credits to wallet balance
   - player executes managed mint action
