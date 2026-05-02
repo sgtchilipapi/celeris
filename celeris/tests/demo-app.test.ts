@@ -2,23 +2,49 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
+import { createPrivyTestToken } from "../services/privy-auth-service.js";
+
+function buildCompletedCheckoutEvent({
+  eventId,
+  checkoutSessionId,
+  appId,
+  walletAddress,
+  chainId,
+  credits,
+  amountCents
+}: {
+  eventId: string;
+  checkoutSessionId: string;
+  appId: string;
+  walletAddress: string;
+  chainId: string;
+  credits: number;
+  amountCents: number;
+}) {
+  return {
+    id: eventId,
+    type: "checkout.session.completed",
+    data: {
+      object: {
+        id: checkoutSessionId,
+        amount_total: amountCents,
+        metadata: {
+          appId,
+          walletAddress,
+          chainId,
+          credits
+        }
+      }
+    }
+  };
+}
 
 test("demo app assets and demo checkout completion endpoint are served for the frontend flow", async () => {
   const services = buildServices();
   const api = createApi(services);
-
-  const signedUp = await api.handle({
-    method: "POST",
-    url: "/player/sign-up",
-    headers: { "idempotency-key": "demo-player-sign-up-1" },
-    body: { username: "demo-player", password: "demo-pass" }
-  });
-
-  const session = await api.handle({
-    method: "POST",
-    url: "/player/sign-in",
-    body: { username: "demo-player", password: "demo-pass" }
-  });
+  const walletAddress = "0xdemo123";
+  const chainId = "eip155:1";
+  const token = createPrivyTestToken({ walletAddress, chainId });
 
   const app = await api.handle({
     method: "POST",
@@ -29,19 +55,19 @@ test("demo app assets and demo checkout completion endpoint are served for the f
       name: "Demo UI App",
       priceCents: 499,
       credits: 500,
-      webhookUrl: "http://localhost:3001"
+      privyAppId: "demo-privy-app",
+      allowedChainId: chainId
     }
   });
 
   const appId = app.body.appId as string;
-  const userId = session.body.userId as string;
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
   const checkout = await api.handle({
     method: "POST",
-    url: "/checkout/session",
-    headers: { "idempotency-key": "demo-checkout-1" },
-    body: { appId, userId, packageId }
+    url: `/v1/apps/${appId}/checkout-sessions`,
+    headers: { "idempotency-key": "demo-checkout-1", authorization: `Bearer ${token}` },
+    body: { packageId }
   });
 
   const completed = await api.handle({
@@ -66,8 +92,7 @@ test("demo app assets and demo checkout completion endpoint are served for the f
 
   assert.equal(completed.statusCode, 200);
   assert.equal(completed.body.grantedCredits, 500);
-  assert.equal(session.body.userId, signedUp.body.userId);
-  assert.equal(services.store.getBalance(userId, appId).balance, 500);
+  assert.equal(services.store.getBalance({ walletAddress, chainId }, appId).balance, 500);
   assert.equal(demoPage.statusCode, 200);
   assert.equal(demoJs.statusCode, 200);
   assert.equal(demoCss.statusCode, 200);

@@ -2,18 +2,18 @@ import { createHash, randomUUID } from "node:crypto";
 import { AppError } from "./errors.js";
 import type {
   ExecuteMintItemRequest,
-  MemoryStore,
-  MintItemApprovalResponse,
   MintItemExecutionResult,
   MintItemPayload,
   PendingAction,
+  ManagedMintItemResult,
+  MemoryStore,
   UUID
 } from "../types.js";
+import { AssetDeliveryService } from "./asset-delivery-service.js";
 import { CreditLedgerService } from "./credit-ledger-service.js";
-import { DeveloperBackendClient } from "./developer-backend-client.js";
+import { ManagedActionService } from "./managed-action-service.js";
 import { PendingActionService } from "./pending-action-service.js";
 import { RelayerService } from "./relayer-service.js";
-import { AssetService } from "./asset-service.js";
 
 function hashPayload(payload: MintItemPayload): string {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
@@ -22,56 +22,54 @@ function hashPayload(payload: MintItemPayload): string {
 export class MintItemService {
   readonly store: MemoryStore;
   readonly ledgerService: CreditLedgerService;
-  readonly developerClient: DeveloperBackendClient;
+  readonly managedActionService: ManagedActionService;
   readonly relayerService: RelayerService;
   readonly pendingActionService: PendingActionService;
-  readonly assetService: AssetService;
+  readonly assetDeliveryService: AssetDeliveryService;
 
   constructor({
     store,
     ledgerService,
-    developerClient,
+    managedActionService,
     relayerService,
     pendingActionService,
-    assetService
+    assetDeliveryService
   }: {
     store: MemoryStore;
     ledgerService: CreditLedgerService;
-    developerClient: DeveloperBackendClient;
+    managedActionService: ManagedActionService;
     relayerService: RelayerService;
     pendingActionService: PendingActionService;
-    assetService: AssetService;
+    assetDeliveryService: AssetDeliveryService;
   }) {
     this.store = store;
     this.ledgerService = ledgerService;
-    this.developerClient = developerClient;
+    this.managedActionService = managedActionService;
     this.relayerService = relayerService;
     this.pendingActionService = pendingActionService;
-    this.assetService = assetService;
+    this.assetDeliveryService = assetDeliveryService;
   }
 
-  async execute({ appId, userId, payload, idempotencyKey }: ExecuteMintItemRequest): Promise<MintItemExecutionResult> {
-    const cached = this.store.getIdempotent<MintItemExecutionResult | { status: "rejected"; pendingActionId: UUID; reason: string }>(
-      `mint:${appId}:${userId}`,
+  async execute({ appId, walletPrincipal, payload, idempotencyKey }: ExecuteMintItemRequest): Promise<MintItemExecutionResult> {
+    const cacheScope = `mint:${appId}:${walletPrincipal.chainId}:${walletPrincipal.walletAddress}`;
+    const cached = this.store.getIdempotent<MintItemExecutionResult>(
+      cacheScope,
       idempotencyKey
     );
     if (cached) {
-      if ("status" in cached && cached.status === "rejected") {
-        throw new AppError(422, cached.reason, {
-          pendingActionId: cached.pendingActionId,
-          status: "failed"
-        });
-      }
       return cached;
     }
     const actionType = this.store.getActionType(appId, "mint_item");
     if (!actionType) {
       throw new AppError(404, "action type not configured");
     }
+    if (actionType.executionMode !== "managed") {
+      throw new AppError(422, "mint_item is not configured as a managed action");
+    }
 
     const pendingAction = this.pendingActionService.createPendingAction({
       appId,
-      userId,
+      walletPrincipal,
       actionType: actionType.actionType,
       cost: actionType.cost,
       payloadHash: hashPayload(payload),
@@ -79,38 +77,14 @@ export class MintItemService {
     });
 
     try {
-      const approval = await this.developerClient.approveMintItem({
+      const managedAction = this.managedActionService.buildMintItemTransaction({
         pendingActionId: pendingAction.id,
         appId,
-        userId,
-        actionType: "mint_item",
+        walletPrincipal,
         cost: actionType.cost,
         payload
       });
-
-      if (approval.status !== "approved") {
-        pendingAction.status = "failed";
-        this.store.savePendingAction(pendingAction);
-        this.ledgerService.releaseCredits({
-          userId,
-          appId,
-          amount: actionType.cost,
-          idempotencyKey: `pending:${pendingAction.id}:release`,
-          pendingActionId: pendingAction.id
-        });
-        const rejected = {
-          pendingActionId: pendingAction.id,
-          status: "rejected",
-          reason: approval.reason ?? "developer rejected action"
-        } as const;
-        this.store.setIdempotent(`mint:${appId}:${userId}`, idempotencyKey, rejected);
-        throw new AppError(422, rejected.reason, {
-          pendingActionId: pendingAction.id,
-          status: "failed"
-        });
-      }
-
-      this.verifyApproval({ pendingAction, payload, approval });
+      this.verifyManagedAction({ pendingAction, payload, managedAction });
       pendingAction.status = "approved";
       this.store.savePendingAction(pendingAction);
 
@@ -118,15 +92,16 @@ export class MintItemService {
         txId: randomUUID(),
         pendingActionId: pendingAction.id,
         appId,
-        userId,
+        walletAddress: walletPrincipal.walletAddress,
+        chainId: walletPrincipal.chainId,
         providerTxId: "",
-        rawTx: approval.tx,
+        rawTx: managedAction.tx,
         status: "submitted",
-        summary: approval.summary,
+        summary: managedAction.summary,
         createdAt: new Date().toISOString()
       });
 
-      const submission = await this.relayerService.submitTransaction(approval.tx);
+      const submission = await this.relayerService.submitTransaction(managedAction.tx);
       transaction.providerTxId = submission.providerTxId;
       this.store.saveTransaction(transaction);
 
@@ -141,7 +116,7 @@ export class MintItemService {
         pendingAction.status = "failed";
         this.store.savePendingAction(pendingAction);
         this.ledgerService.releaseCredits({
-          userId,
+          walletPrincipal,
           appId,
           amount: actionType.cost,
           idempotencyKey: `pending:${pendingAction.id}:release-failed`,
@@ -159,25 +134,26 @@ export class MintItemService {
       this.store.savePendingAction(pendingAction);
 
       this.ledgerService.captureCredits({
-        userId,
+        walletPrincipal,
         appId,
         amount: actionType.cost,
         idempotencyKey: `pending:${pendingAction.id}:capture`,
         pendingActionId: pendingAction.id
       });
 
-      const asset = this.assetService.createHeldAsset({
+      const delivery = this.assetDeliveryService.createDeliveryRecord({
         appId,
-        userId,
-        itemDefId: approval.summary.itemDefId,
+        walletPrincipal,
+        itemDefId: managedAction.summary.itemDefId,
         transactionId: transaction.txId,
-        idempotencyKey: `pending:${pendingAction.id}:asset`
+        idempotencyKey: `pending:${pendingAction.id}:delivery`
       });
 
       this.store.recordUsageEvent({
         eventId: randomUUID(),
         appId,
-        userId,
+        walletAddress: walletPrincipal.walletAddress,
+        chainId: walletPrincipal.chainId,
         eventType: "mint_item",
         value: actionType.cost,
         metadata: { pendingActionId: pendingAction.id, transactionId: transaction.txId },
@@ -187,16 +163,16 @@ export class MintItemService {
       const result: MintItemExecutionResult = {
         pendingActionId: pendingAction.id,
         transactionId: transaction.txId,
-        assetId: asset.assetId,
+        deliveryId: delivery.deliveryId,
         status: transaction.status
       };
-      this.store.setIdempotent(`mint:${appId}:${userId}`, idempotencyKey, result);
+      this.store.setIdempotent(cacheScope, idempotencyKey, result);
       return result;
     } catch (error) {
       const latest = this.store.getPendingAction(pendingAction.id);
       if (!latest) {
         this.ledgerService.releaseCredits({
-          userId,
+          walletPrincipal,
           appId,
           amount: actionType.cost,
           idempotencyKey: `pending:${pendingAction.id}:release-missing`,
@@ -206,7 +182,7 @@ export class MintItemService {
         latest.status = "failed";
         this.store.savePendingAction(latest);
         this.ledgerService.releaseCredits({
-          userId,
+          walletPrincipal,
           appId,
           amount: actionType.cost,
           idempotencyKey: `pending:${pendingAction.id}:release-error`,
@@ -217,14 +193,14 @@ export class MintItemService {
     }
   }
 
-  private verifyApproval({
+  private verifyManagedAction({
     pendingAction,
     payload,
-    approval
+    managedAction
   }: {
     pendingAction: PendingAction;
     payload: MintItemPayload;
-    approval: Extract<MintItemApprovalResponse, { status: "approved" }>;
+    managedAction: ManagedMintItemResult;
   }) {
     const storedPendingAction = this.store.getPendingAction(pendingAction.id);
     if (!storedPendingAction) {
@@ -237,30 +213,36 @@ export class MintItemService {
       throw new AppError(422, "pending action expired");
     }
 
-    const allowedActionType = this.store.getActionType(storedPendingAction.appId, approval.summary.actionType);
+    const allowedActionType = this.store.getActionType(storedPendingAction.appId, managedAction.summary.actionType);
     if (!allowedActionType) {
-      throw new AppError(422, "developer summary action type not allowed");
+      throw new AppError(422, "managed action summary action type not allowed");
     }
 
-    const balance = this.store.getBalance(storedPendingAction.userId, storedPendingAction.appId);
+    const balance = this.store.getBalance(
+      {
+        walletAddress: storedPendingAction.walletAddress,
+        chainId: storedPendingAction.chainId
+      },
+      storedPendingAction.appId
+    );
     if (balance.reserved < storedPendingAction.cost) {
       throw new AppError(422, "reserved credits mismatch");
     }
 
-    if (!approval.tx) {
-      throw new AppError(422, "developer response missing tx");
+    if (!managedAction.tx) {
+      throw new AppError(422, "managed action response missing tx");
     }
-    if (!this.isSaneTransactionPayload(approval.tx)) {
-      throw new AppError(422, "developer tx failed basic sanity checks");
+    if (!this.isSaneTransactionPayload(managedAction.tx)) {
+      throw new AppError(422, "managed action tx failed basic sanity checks");
     }
-    if (approval.summary.actionType !== storedPendingAction.actionType) {
-      throw new AppError(422, "developer summary action type mismatch");
+    if (managedAction.summary.actionType !== storedPendingAction.actionType) {
+      throw new AppError(422, "managed action summary action type mismatch");
     }
-    if (approval.summary.debit !== storedPendingAction.cost) {
-      throw new AppError(422, "developer summary debit mismatch");
+    if (managedAction.summary.debit !== storedPendingAction.cost) {
+      throw new AppError(422, "managed action summary debit mismatch");
     }
-    if (approval.summary.itemDefId !== payload.itemDefId) {
-      throw new AppError(422, "developer summary itemDefId mismatch");
+    if (managedAction.summary.itemDefId !== payload.itemDefId) {
+      throw new AppError(422, "managed action summary itemDefId mismatch");
     }
   }
 

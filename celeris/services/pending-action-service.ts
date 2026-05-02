@@ -27,14 +27,17 @@ export class PendingActionService {
   }
 
   createPendingAction({
-    userId,
+    walletPrincipal,
     appId,
     actionType,
     cost,
     payloadHash,
     idempotencyKey
   }: CreatePendingActionRequest): PendingAction {
-    const cached = this.store.getIdempotent<PendingAction>(`pending-action:${appId}:${userId}`, idempotencyKey);
+    const cached = this.store.getIdempotent<PendingAction>(
+      `pending-action:${appId}:${walletPrincipal.chainId}:${walletPrincipal.walletAddress}`,
+      idempotencyKey
+    );
     if (cached) {
       return cached;
     }
@@ -42,7 +45,8 @@ export class PendingActionService {
     const pendingAction: PendingAction = {
       id: randomUUID(),
       appId,
-      userId,
+      walletAddress: walletPrincipal.walletAddress,
+      chainId: walletPrincipal.chainId,
       actionType,
       cost,
       payloadHash,
@@ -54,7 +58,7 @@ export class PendingActionService {
     };
 
     this.ledgerService.reserveCredits({
-      userId,
+      walletPrincipal,
       appId,
       amount: cost,
       idempotencyKey: `pending:${pendingAction.id}:reserve`,
@@ -62,7 +66,11 @@ export class PendingActionService {
     });
 
     this.store.createPendingAction(pendingAction);
-    this.store.setIdempotent(`pending-action:${appId}:${userId}`, idempotencyKey, pendingAction);
+    this.store.setIdempotent(
+      `pending-action:${appId}:${walletPrincipal.chainId}:${walletPrincipal.walletAddress}`,
+      idempotencyKey,
+      pendingAction
+    );
     return pendingAction;
   }
 
@@ -81,7 +89,10 @@ export class PendingActionService {
     pendingAction.status = "expired";
     this.store.savePendingAction(pendingAction);
     this.ledgerService.releaseCredits({
-      userId: pendingAction.userId,
+      walletPrincipal: {
+        walletAddress: pendingAction.walletAddress,
+        chainId: pendingAction.chainId
+      },
       appId: pendingAction.appId,
       amount: pendingAction.cost,
       idempotencyKey: `pending:${pendingAction.id}:expire-release`,

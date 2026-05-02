@@ -10,6 +10,7 @@ import type { MintItemService } from "../services/mint-item-service.js";
 import type { MetricsService } from "../services/metrics-service.js";
 import type { ClaimRewardsService } from "../services/claim-rewards-service.js";
 import type { PrivyAuthService } from "../services/privy-auth-service.js";
+import type { ManagedActionService } from "../services/managed-action-service.js";
 
 function json(statusCode: number, body: any) {
   return { statusCode, headers: { "content-type": "application/json" }, body };
@@ -44,6 +45,7 @@ type Services = {
   claimRewardsService: ClaimRewardsService;
   mintItemService: MintItemService;
   metricsService: MetricsService;
+  managedActionService: ManagedActionService;
 };
 
 type RouteContext = {
@@ -260,30 +262,34 @@ export function createApi(services: Services) {
     })
   }));
 
-  addRoute("POST", "/actions/mint_item", async ({ headers, body }) => ({
-    body: await services.mintItemService.execute({
-      appId: body.appId as string,
-      userId: requireAuthenticatedPlayer(services, headers, body, body.appId as string | undefined).userId,
-      payload: body.payload as { itemDefId: string },
-      idempotencyKey: requireIdempotency(headers, body)
-    })
-  }));
+  addRoute("POST", "/v1/apps/:appId/actions/:actionId/execute", async ({ params, headers, body }) => {
+    const authenticated = requireAuthenticatedPlayer(services, headers, body, params.appId);
+    const idempotencyKey = requireIdempotency(headers, body);
 
-  addRoute("POST", "/actions/claim_rewards", ({ headers, body }) => ({
-    body: (() => {
-      const requestedActionId = body.actionId ?? "claim_rewards";
-      if (requestedActionId !== "claim_rewards" && requestedActionId !== "first_time_claim") {
-        throw new AppError(400, "unsupported claim rewards action id");
-      }
+    if (params.actionId === "mint_item") {
+      return {
+        body: await services.mintItemService.execute({
+          appId: params.appId,
+          walletPrincipal: authenticated.walletPrincipal,
+          payload: body.payload as { itemDefId: string },
+          idempotencyKey
+        })
+      };
+    }
 
-      return services.claimRewardsService.execute({
-        appId: body.appId as string,
-        userId: requireAuthenticatedPlayer(services, headers, body, body.appId as string | undefined).userId,
-        actionId: requestedActionId,
-        idempotencyKey: requireIdempotency(headers, body)
-      });
-    })()
-  }));
+    if (params.actionId === "claim_rewards" || params.actionId === "first_time_claim") {
+      return {
+        body: services.claimRewardsService.execute({
+          appId: params.appId,
+          walletPrincipal: authenticated.walletPrincipal,
+          actionId: params.actionId,
+          idempotencyKey
+        })
+      };
+    }
+
+    throw new AppError(404, "action not supported");
+  });
 
   addRoute("GET", "/metrics", ({ query }) => ({
     body: services.metricsService.getAppMetrics(query.appId) as AppMetrics

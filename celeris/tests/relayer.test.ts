@@ -2,35 +2,21 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
-import type { RelayerNetworkClient, TransactionStatus } from "../types.js";
-
-function approvedDeveloperResponse() {
-  return new Response(
-    JSON.stringify({
-      status: "approved",
-      tx: "bW9ja190eA==",
-      summary: {
-        actionType: "mint_item",
-        itemDefId: "iron_sword",
-        debit: 50
-      }
-    }),
-    { status: 200, headers: { "content-type": "application/json" } }
-  );
-}
+import { createPrivyTestToken } from "../services/privy-auth-service.js";
+import type { RelayerNetworkClient, TransactionStatus, WalletPrincipal } from "../types.js";
 
 function buildCompletedCheckoutEvent({
   eventId,
   checkoutSessionId,
-  userId,
   appId,
+  walletPrincipal,
   credits,
   amountCents
 }: {
   eventId: string;
   checkoutSessionId: string;
-  userId: string;
   appId: string;
+  walletPrincipal: WalletPrincipal;
   credits: number;
   amountCents: number;
 }) {
@@ -41,25 +27,25 @@ function buildCompletedCheckoutEvent({
       object: {
         id: checkoutSessionId,
         amount_total: amountCents,
-        metadata: { userId, appId, credits }
+        metadata: {
+          appId,
+          walletAddress: walletPrincipal.walletAddress,
+          chainId: walletPrincipal.chainId,
+          credits
+        }
       }
     }
   };
 }
 
 async function setupRelayerFlow(relayerNetworkClient: RelayerNetworkClient) {
-  const services = buildServices({
-    developerFetch: async () => approvedDeveloperResponse(),
-    relayerNetworkClient
-  });
+  const services = buildServices({ relayerNetworkClient });
   const api = createApi(services);
-
-  const session = await api.handle({
-    method: "POST",
-    url: "/auth/session",
-    headers: { "idempotency-key": "relayer-session-1" },
-    body: { provider: "dummy", email: "relayer@example.com" }
-  });
+  const walletPrincipal = {
+    walletAddress: "0xrelayer123",
+    chainId: "eip155:1"
+  } satisfies WalletPrincipal;
+  const token = createPrivyTestToken(walletPrincipal);
 
   const app = await api.handle({
     method: "POST",
@@ -70,41 +56,40 @@ async function setupRelayerFlow(relayerNetworkClient: RelayerNetworkClient) {
       name: "Relayer App",
       priceCents: 499,
       credits: 500,
-      webhookUrl: "http://localhost:3001"
+      privyAppId: "relayer-privy",
+      allowedChainId: walletPrincipal.chainId
     }
   });
 
   const appId = app.body.appId as string;
-  const userId = session.body.userId as string;
-  const token = session.body.token as string;
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
   await api.handle({
     method: "POST",
     url: `/apps/${appId}/actions`,
     headers: { "idempotency-key": "relayer-action-1" },
-    body: { actionType: "mint_item", cost: 50 }
+    body: { actionType: "mint_item", cost: 50, executionMode: "managed" }
   });
 
   const checkout = await api.handle({
     method: "POST",
-    url: "/checkout/session",
-    headers: { "idempotency-key": "relayer-checkout-1" },
-    body: { appId, userId, packageId }
+    url: `/v1/apps/${appId}/checkout-sessions`,
+    headers: { "idempotency-key": "relayer-checkout-1", authorization: `Bearer ${token}` },
+    body: { packageId }
   });
 
   const paymentEvent = buildCompletedCheckoutEvent({
     eventId: "evt_relayer_1",
     checkoutSessionId: checkout.body.checkoutSessionId as string,
-    userId,
     appId,
+    walletPrincipal,
     credits: 500,
     amountCents: 499
   });
 
   await api.handle({
     method: "POST",
-    url: "/webhooks/payment",
+    url: "/v1/webhooks/stripe",
     headers: {
       "idempotency-key": "relayer-webhook-1",
       "stripe-signature": services.stripeGateway.signWebhookPayload(paymentEvent)
@@ -112,7 +97,7 @@ async function setupRelayerFlow(relayerNetworkClient: RelayerNetworkClient) {
     body: paymentEvent
   });
 
-  return { services, api, appId, userId, token };
+  return { services, api, appId, token, walletPrincipal };
 }
 
 test("relayer retries submission once on retryable network error and succeeds", async () => {
@@ -130,12 +115,12 @@ test("relayer retries submission once on retryable network error and succeeds", 
     }
   };
 
-  const { services, api, appId, userId, token } = await setupRelayerFlow(networkClient);
+  const { services, api, appId, token, walletPrincipal } = await setupRelayerFlow(networkClient);
   const mint = await api.handle({
     method: "POST",
-    url: "/actions/mint_item",
+    url: `/v1/apps/${appId}/actions/mint_item/execute`,
     headers: { "idempotency-key": "relayer-mint-retry-1", authorization: `Bearer ${token}` },
-    body: { appId, payload: { itemDefId: "iron_sword" } }
+    body: { payload: { itemDefId: "iron_sword" } }
   });
 
   assert.equal(mint.statusCode, 200);
@@ -143,8 +128,8 @@ test("relayer retries submission once on retryable network error and succeeds", 
   const tx = [...services.store.transactions.values()][0];
   assert.equal(tx.providerTxId, "mock_chain_retry_success");
   assert.equal(tx.status, "success");
-  assert.equal(services.store.getBalance(userId, appId).balance, 450);
-  assert.equal(services.store.getBalance(userId, appId).reserved, 0);
+  assert.equal(services.store.getBalance(walletPrincipal, appId).balance, 450);
+  assert.equal(services.store.getBalance(walletPrincipal, appId).reserved, 0);
 });
 
 test("relayer marks submitted transaction failed and releases credits", async () => {
@@ -157,12 +142,12 @@ test("relayer marks submitted transaction failed and releases credits", async ()
     }
   };
 
-  const { services, api, appId, userId, token } = await setupRelayerFlow(networkClient);
+  const { services, api, appId, token, walletPrincipal } = await setupRelayerFlow(networkClient);
   const mint = await api.handle({
     method: "POST",
-    url: "/actions/mint_item",
+    url: `/v1/apps/${appId}/actions/mint_item/execute`,
     headers: { "idempotency-key": "relayer-mint-failed-1", authorization: `Bearer ${token}` },
-    body: { appId, payload: { itemDefId: "iron_sword" } }
+    body: { payload: { itemDefId: "iron_sword" } }
   });
 
   assert.equal(mint.statusCode, 502);
@@ -173,9 +158,9 @@ test("relayer marks submitted transaction failed and releases credits", async ()
   assert.equal(tx.status, "failed");
   const pendingAction = [...services.store.pendingActions.values()][0];
   assert.equal(pendingAction.status, "failed");
-  assert.equal(services.store.getBalance(userId, appId).balance, 500);
-  assert.equal(services.store.getBalance(userId, appId).reserved, 0);
-  assert.equal(services.store.assets.size, 0);
+  assert.equal(services.store.getBalance(walletPrincipal, appId).balance, 500);
+  assert.equal(services.store.getBalance(walletPrincipal, appId).reserved, 0);
+  assert.equal(services.store.assetDeliveries.size, 0);
 });
 
 test("relayer fails after one retryable submission retry and leaves no capture", async () => {
@@ -190,12 +175,12 @@ test("relayer fails after one retryable submission retry and leaves no capture",
     }
   };
 
-  const { services, api, appId, userId, token } = await setupRelayerFlow(networkClient);
+  const { services, api, appId, token, walletPrincipal } = await setupRelayerFlow(networkClient);
   const mint = await api.handle({
     method: "POST",
-    url: "/actions/mint_item",
+    url: `/v1/apps/${appId}/actions/mint_item/execute`,
     headers: { "idempotency-key": "relayer-mint-submit-error-1", authorization: `Bearer ${token}` },
-    body: { appId, payload: { itemDefId: "iron_sword" } }
+    body: { payload: { itemDefId: "iron_sword" } }
   });
 
   assert.equal(mint.statusCode, 502);
@@ -204,6 +189,6 @@ test("relayer fails after one retryable submission retry and leaves no capture",
   assert.equal(sendAttempts, 2);
   assert.equal(services.store.creditLedger.filter((entry) => entry.type === "capture").length, 0);
   assert.equal(services.store.creditLedger.filter((entry) => entry.type === "release").length, 1);
-  assert.equal(services.store.getBalance(userId, appId).balance, 500);
-  assert.equal(services.store.getBalance(userId, appId).reserved, 0);
+  assert.equal(services.store.getBalance(walletPrincipal, appId).balance, 500);
+  assert.equal(services.store.getBalance(walletPrincipal, appId).reserved, 0);
 });

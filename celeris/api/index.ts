@@ -3,19 +3,19 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createApi } from "./create-api.js";
 import { MemoryStore } from "../db/memory-store.js";
+import { AssetDeliveryService } from "../services/asset-delivery-service.js";
 import { CreditLedgerService } from "../services/credit-ledger-service.js";
-import { PaymentService } from "../services/payment-service.js";
-import { DeveloperBackendClient } from "../services/developer-backend-client.js";
-import { MintItemService } from "../services/mint-item-service.js";
-import { MetricsService } from "../services/metrics-service.js";
 import { AppService } from "../services/app-service.js";
+import { ClaimRewardsService } from "../services/claim-rewards-service.js";
+import { ManagedActionService } from "../services/managed-action-service.js";
+import { MetricsService } from "../services/metrics-service.js";
+import { MintItemService } from "../services/mint-item-service.js";
 import { MockStripeGateway } from "../services/mock-stripe-gateway.js";
-import { StripeTestCheckoutGateway } from "../services/stripe-test-checkout-gateway.js";
+import { PaymentService } from "../services/payment-service.js";
 import { PendingActionService } from "../services/pending-action-service.js";
 import { RelayerService } from "../services/relayer-service.js";
 import { MockRelayerNetwork } from "../services/mock-relayer-network.js";
-import { AssetService } from "../services/asset-service.js";
-import { ClaimRewardsService } from "../services/claim-rewards-service.js";
+import { StripeTestCheckoutGateway } from "../services/stripe-test-checkout-gateway.js";
 import type { RelayerNetworkClient } from "../types.js";
 import { LocalPrivyTokenVerifier, PrivyAuthService } from "../services/privy-auth-service.js";
 
@@ -27,11 +27,11 @@ loadDotEnv(path.join(projectRoot, ".env.local"));
 const enableStripeCheckout = Boolean(process.env.STRIPE_SECRET_KEY) && !isTestRuntime();
 
 export function buildServices({
-  developerFetch = fetch,
-  relayerNetworkClient = new MockRelayerNetwork()
+  relayerNetworkClient = new MockRelayerNetwork(),
+  managedActionService
 }: {
-  developerFetch?: typeof fetch;
   relayerNetworkClient?: RelayerNetworkClient;
+  managedActionService?: ManagedActionService;
 } = {}) {
   const store = new MemoryStore();
   const defaultDeveloper = store.createDeveloper({ email: "dev@celeris.local" });
@@ -42,7 +42,8 @@ export function buildServices({
     : null;
   const pendingActionService = new PendingActionService({ store, ledgerService });
   const relayerService = new RelayerService({ networkClient: relayerNetworkClient });
-  const assetService = new AssetService({ store });
+  const assetDeliveryService = new AssetDeliveryService({ store });
+  const resolvedManagedActionService = managedActionService ?? new ManagedActionService();
   const privyVerifier = new LocalPrivyTokenVerifier({
     secret: process.env.PRIVY_VERIFIER_SECRET ?? "privy-dev-secret"
   });
@@ -51,21 +52,22 @@ export function buildServices({
     privyAuthService: new PrivyAuthService({ store, verifier: privyVerifier }),
     appService: new AppService({ store }),
     paymentService: new PaymentService({ store, ledgerService, stripeCheckoutGateway, stripeGateway }),
-    claimRewardsService: new ClaimRewardsService({ store, ledgerService }),
+    claimRewardsService: new ClaimRewardsService({ store, ledgerService, managedActionService: resolvedManagedActionService }),
     mintItemService: new MintItemService({
       store,
       ledgerService,
-      developerClient: new DeveloperBackendClient({ store, fetchImpl: developerFetch }),
+      managedActionService: resolvedManagedActionService,
       relayerService,
       pendingActionService,
-      assetService
+      assetDeliveryService
     }),
     metricsService: new MetricsService({ store }),
     stripeGateway,
     privyVerifier,
     pendingActionService,
     relayerService,
-    assetService
+    assetDeliveryService,
+    managedActionService: resolvedManagedActionService
   };
   return { ...services, defaultDeveloper };
 }

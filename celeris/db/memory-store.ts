@@ -3,7 +3,7 @@ import type {
   ActionType,
   App,
   AppAuthConfig,
-  Asset,
+  AssetDeliveryRecord,
   CreditBalance,
   CreditLedgerEntry,
   CreditPackage,
@@ -31,7 +31,7 @@ export class MemoryStore implements MemoryStoreContract {
   actionTypes = new Map<string, ActionType>();
   pendingActions = new Map<UUID, PendingAction>();
   transactions = new Map<UUID, TransactionRecord>();
-  assets = new Map<UUID, Asset>();
+  assetDeliveries = new Map<UUID, AssetDeliveryRecord>();
   payments = new Map<UUID, Payment>();
   usageEvents: UsageEvent[] = [];
   idempotency = new Map<string, unknown>();
@@ -171,9 +171,9 @@ export class MemoryStore implements MemoryStoreContract {
         this.transactions.delete(id);
       }
     }
-    for (const [id, asset] of this.assets.entries()) {
-      if (asset.appId === appId) {
-        this.assets.delete(id);
+    for (const [id, delivery] of this.assetDeliveries.entries()) {
+      if (delivery.appId === appId) {
+        this.assetDeliveries.delete(id);
       }
     }
     for (const [id, payment] of this.payments.entries()) {
@@ -212,14 +212,13 @@ export class MemoryStore implements MemoryStoreContract {
     return this.actionTypes.delete(`${appId}:${actionType}`);
   }
 
-  getBalance(walletPrincipal: WalletPrincipal | UUID, appId: UUID): CreditBalance {
-    const resolved = this.resolveWalletPrincipal(walletPrincipal);
-    const key = `${appId}:${resolved.chainId}:${resolved.walletAddress}`;
+  getBalance(walletPrincipal: WalletPrincipal, appId: UUID): CreditBalance {
+    const key = `${appId}:${walletPrincipal.chainId}:${walletPrincipal.walletAddress}`;
     if (!this.creditBalances.has(key)) {
       this.creditBalances.set(key, {
         appId,
-        walletAddress: resolved.walletAddress,
-        chainId: resolved.chainId,
+        walletAddress: walletPrincipal.walletAddress,
+        chainId: walletPrincipal.chainId,
         balance: 0,
         reserved: 0,
         updatedAt: new Date().toISOString()
@@ -228,14 +227,13 @@ export class MemoryStore implements MemoryStoreContract {
     return this.creditBalances.get(key)!;
   }
 
-  withLockedBalance<T>(walletPrincipal: WalletPrincipal | UUID, appId: UUID, callback: (balance: CreditBalance) => T): T {
-    const resolved = this.resolveWalletPrincipal(walletPrincipal);
-    const balance = this.getBalance(resolved, appId);
+  withLockedBalance<T>(walletPrincipal: WalletPrincipal, appId: UUID, callback: (balance: CreditBalance) => T): T {
+    const balance = this.getBalance(walletPrincipal, appId);
     const snapshot = { ...balance };
     try {
       return callback(balance);
     } catch (error) {
-      this.creditBalances.set(`${appId}:${resolved.chainId}:${resolved.walletAddress}`, snapshot);
+      this.creditBalances.set(`${appId}:${walletPrincipal.chainId}:${walletPrincipal.walletAddress}`, snapshot);
       throw error;
     }
   }
@@ -244,17 +242,6 @@ export class MemoryStore implements MemoryStoreContract {
     balance.updatedAt = new Date().toISOString();
     this.creditBalances.set(`${balance.appId}:${balance.chainId}:${balance.walletAddress}`, balance);
     return balance;
-  }
-
-  private resolveWalletPrincipal(input: WalletPrincipal | UUID): WalletPrincipal {
-    if (typeof input !== "string") {
-      return input;
-    }
-
-    return {
-      walletAddress: input.toLowerCase(),
-      chainId: "legacy:test"
-    };
   }
 
   addLedgerEntry(entry: CreditLedgerEntry): CreditLedgerEntry {
@@ -287,8 +274,8 @@ export class MemoryStore implements MemoryStoreContract {
     return record;
   }
 
-  createAsset(record: Asset): Asset {
-    this.assets.set(record.assetId, record);
+  createAssetDelivery(record: AssetDeliveryRecord): AssetDeliveryRecord {
+    this.assetDeliveries.set(record.deliveryId, record);
     return record;
   }
 

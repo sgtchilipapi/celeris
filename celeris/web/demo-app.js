@@ -153,7 +153,7 @@ async function mintItem() {
     throw new Error("sign in first");
   }
 
-  const result = await fetchJson("/actions/mint_item", {
+  const result = await fetchJson(`/v1/apps/${state.selectedAppId}/actions/mint_item/execute`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -161,7 +161,6 @@ async function mintItem() {
       authorization: `Bearer ${state.token}`
     },
     body: JSON.stringify({
-      appId: state.selectedAppId,
       payload: {
         itemDefId: "iron_sword"
       }

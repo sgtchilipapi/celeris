@@ -4,8 +4,7 @@ import type { CreditLedgerEntry, JsonObject, MemoryStore, UUID, WalletPrincipal 
 
 interface LedgerMutationInput {
   appId: UUID;
-  walletPrincipal?: WalletPrincipal;
-  userId?: UUID;
+  walletPrincipal: WalletPrincipal;
   amount: number;
   idempotencyKey: string;
   pendingActionId?: UUID | null;
@@ -20,66 +19,62 @@ export class CreditLedgerService {
     this.store = store;
   }
 
-  grantCredits({ walletPrincipal, userId, appId, amount, idempotencyKey, paymentId = null, metadata = {} }: LedgerMutationInput) {
-    const resolvedPrincipal = this.requireWalletPrincipal(walletPrincipal, userId);
+  grantCredits({ walletPrincipal, appId, amount, idempotencyKey, paymentId = null, metadata = {} }: LedgerMutationInput) {
     this.assertPositiveAmount(amount);
-    return this.runIdempotent(`grant:${appId}:${resolvedPrincipal.chainId}:${resolvedPrincipal.walletAddress}`, idempotencyKey, () =>
-      this.store.withLockedBalance(resolvedPrincipal, appId, (balance) => {
+    return this.runIdempotent(`grant:${appId}:${walletPrincipal.chainId}:${walletPrincipal.walletAddress}`, idempotencyKey, () =>
+      this.store.withLockedBalance(walletPrincipal, appId, (balance) => {
         balance.balance += amount;
         this.store.saveBalance(balance);
-        const entry = this.ledgerEntry({ walletPrincipal: resolvedPrincipal, appId, type: "grant", amount, idempotencyKey, paymentId, metadata });
+        const entry = this.ledgerEntry({ walletPrincipal, appId, type: "grant", amount, idempotencyKey, paymentId, metadata });
         this.store.addLedgerEntry(entry);
         return { balance: { ...balance }, entry };
       })
     );
   }
 
-  reserveCredits({ walletPrincipal, userId, appId, amount, idempotencyKey, pendingActionId = null, metadata = {} }: LedgerMutationInput) {
-    const resolvedPrincipal = this.requireWalletPrincipal(walletPrincipal, userId);
+  reserveCredits({ walletPrincipal, appId, amount, idempotencyKey, pendingActionId = null, metadata = {} }: LedgerMutationInput) {
     this.assertPositiveAmount(amount);
-    return this.runIdempotent(`reserve:${appId}:${resolvedPrincipal.chainId}:${resolvedPrincipal.walletAddress}`, idempotencyKey, () =>
-      this.store.withLockedBalance(resolvedPrincipal, appId, (balance) => {
+    return this.runIdempotent(`reserve:${appId}:${walletPrincipal.chainId}:${walletPrincipal.walletAddress}`, idempotencyKey, () =>
+      this.store.withLockedBalance(walletPrincipal, appId, (balance) => {
         if (balance.balance - balance.reserved < amount) {
           throw new InsufficientCreditsError();
         }
         balance.reserved += amount;
         this.store.saveBalance(balance);
-        const entry = this.ledgerEntry({ walletPrincipal: resolvedPrincipal, appId, type: "reserve", amount, idempotencyKey, pendingActionId, metadata });
+        const entry = this.ledgerEntry({ walletPrincipal, appId, type: "reserve", amount, idempotencyKey, pendingActionId, metadata });
         this.store.addLedgerEntry(entry);
         return { balance: { ...balance }, entry };
       })
     );
   }
 
-  captureCredits({ walletPrincipal, userId, appId, amount, idempotencyKey, pendingActionId = null, metadata = {} }: LedgerMutationInput) {
-    const resolvedPrincipal = this.requireWalletPrincipal(walletPrincipal, userId);
+  captureCredits({ walletPrincipal, appId, amount, idempotencyKey, pendingActionId = null, metadata = {} }: LedgerMutationInput) {
     this.assertPositiveAmount(amount);
-    return this.runIdempotent(`capture:${appId}:${resolvedPrincipal.chainId}:${resolvedPrincipal.walletAddress}`, idempotencyKey, () =>
-      this.store.withLockedBalance(resolvedPrincipal, appId, (balance) => {
+    return this.runIdempotent(`capture:${appId}:${walletPrincipal.chainId}:${walletPrincipal.walletAddress}`, idempotencyKey, () =>
+      this.store.withLockedBalance(walletPrincipal, appId, (balance) => {
         if (balance.balance < amount || balance.reserved < amount) {
           throw new AppError(409, "capture would make balance negative");
         }
         balance.balance -= amount;
         balance.reserved -= amount;
         this.store.saveBalance(balance);
-        const entry = this.ledgerEntry({ walletPrincipal: resolvedPrincipal, appId, type: "capture", amount, idempotencyKey, pendingActionId, metadata });
+        const entry = this.ledgerEntry({ walletPrincipal, appId, type: "capture", amount, idempotencyKey, pendingActionId, metadata });
         this.store.addLedgerEntry(entry);
         return { balance: { ...balance }, entry };
       })
     );
   }
 
-  releaseCredits({ walletPrincipal, userId, appId, amount, idempotencyKey, pendingActionId = null, metadata = {} }: LedgerMutationInput) {
-    const resolvedPrincipal = this.requireWalletPrincipal(walletPrincipal, userId);
+  releaseCredits({ walletPrincipal, appId, amount, idempotencyKey, pendingActionId = null, metadata = {} }: LedgerMutationInput) {
     this.assertPositiveAmount(amount);
-    return this.runIdempotent(`release:${appId}:${resolvedPrincipal.chainId}:${resolvedPrincipal.walletAddress}`, idempotencyKey, () =>
-      this.store.withLockedBalance(resolvedPrincipal, appId, (balance) => {
+    return this.runIdempotent(`release:${appId}:${walletPrincipal.chainId}:${walletPrincipal.walletAddress}`, idempotencyKey, () =>
+      this.store.withLockedBalance(walletPrincipal, appId, (balance) => {
         if (balance.reserved < amount) {
           throw new AppError(409, "release would make reserved negative");
         }
         balance.reserved -= amount;
         this.store.saveBalance(balance);
-        const entry = this.ledgerEntry({ walletPrincipal: resolvedPrincipal, appId, type: "release", amount, idempotencyKey, pendingActionId, metadata });
+        const entry = this.ledgerEntry({ walletPrincipal, appId, type: "release", amount, idempotencyKey, pendingActionId, metadata });
         this.store.addLedgerEntry(entry);
         return { balance: { ...balance }, entry };
       })
@@ -134,21 +129,5 @@ export class CreditLedgerService {
     if (!Number.isInteger(amount) || amount <= 0) {
       throw new AppError(400, "amount must be a positive integer");
     }
-  }
-
-  private requireWalletPrincipal(walletPrincipal?: WalletPrincipal, userId?: UUID) {
-    if (walletPrincipal) {
-      return walletPrincipal;
-    }
-    if (userId) {
-      return {
-        walletAddress: userId.toLowerCase(),
-        chainId: "legacy:test"
-      };
-    }
-    if (!walletPrincipal) {
-      throw new AppError(500, "wallet principal required for ledger mutation");
-    }
-    return walletPrincipal;
   }
 }

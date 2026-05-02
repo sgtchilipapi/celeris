@@ -101,7 +101,8 @@ export interface ActionType {
 export interface PendingAction {
   id: UUID;
   appId: UUID;
-  userId: UUID;
+  walletAddress: WalletAddress;
+  chainId: ChainId;
   actionType: string;
   cost: number;
   payloadHash: string;
@@ -113,7 +114,7 @@ export interface PendingAction {
 }
 
 export interface CreatePendingActionRequest {
-  userId: UUID;
+  walletPrincipal: WalletPrincipal;
   appId: UUID;
   actionType: string;
   cost: number;
@@ -131,21 +132,12 @@ export interface TransactionRecord {
   txId: UUID;
   pendingActionId: UUID;
   appId: UUID;
-  userId: UUID;
+  walletAddress: WalletAddress;
+  chainId: ChainId;
   providerTxId: string;
   rawTx: string;
   status: TransactionStatus;
   summary: MintItemApprovalSummary;
-  createdAt: string;
-}
-
-export interface Asset {
-  assetId: UUID;
-  appId: UUID;
-  userId: UUID;
-  itemDefId: string;
-  transactionId: UUID;
-  status: "held";
   createdAt: string;
 }
 
@@ -181,7 +173,6 @@ export interface Payment {
 export interface UsageEvent {
   eventId: UUID;
   appId: UUID;
-  userId?: UUID;
   walletAddress?: WalletAddress;
   chainId?: ChainId;
   eventType: string;
@@ -285,7 +276,6 @@ export interface CreateCheckoutSessionRequest {
 }
 
 export interface CheckoutSessionMetadata extends JsonObject {
-  userId?: UUID;
   appId: UUID;
   walletAddress?: WalletAddress;
   chainId?: ChainId;
@@ -330,42 +320,35 @@ export interface MintItemPayload {
 
 export interface ExecuteMintItemRequest {
   appId: UUID;
-  userId: UUID;
+  walletPrincipal: WalletPrincipal;
   payload: MintItemPayload;
   idempotencyKey: string;
 }
 
 export interface ExecuteClaimRewardsRequest {
   appId: UUID;
-  userId: UUID;
+  walletPrincipal: WalletPrincipal;
   actionId: "claim_rewards" | "first_time_claim";
   idempotencyKey: string;
 }
 
-export interface MintItemApprovalRequest {
+export interface ManagedMintItemRequest {
   pendingActionId: UUID;
   appId: UUID;
-  userId: UUID;
-  actionType: "mint_item";
+  walletPrincipal: WalletPrincipal;
   cost: number;
   payload: MintItemPayload;
 }
 
-export type MintItemApprovalResponse =
-  | {
-      status: "approved";
-      tx: string;
-      summary: MintItemApprovalSummary;
-    }
-  | {
-      status: "rejected";
-      reason?: string;
-    };
+export interface ManagedMintItemResult {
+  tx: string;
+  summary: MintItemApprovalSummary;
+}
 
 export interface MintItemExecutionResult {
   pendingActionId: UUID;
   transactionId: UUID;
-  assetId: UUID;
+  deliveryId: UUID;
   status: TransactionStatus;
 }
 
@@ -436,7 +419,7 @@ export interface MemoryStore {
   actionTypes: Map<string, ActionType>;
   pendingActions: Map<UUID, PendingAction>;
   transactions: Map<UUID, TransactionRecord>;
-  assets: Map<UUID, Asset>;
+  assetDeliveries: Map<UUID, AssetDeliveryRecord>;
   payments: Map<UUID, Payment>;
   usageEvents: UsageEvent[];
   idempotency: Map<string, unknown>;
@@ -465,8 +448,8 @@ export interface MemoryStore {
   upsertActionType(input: { appId: UUID; actionType: string; cost: number; executionMode: ActionExecutionMode }): ActionType;
   getActionType(appId: UUID, actionType: string): ActionType | null;
   deleteActionType(appId: UUID, actionType: string): boolean;
-  getBalance(walletPrincipal: WalletPrincipal | UUID, appId: UUID): CreditBalance;
-  withLockedBalance<T>(walletPrincipal: WalletPrincipal | UUID, appId: UUID, callback: (balance: CreditBalance) => T): T;
+  getBalance(walletPrincipal: WalletPrincipal, appId: UUID): CreditBalance;
+  withLockedBalance<T>(walletPrincipal: WalletPrincipal, appId: UUID, callback: (balance: CreditBalance) => T): T;
   saveBalance(balance: CreditBalance): CreditBalance;
   addLedgerEntry(entry: CreditLedgerEntry): CreditLedgerEntry;
   createPendingAction(record: PendingAction): PendingAction;
@@ -474,7 +457,7 @@ export interface MemoryStore {
   savePendingAction(record: PendingAction): PendingAction;
   createTransaction(record: TransactionRecord): TransactionRecord;
   saveTransaction(record: TransactionRecord): TransactionRecord;
-  createAsset(record: Asset): Asset;
+  createAssetDelivery(record: AssetDeliveryRecord): AssetDeliveryRecord;
   createPayment(record: Payment): Payment;
   getPaymentByProviderSessionId(providerSessionId: string): Payment | null;
   getPaymentByProviderEventId(providerEventId: string): Payment | null;

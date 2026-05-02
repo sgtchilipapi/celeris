@@ -4,6 +4,13 @@ import { MemoryStore } from "../db/memory-store.js";
 import { CreditLedgerService } from "../services/credit-ledger-service.js";
 import { PendingActionService } from "../services/pending-action-service.js";
 
+function walletPrincipal(index: number) {
+  return {
+    walletAddress: `0xpending${index}`,
+    chainId: "eip155:1"
+  };
+}
+
 test("createPendingAction validates balance by reserving credits before creating the pending action", () => {
   const store = new MemoryStore();
   const ledgerService = new CreditLedgerService({ store });
@@ -14,12 +21,12 @@ test("createPendingAction validates balance by reserving credits before creating
   });
   const developer = store.createDeveloper({ email: "dev@test.local" });
   const app = store.createApp({ developerId: developer.developerId, name: "Pending App", apiKey: "key_1" });
-  const user = store.createUser({ externalSubject: "dummy:pending@example.com", email: "pending@example.com" });
+  const principal = walletPrincipal(1);
 
-  ledgerService.grantCredits({ userId: user.userId, appId: app.appId, amount: 100, idempotencyKey: "grant-pending-1" });
+  ledgerService.grantCredits({ walletPrincipal: principal, appId: app.appId, amount: 100, idempotencyKey: "grant-pending-1" });
 
   const pendingAction = service.createPendingAction({
-    userId: user.userId,
+    walletPrincipal: principal,
     appId: app.appId,
     actionType: "mint_item",
     cost: 50,
@@ -29,8 +36,8 @@ test("createPendingAction validates balance by reserving credits before creating
 
   assert.equal(pendingAction.status, "reserved");
   assert.equal(pendingAction.actionType, "mint_item");
-  assert.equal(store.getBalance(user.userId, app.appId).balance, 100);
-  assert.equal(store.getBalance(user.userId, app.appId).reserved, 50);
+  assert.equal(store.getBalance(principal, app.appId).balance, 100);
+  assert.equal(store.getBalance(principal, app.appId).reserved, 50);
   assert.equal(store.getPendingAction(pendingAction.id)?.id, pendingAction.id);
 });
 
@@ -45,12 +52,12 @@ test("createPendingAction is idempotent and uses a 60 second ttl", () => {
   });
   const developer = store.createDeveloper({ email: "dev2@test.local" });
   const app = store.createApp({ developerId: developer.developerId, name: "Pending App", apiKey: "key_2" });
-  const user = store.createUser({ externalSubject: "dummy:pending2@example.com", email: "pending2@example.com" });
+  const principal = walletPrincipal(2);
 
-  ledgerService.grantCredits({ userId: user.userId, appId: app.appId, amount: 100, idempotencyKey: "grant-pending-2" });
+  ledgerService.grantCredits({ walletPrincipal: principal, appId: app.appId, amount: 100, idempotencyKey: "grant-pending-2" });
 
   const first = service.createPendingAction({
-    userId: user.userId,
+    walletPrincipal: principal,
     appId: app.appId,
     actionType: "mint_item",
     cost: 50,
@@ -58,7 +65,7 @@ test("createPendingAction is idempotent and uses a 60 second ttl", () => {
     idempotencyKey: "pending-create-2"
   });
   const duplicate = service.createPendingAction({
-    userId: user.userId,
+    walletPrincipal: principal,
     appId: app.appId,
     actionType: "mint_item",
     cost: 50,
@@ -68,7 +75,7 @@ test("createPendingAction is idempotent and uses a 60 second ttl", () => {
 
   assert.equal(first.id, duplicate.id);
   assert.equal(store.pendingActions.size, 1);
-  assert.equal(store.getBalance(user.userId, app.appId).reserved, 50);
+  assert.equal(store.getBalance(principal, app.appId).reserved, 50);
   assert.equal(new Date(first.expiresAt).getTime() - baseTime.getTime(), 60_000);
 });
 
@@ -83,12 +90,12 @@ test("expirePendingAction marks expired reserved actions and releases credits", 
   });
   const developer = store.createDeveloper({ email: "dev3@test.local" });
   const app = store.createApp({ developerId: developer.developerId, name: "Pending App", apiKey: "key_3" });
-  const user = store.createUser({ externalSubject: "dummy:pending3@example.com", email: "pending3@example.com" });
+  const principal = walletPrincipal(3);
 
-  ledgerService.grantCredits({ userId: user.userId, appId: app.appId, amount: 100, idempotencyKey: "grant-pending-3" });
+  ledgerService.grantCredits({ walletPrincipal: principal, appId: app.appId, amount: 100, idempotencyKey: "grant-pending-3" });
 
   const pendingAction = service.createPendingAction({
-    userId: user.userId,
+    walletPrincipal: principal,
     appId: app.appId,
     actionType: "mint_item",
     cost: 50,
@@ -100,7 +107,7 @@ test("expirePendingAction marks expired reserved actions and releases credits", 
   const expired = service.expirePendingAction(pendingAction.id);
 
   assert.equal(expired.status, "expired");
-  assert.equal(store.getBalance(user.userId, app.appId).reserved, 0);
-  assert.equal(store.getBalance(user.userId, app.appId).balance, 100);
+  assert.equal(store.getBalance(principal, app.appId).reserved, 0);
+  assert.equal(store.getBalance(principal, app.appId).balance, 100);
   assert.equal(store.creditLedger.filter((entry) => entry.type === "release").length, 1);
 });
