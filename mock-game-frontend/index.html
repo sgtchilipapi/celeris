@@ -12,25 +12,21 @@
         <form id="login-form" class="card auth-card">
           <div class="card-copy">
             <p class="eyebrow">Mock Game</p>
-            <h1>Sign in</h1>
-            <p id="login-subtitle">Enter the game with your player account.</p>
+            <h1>Embedded wallet sign-in</h1>
+            <p id="login-subtitle">Connect the local Privy-style wallet for this app.</p>
           </div>
 
           <label class="field">
-            <span>Username</span>
-            <input id="username-input" type="text" autocomplete="username" />
+            <span>Wallet address</span>
+            <input id="wallet-address-input" type="text" autocomplete="off" spellcheck="false" />
           </label>
 
-          <label class="field">
-            <span>Password</span>
-            <input id="password-input" type="password" autocomplete="current-password" />
-          </label>
+          <p id="wallet-chain-copy" class="helper-copy">Allowed chain: -</p>
 
           <p id="login-feedback" class="feedback" hidden></p>
 
           <div class="auth-actions">
-            <button id="sign-in-btn" class="button button-primary" type="submit">Sign in</button>
-            <button id="sign-up-btn" class="button button-secondary" type="button">Sign up</button>
+            <button id="connect-wallet-btn" class="button button-primary" type="submit">Connect wallet</button>
           </div>
         </form>
       </section>
@@ -59,10 +55,10 @@
             </div>
 
             <div class="session-pill">
-              <strong id="player-username">-</strong>
+              <strong id="player-wallet">-</strong>
             </div>
 
-            <button id="sign-out-btn" class="button button-secondary" type="button">Log out</button>
+            <button id="sign-out-btn" class="button button-secondary" type="button">Disconnect</button>
           </div>
         </header>
 
@@ -149,7 +145,10 @@
             <article class="card inventory-summary-card">
               <p class="eyebrow">Summary</p>
               <strong id="inventory-gold-total" class="inventory-gold-total">Gold: 0</strong>
-              <small id="inventory-items-total">0 claimed items</small>
+              <small id="inventory-items-total">0 delivered assets</small>
+              <div class="inventory-actions">
+                <button id="mint-item-btn" class="button button-primary" type="button">Mint featured item</button>
+              </div>
             </article>
 
             <section id="inventory-list" class="inventory-list"></section>

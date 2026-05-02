@@ -31,10 +31,21 @@ export class MockStripeGateway {
       appId,
       credits
     };
+    const checkoutUrl =
+      successUrl && cancelUrl
+        ? buildMockCheckoutUrl({
+            sessionId,
+            successUrl,
+            cancelUrl,
+            amountCents,
+            metadata
+          })
+        : `https://checkout.stripe.local/session/${sessionId}`;
+
     return {
       provider: "stripe",
       sessionId,
-      url: `https://checkout.stripe.local/session/${sessionId}`,
+      url: checkoutUrl,
       amountCents,
       metadata,
       successUrl,
@@ -57,4 +68,30 @@ export class MockStripeGateway {
   signWebhookPayload(payload: StripeCheckoutSessionCompletedEvent): string {
     return crypto.createHmac("sha256", this.webhookSecret).update(JSON.stringify(payload)).digest("hex");
   }
+}
+
+function buildMockCheckoutUrl({
+  sessionId,
+  successUrl,
+  cancelUrl,
+  amountCents,
+  metadata
+}: {
+  sessionId: string;
+  successUrl: string;
+  cancelUrl: string;
+  amountCents: number;
+  metadata: CheckoutSessionMetadata;
+}) {
+  const frontendOrigin = new URL(successUrl).origin;
+  const checkoutUrl = new URL("/mock-checkout", frontendOrigin);
+  checkoutUrl.searchParams.set("session_id", sessionId);
+  checkoutUrl.searchParams.set("success_url", successUrl);
+  checkoutUrl.searchParams.set("cancel_url", cancelUrl);
+  checkoutUrl.searchParams.set("app_id", metadata.appId);
+  checkoutUrl.searchParams.set("wallet_address", metadata.walletAddress ?? "");
+  checkoutUrl.searchParams.set("chain_id", metadata.chainId ?? "");
+  checkoutUrl.searchParams.set("credits", String(metadata.credits));
+  checkoutUrl.searchParams.set("amount_cents", String(amountCents));
+  return checkoutUrl.toString();
 }

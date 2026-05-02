@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
 import { createPrivyTestToken } from "../services/privy-auth-service.js";
+import { createBrowserClient } from "../sdk/browser-client.js";
 
 function buildCompletedCheckoutEvent({
   eventId,
@@ -39,7 +40,76 @@ function buildCompletedCheckoutEvent({
   };
 }
 
-test("demo app assets and demo checkout completion endpoint are served for the frontend flow", async () => {
+test("browser SDK composes player routes with bearer auth and rejects missing tokens", async () => {
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const client = createBrowserClient({
+    apiBaseUrl: "/api",
+    appId: "app_123",
+    tokenProvider: async () => "privy-token",
+    fetchImpl: async (url, init) => {
+      requests.push({ url: String(url), init });
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+  });
+
+  await client.me.get();
+  await client.catalog.get();
+  await client.credits.getBalance();
+  await client.payments.createCheckoutSession({
+    packageId: "pkg_123",
+    successUrl: "https://example.com/success",
+    cancelUrl: "https://example.com/cancel",
+    idempotencyKey: "checkout-1"
+  });
+  await client.actions.execute("mint_item", { itemDefId: "iron_sword" }, { idempotencyKey: "mint-1" });
+  await client.assets.getHistory();
+
+  assert.deepEqual(
+    requests.map((entry) => entry.url),
+    [
+      "/api/v1/me",
+      "/api/v1/apps/app_123/catalog",
+      "/api/v1/apps/app_123/me/credits",
+      "/api/v1/apps/app_123/checkout-sessions",
+      "/api/v1/apps/app_123/actions/mint_item/execute",
+      "/api/v1/apps/app_123/me/asset-history"
+    ]
+  );
+
+  for (const request of requests) {
+    const headers = new Headers(request.init?.headers);
+    assert.equal(headers.get("authorization"), "Bearer privy-token");
+  }
+
+  const checkoutBody = JSON.parse(String(requests[3].init?.body));
+  assert.equal(checkoutBody.packageId, "pkg_123");
+  assert.equal(checkoutBody.walletAddress, undefined);
+  assert.equal(checkoutBody.userId, undefined);
+
+  const actionBody = JSON.parse(String(requests[4].init?.body));
+  assert.deepEqual(actionBody, {
+    payload: { itemDefId: "iron_sword" },
+    idempotencyKey: "mint-1"
+  });
+
+  const missingTokenClient = createBrowserClient({
+    apiBaseUrl: "/api",
+    appId: "app_123",
+    tokenProvider: async () => "",
+    fetchImpl: async () =>
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+  });
+
+  await assert.rejects(() => missingTokenClient.me.get(), /player token is required/);
+});
+
+test("player catalog and asset history routes support the standalone SDK flow", async () => {
   const services = buildServices();
   const api = createApi(services);
   const walletAddress = "0xdemo123";
@@ -49,7 +119,7 @@ test("demo app assets and demo checkout completion endpoint are served for the f
   const app = await api.handle({
     method: "POST",
     url: "/apps",
-    headers: { "idempotency-key": "demo-app-1" },
+    headers: { "idempotency-key": "demo-sdk-app-1" },
     body: {
       developerId: services.defaultDeveloper.developerId,
       name: "Demo UI App",
@@ -63,39 +133,87 @@ test("demo app assets and demo checkout completion endpoint are served for the f
   const appId = app.body.appId as string;
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
+  await api.handle({
+    method: "POST",
+    url: `/apps/${appId}/actions`,
+    headers: { "idempotency-key": "demo-sdk-action-1" },
+    body: { actionType: "mint_item", cost: 50, executionMode: "managed" }
+  });
+
   const checkout = await api.handle({
     method: "POST",
     url: `/v1/apps/${appId}/checkout-sessions`,
-    headers: { "idempotency-key": "demo-checkout-1", authorization: `Bearer ${token}` },
+    headers: { "idempotency-key": "demo-sdk-checkout-1", authorization: `Bearer ${token}` },
     body: { packageId }
   });
 
-  const completed = await api.handle({
+  const paymentEvent = buildCompletedCheckoutEvent({
+    eventId: "evt_demo_sdk_1",
+    checkoutSessionId: checkout.body.checkoutSessionId as string,
+    appId,
+    walletAddress,
+    chainId,
+    credits: 500,
+    amountCents: 499
+  });
+
+  await api.handle({
     method: "POST",
-    url: "/demo/checkout/complete",
-    headers: { "idempotency-key": "demo-complete-1" },
-    body: { checkoutSessionId: checkout.body.checkoutSessionId as string }
+    url: "/v1/webhooks/stripe",
+    headers: {
+      "idempotency-key": "demo-sdk-webhook-1",
+      "stripe-signature": services.stripeGateway.signWebhookPayload(paymentEvent)
+    },
+    body: paymentEvent
   });
 
-  const demoPage = await api.handle({
-    method: "GET",
-    url: "/demo"
-  });
-  const demoJs = await api.handle({
-    method: "GET",
-    url: "/demo/app.js"
-  });
-  const demoCss = await api.handle({
-    method: "GET",
-    url: "/demo/styles.css"
+  await api.handle({
+    method: "POST",
+    url: `/v1/apps/${appId}/actions/mint_item/execute`,
+    headers: { "idempotency-key": "demo-sdk-mint-1", authorization: `Bearer ${token}` },
+    body: { payload: { itemDefId: "iron_sword" } }
   });
 
-  assert.equal(completed.statusCode, 200);
-  assert.equal(completed.body.grantedCredits, 500);
-  assert.equal(services.store.getBalance({ walletAddress, chainId }, appId).balance, 500);
-  assert.equal(demoPage.statusCode, 200);
-  assert.equal(demoJs.statusCode, 200);
-  assert.equal(demoCss.statusCode, 200);
-  assert.match(String(demoPage.body), /Celeris Demo App/);
-  assert.match(String(demoJs.body), /checkout\/complete/);
+  const catalog = await api.handle({
+    method: "GET",
+    url: `/v1/apps/${appId}/catalog`,
+    headers: { authorization: `Bearer ${token}` }
+  });
+  const assetHistory = await api.handle({
+    method: "GET",
+    url: `/v1/apps/${appId}/me/asset-history`,
+    headers: { authorization: `Bearer ${token}` }
+  });
+
+  assert.equal(catalog.statusCode, 200);
+  assert.equal(catalog.body.name, "Demo UI App");
+  assert.equal(catalog.body.authConfig.privyAppId, "demo-privy-app");
+  assert.equal(catalog.body.creditPackages[0].packageId, packageId);
+  assert.equal(catalog.body.actions[0].actionType, "mint_item");
+
+  assert.equal(assetHistory.statusCode, 200);
+  assert.equal(assetHistory.body.walletAddress, walletAddress);
+  assert.equal(assetHistory.body.chainId, chainId);
+  assert.equal(assetHistory.body.deliveries.length, 1);
+  assert.equal(assetHistory.body.deliveries[0].destinationWalletAddress, walletAddress);
+});
+
+test("legacy API-served demo frontend routes and demo checkout completion helper are removed", async () => {
+  const services = buildServices();
+  const api = createApi(services);
+
+  for (const [method, url] of [
+    ["GET", "/demo"],
+    ["GET", "/demo/app.js"],
+    ["GET", "/demo/styles.css"],
+    ["POST", "/demo/checkout/complete"]
+  ] as const) {
+    const response = await api.handle({
+      method,
+      url,
+      headers: method === "POST" ? { "idempotency-key": `removed-${url}` } : undefined,
+      body: method === "POST" ? {} : undefined
+    });
+    assert.equal(response.statusCode, 404);
+  }
 });

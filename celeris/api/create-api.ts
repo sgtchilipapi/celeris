@@ -134,6 +134,48 @@ export function createApi(services: Services) {
     };
   });
 
+  addRoute("GET", "/v1/apps/:appId/me/asset-history", ({ params, headers, body }) => {
+    const player = requireAuthenticatedPlayer(services, headers, body, params.appId);
+
+    return {
+      body: {
+        appId: params.appId,
+        walletAddress: player.walletPrincipal.walletAddress,
+        chainId: player.walletPrincipal.chainId,
+        deliveries: [...services.store.assetDeliveries.values()]
+          .filter(
+            (delivery) =>
+              delivery.appId === params.appId &&
+              delivery.walletAddress === player.walletPrincipal.walletAddress &&
+              delivery.chainId === player.walletPrincipal.chainId
+          )
+          .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      }
+    };
+  });
+
+  addRoute("GET", "/v1/apps/:appId/catalog", ({ params, headers, body }) => {
+    requireAuthenticatedPlayer(services, headers, body, params.appId);
+    const app = services.store.apps.get(params.appId);
+    if (!app) {
+      throw new AppError(404, "app not found");
+    }
+    const authConfig = services.store.appAuthConfigs.get(params.appId);
+    if (!authConfig) {
+      throw new AppError(404, "app auth config not found");
+    }
+
+    return {
+      body: {
+        appId: app.appId,
+        name: app.name,
+        authConfig,
+        creditPackages: [...services.store.creditPackages.values()].filter((pkg) => pkg.appId === params.appId),
+        actions: [...services.store.actionTypes.values()].filter((action) => action.appId === params.appId)
+      }
+    };
+  });
+
   addRoute("POST", "/developer/sign-up", ({ headers, body }) => ({
     statusCode: 201,
     body: services.appService.signUpDeveloper({
@@ -243,13 +285,6 @@ export function createApi(services: Services) {
       packageId: body.packageId as string,
       successUrl: body.successUrl as string | undefined,
       cancelUrl: body.cancelUrl as string | undefined,
-      idempotencyKey: requireIdempotency(headers, body)
-    })
-  }));
-
-  addRoute("POST", "/demo/checkout/complete", ({ headers, body }) => ({
-    body: services.paymentService.completeDemoCheckoutSession({
-      checkoutSessionId: body.checkoutSessionId as string,
       idempotencyKey: requireIdempotency(headers, body)
     })
   }));
@@ -406,15 +441,6 @@ async function tryServeWebAsset(pathname: string) {
   }
   if (pathname === "/styles.css" || pathname === "/dashboard/styles.css") {
     return serveFile(path.join(webRoot, "styles.css"), "text/css; charset=utf-8");
-  }
-  if (pathname === "/demo" || pathname === "/demo/") {
-    return serveFile(path.join(webRoot, "demo.html"), "text/html; charset=utf-8");
-  }
-  if (pathname === "/demo/app.js") {
-    return serveFile(path.join(webRoot, "demo-app.js"), "text/javascript; charset=utf-8");
-  }
-  if (pathname === "/demo/styles.css") {
-    return serveFile(path.join(webRoot, "demo-styles.css"), "text/css; charset=utf-8");
   }
   return null;
 }

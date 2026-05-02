@@ -23,7 +23,6 @@ Build the game. Celeris handles money and execution.
 ### Local services
 
 - API: `npm run dev`
-- Mock developer backend: `npm run dev:mock-developer`
 - Mock game frontend: `npm run dev:mock-game-frontend -- --app-id=<app-id>`
 - Full demo orchestrator: `npm run start:full-demo`
 
@@ -32,7 +31,7 @@ Without it, checkout session creation stays in the local mock mode.
 
 `npm run start:full-demo` starts the API, provisions a demo developer and a Privy-configured app, configures the default demo actions with execution modes, and opens the dashboard ready for manual verification.
 
-By default it does not start the player frontend, because that surface is still being migrated to the updated MVP player API. Use `-- --with-player-frontend` only when you explicitly want to boot the current standalone frontend during the migration.
+Use `-- --with-player-frontend` to boot the standalone player frontend, which now signs players in through the local mock Privy flow and talks to the player API through the browser SDK.
 
 Pass `-- --no-tunnel` to skip Cloudflare tunnel startup locally.
 

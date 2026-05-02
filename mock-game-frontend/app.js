@@ -1,3 +1,5 @@
+import { createBrowserClient } from "/sdk/browser-client.ts";
+
 const loginViewEl = document.getElementById("login-view");
 const gameViewEl = document.getElementById("game-view");
 const homeViewEl = document.getElementById("home-view");
@@ -8,16 +10,15 @@ const characterDetailViewEl = document.getElementById("character-detail-view");
 
 const loginFormEl = document.getElementById("login-form");
 const loginSubtitleEl = document.getElementById("login-subtitle");
+const walletChainCopyEl = document.getElementById("wallet-chain-copy");
 const loginFeedbackEl = document.getElementById("login-feedback");
-const usernameInputEl = document.getElementById("username-input");
-const passwordInputEl = document.getElementById("password-input");
-const signInBtn = document.getElementById("sign-in-btn");
-const signUpBtn = document.getElementById("sign-up-btn");
+const walletAddressInputEl = document.getElementById("wallet-address-input");
+const connectWalletBtn = document.getElementById("connect-wallet-btn");
 const signOutBtn = document.getElementById("sign-out-btn");
 
 const gameTitleEl = document.getElementById("game-title");
 const gameFeedbackEl = document.getElementById("game-feedback");
-const playerUsernameEl = document.getElementById("player-username");
+const playerWalletEl = document.getElementById("player-wallet");
 const balanceEl = document.getElementById("balance-value");
 const openCreditsModalBtn = document.getElementById("open-credits-modal-btn");
 
@@ -32,6 +33,7 @@ const questsListEl = document.getElementById("quests-list");
 const inventoryGoldTotalEl = document.getElementById("inventory-gold-total");
 const inventoryItemsTotalEl = document.getElementById("inventory-items-total");
 const inventoryListEl = document.getElementById("inventory-list");
+const mintItemBtn = document.getElementById("mint-item-btn");
 
 const detailCharacterNameEl = document.getElementById("detail-character-name");
 const characterDetailBackBtn = document.getElementById("character-detail-back-btn");
@@ -207,11 +209,14 @@ const questDefinitions = {
 
 const state = {
   token: null,
-  userId: null,
-  username: null,
+  walletAddress: null,
+  chainId: null,
+  allowedChainId: null,
+  privyAppId: null,
+  sdk: null,
   appId: null,
   programId: null,
-  appName: null,
+  appName: "Mock Game",
   packageId: null,
   itemDefId: null,
   firstTimeClaimActionId: null,
@@ -224,7 +229,8 @@ const state = {
   pendingCheckout: null,
   currentView: "home",
   characters: [],
-  selectedCharacterId: null
+  selectedCharacterId: null,
+  assetHistory: []
 };
 
 const changeIcon = `
@@ -273,27 +279,29 @@ function formatCurrency(cents) {
   return `$${(Number(cents) / 100).toFixed(2)}`;
 }
 
-function fetchJson(path, init = {}) {
-  return fetch(path, init).then(async (response) => {
-    const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(payload.error || `request failed: ${path}`);
-    }
-    return payload;
+function formatWallet(walletAddress) {
+  if (!walletAddress) {
+    return "-";
+  }
+  return `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`;
+}
+
+function formatDate(value) {
+  return new Date(value).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
   });
 }
 
-function fetchApi(path, init = {}) {
-  return fetchJson(`/api${path}`, init);
-}
-
-function getCredentials(input = null) {
-  const username = (input?.username ?? usernameInputEl.value).trim();
-  const password = input?.password ?? passwordInputEl.value;
-  if (!username || !password) {
-    throw new Error("Username and password are required.");
+async function fetchJson(path, init = {}) {
+  const response = await fetch(path, init);
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.error || `request failed: ${path}`);
   }
-  return { username, password };
+  return payload;
 }
 
 function persistSession() {
@@ -301,16 +309,16 @@ function persistSession() {
     sessionStorageKey,
     JSON.stringify({
       token: state.token,
-      userId: state.userId,
-      username: state.username
+      walletAddress: state.walletAddress,
+      chainId: state.chainId
     })
   );
 }
 
 function clearSession() {
   state.token = null;
-  state.userId = null;
-  state.username = null;
+  state.walletAddress = null;
+  state.chainId = null;
   localStorage.removeItem(sessionStorageKey);
 }
 
@@ -323,20 +331,20 @@ function restoreSession() {
   try {
     const session = JSON.parse(raw);
     state.token = session.token ?? null;
-    state.userId = session.userId ?? null;
-    state.username = session.username ?? null;
+    state.walletAddress = session.walletAddress ?? null;
+    state.chainId = session.chainId ?? null;
   } catch {
     clearSession();
     return false;
   }
 
-  if (!state.token || !state.userId || !state.username) {
+  if (!state.token || !state.walletAddress || !state.chainId) {
     clearSession();
     return false;
   }
 
-  usernameInputEl.value = state.username;
-  playerUsernameEl.textContent = state.username;
+  walletAddressInputEl.value = state.walletAddress;
+  playerWalletEl.textContent = formatWallet(state.walletAddress);
   return true;
 }
 
@@ -365,10 +373,10 @@ function clearPendingCheckout() {
 }
 
 function getCharactersKey() {
-  if (!state.appId || !state.userId) {
+  if (!state.appId || !state.walletAddress) {
     return null;
   }
-  return `${charactersStorageKey}:${state.appId}:${state.userId}`;
+  return `${charactersStorageKey}:${state.appId}:${state.walletAddress}`;
 }
 
 function normalizeCharacter(record) {
@@ -490,9 +498,7 @@ function renderKeyValueList(element, items) {
 }
 
 function renderRewardList(element, rewards) {
-  element.innerHTML = rewards
-    .map((reward) => `<div class="reward-item">${reward}</div>`)
-    .join("");
+  element.innerHTML = rewards.map((reward) => `<div class="reward-item">${reward}</div>`).join("");
 }
 
 function renderEquipmentList(element, items) {
@@ -671,31 +677,63 @@ function renderQuestsView() {
 }
 
 function renderInventoryView() {
-  const items = getClaimedInventoryEntries();
+  const claimedRewards = getClaimedInventoryEntries();
   const totalGold = state.characters.reduce((sum, character) => sum + character.gold, 0);
   inventoryGoldTotalEl.textContent = `Gold: ${totalGold}`;
-  inventoryItemsTotalEl.textContent = `${items.length} claimed items`;
+  inventoryItemsTotalEl.textContent = `${state.assetHistory.length} delivered assets`;
 
-  if (items.length === 0) {
-    inventoryListEl.innerHTML = `
-      <article class="card empty-state-card">
-        <strong>No claimed rewards yet</strong>
-        <small>Claim quest rewards to move items into inventory.</small>
-      </article>
-    `;
-    return;
-  }
-
-  inventoryListEl.innerHTML = items
-    .map(
-      (entry) => `
-        <article class="card inventory-item-card">
-          <strong>${entry.item}</strong>
-          <small>Claimed by ${entry.characterName}</small>
+  const rewardSection =
+    claimedRewards.length === 0
+      ? `
+        <article class="card empty-state-card">
+          <strong>No claimed quest loot yet</strong>
+          <small>Claim quest rewards to populate the local inventory journal.</small>
         </article>
       `
-    )
-    .join("");
+      : claimedRewards
+          .map(
+            (entry) => `
+              <article class="card inventory-item-card">
+                <strong>${entry.item}</strong>
+                <small>Claimed by ${entry.characterName}</small>
+              </article>
+            `
+          )
+          .join("");
+
+  const deliverySection =
+    state.assetHistory.length === 0
+      ? `
+        <article class="card empty-state-card">
+          <strong>No wallet deliveries yet</strong>
+          <small>Mint the featured item to create a direct-to-wallet delivery record.</small>
+        </article>
+      `
+      : state.assetHistory
+          .map(
+            (delivery) => `
+              <article class="card inventory-item-card">
+                <strong>${delivery.itemDefId}</strong>
+                <small>Status: ${delivery.status}</small>
+                <small>Delivered to ${formatWallet(delivery.destinationWalletAddress)}</small>
+                <small>${formatDate(delivery.createdAt)}</small>
+              </article>
+            `
+          )
+          .join("");
+
+  inventoryListEl.innerHTML = `
+    <article class="card inventory-item-card">
+      <strong>Quest inventory</strong>
+      <small>Local character rewards tracked in the standalone frontend.</small>
+    </article>
+    ${rewardSection}
+    <article class="card inventory-item-card">
+      <strong>Wallet delivery history</strong>
+      <small>On-chain delivery records returned by the Celeris player API.</small>
+    </article>
+    ${deliverySection}
+  `;
 }
 
 function renderQuestList(character) {
@@ -945,8 +983,8 @@ async function claimQuestRewards(characterId = state.selectedCharacterId, questI
     return;
   }
 
-  if (!state.appId || !state.token) {
-    throw new Error("Sign in first.");
+  if (!state.sdk) {
+    throw new Error("Connect wallet first.");
   }
   const isFirstClaim = !hasClaimedAnyQuest(character);
   const actionId = isFirstClaim ? state.firstTimeClaimActionId : state.claimRewardsActionId;
@@ -956,18 +994,8 @@ async function claimQuestRewards(characterId = state.selectedCharacterId, questI
   }
 
   try {
-    await fetchApi("/actions/claim_rewards", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${state.token}`,
-        "idempotency-key": randomKey("claim-rewards")
-      },
-      body: JSON.stringify({
-        appId: state.appId,
-        programId: state.programId,
-        actionId
-      })
+    await state.sdk.actions.execute(actionId, undefined, {
+      idempotencyKey: randomKey("claim-rewards")
     });
   } catch (error) {
     if (error.message === "insufficient credits") {
@@ -1006,29 +1034,43 @@ async function loadConfig() {
   }
 
   state.appId = config.celeris.appId;
+  state.appName = config.celeris.appName || "Configured Game";
   state.programId = config.celeris.programId || "core_gameplay";
+  state.allowedChainId = config.celeris.auth?.allowedChainId || "eip155:1";
+  state.privyAppId = config.celeris.auth?.privyAppId || "cl-dev-privy-app";
   state.firstTimeClaimActionId = config.celeris.actionIds?.firstTimeClaim || "first_time_claim";
   state.claimRewardsActionId = config.celeris.actionIds?.claimRewards || "claim_rewards";
   state.mintItemActionId = config.celeris.actionIds?.mintItem || "mint_item";
   state.itemDefId = config.itemDefId || "iron_sword";
+  state.sdk = createBrowserClient({
+    apiBaseUrl: "/api",
+    appId: state.appId,
+    tokenProvider: async () => state.token
+  });
 
-  const setup = await fetchApi(`/apps/${encodeURIComponent(state.appId)}/setup`);
-  const selectedPackage = setup.creditPackages[0] ?? null;
-  const firstTimeClaimAction =
-    setup.actions.find((action) => action.actionType === state.firstTimeClaimActionId) ?? null;
-  const claimRewardsAction =
-    setup.actions.find((action) => action.actionType === state.claimRewardsActionId) ?? null;
+  loginSubtitleEl.textContent = `Connect the local Privy-style wallet for ${state.appName}.`;
+  walletChainCopyEl.textContent = `Allowed chain: ${state.allowedChainId}`;
+  gameTitleEl.textContent = state.appName;
+  creditsAppNameEl.textContent = state.appName;
+}
+
+async function loadCatalog() {
+  if (!state.sdk) {
+    return;
+  }
+  const catalog = await state.sdk.catalog.get();
+  const selectedPackage = catalog.creditPackages[0] ?? null;
+  const firstTimeClaimAction = catalog.actions.find((action) => action.actionType === state.firstTimeClaimActionId) ?? null;
+  const claimRewardsAction = catalog.actions.find((action) => action.actionType === state.claimRewardsActionId) ?? null;
+
+  state.appName = catalog.name ?? state.appName;
   state.packageId = selectedPackage?.packageId ?? null;
   state.packageCredits = selectedPackage?.credits ?? null;
   state.packageAmountCents = selectedPackage?.priceCents ?? null;
   state.firstTimeClaimCost = firstTimeClaimAction?.cost ?? null;
   state.claimRewardsCost = claimRewardsAction?.cost ?? null;
 
-  const apps = await fetchApi("/apps");
-  const app = apps.find((entry) => entry.appId === state.appId);
-  state.appName = app?.name ?? "Configured Game";
-
-  loginSubtitleEl.textContent = `Enter ${state.appName}.`;
+  loginSubtitleEl.textContent = `Connect the local Privy-style wallet for ${state.appName}.`;
   gameTitleEl.textContent = state.appName;
   creditsAppNameEl.textContent = state.appName;
   creditsPackageAmountEl.textContent = `${state.packageCredits ?? 0} credits`;
@@ -1036,78 +1078,69 @@ async function loadConfig() {
 }
 
 async function refreshBalance() {
-  if (!state.appId || !state.userId) {
+  if (!state.sdk) {
     balanceEl.textContent = "0";
     return;
   }
 
-  const users = await fetchApi(`/users?appId=${encodeURIComponent(state.appId)}`);
-  const record = users.find((user) => user.userId === state.userId);
-  balanceEl.textContent = String(record?.balance ?? 0);
+  const balance = await state.sdk.credits.getBalance();
+  balanceEl.textContent = String(balance.balance ?? 0);
 }
 
-async function signIn(input = null) {
-  const { username, password } = getCredentials(input);
+async function refreshAssetHistory() {
+  if (!state.sdk) {
+    state.assetHistory = [];
+    return;
+  }
 
-  signInBtn.disabled = true;
-  signUpBtn.disabled = true;
+  const history = await state.sdk.assets.getHistory();
+  state.assetHistory = Array.isArray(history.deliveries) ? history.deliveries : [];
+}
+
+async function hydrateAuthenticatedState() {
+  if (!state.sdk || !state.token) {
+    throw new Error("player token is required");
+  }
+
+  const me = await state.sdk.me.get();
+  state.walletAddress = me.walletAddress;
+  state.chainId = me.chainId;
+  walletAddressInputEl.value = state.walletAddress;
+  playerWalletEl.textContent = formatWallet(state.walletAddress);
+  persistSession();
+  await loadCatalog();
+  restoreCharacters();
+  renderCharacters();
+  renderQuestsView();
+  await refreshAssetHistory();
+  renderInventoryView();
+  await refreshBalance();
+  setView("game");
+  setGameView("home");
+}
+
+async function connectWallet() {
+  const walletAddress = walletAddressInputEl.value.trim().toLowerCase();
+  if (!walletAddress) {
+    throw new Error("Wallet address is required.");
+  }
+
+  connectWalletBtn.disabled = true;
   try {
-    const session = await fetchApi("/player/sign-in", {
+    const session = await fetchJson("/privy/mock-token", {
       method: "POST",
       headers: {
         "content-type": "application/json"
       },
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ walletAddress })
     });
 
     state.token = session.token;
-    state.userId = session.userId;
-    state.username = username;
-    playerUsernameEl.textContent = username;
-    persistSession();
-    restoreCharacters();
-    renderCharacters();
-    renderQuestsView();
-    renderInventoryView();
-    await refreshBalance();
-    setView("game");
-    setGameView("home");
+    state.walletAddress = session.walletAddress;
+    state.chainId = session.chainId;
+    await hydrateAuthenticatedState();
   } finally {
-    signInBtn.disabled = false;
-    signUpBtn.disabled = false;
-  }
-}
-
-async function signUp() {
-  const { username, password } = getCredentials();
-
-  signInBtn.disabled = true;
-  signUpBtn.disabled = true;
-  try {
-    const session = await fetchApi("/player/sign-up", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "idempotency-key": randomKey("player-sign-up")
-      },
-      body: JSON.stringify({ username, password })
-    });
-
-    state.token = session.token;
-    state.userId = session.userId;
-    state.username = username;
-    playerUsernameEl.textContent = username;
-    persistSession();
-    restoreCharacters();
-    renderCharacters();
-    renderQuestsView();
-    renderInventoryView();
-    await refreshBalance();
-    setView("game");
-    setGameView("home");
-  } finally {
-    signInBtn.disabled = false;
-    signUpBtn.disabled = false;
+    connectWalletBtn.disabled = false;
   }
 }
 
@@ -1115,10 +1148,10 @@ function signOut() {
   clearSession();
   clearPendingCheckout();
   state.characters = [];
+  state.assetHistory = [];
   state.selectedCharacterId = null;
-  playerUsernameEl.textContent = "-";
+  playerWalletEl.textContent = "-";
   balanceEl.textContent = "0";
-  passwordInputEl.value = "";
   showFeedback(loginFeedbackEl, "");
   showFeedback(gameFeedbackEl, "");
   showFeedback(creditsFeedbackEl, "");
@@ -1134,8 +1167,8 @@ function signOut() {
 }
 
 function openCreditsModal() {
-  if (!state.userId) {
-    showFeedback(gameFeedbackEl, "Sign in first.");
+  if (!state.token) {
+    showFeedback(gameFeedbackEl, "Connect wallet first.");
     return;
   }
   showFeedback(creditsFeedbackEl, "");
@@ -1154,25 +1187,17 @@ function closeCreditsModal() {
 }
 
 async function buyCredits() {
-  if (!state.appId || !state.packageId || !state.userId) {
-    throw new Error("Sign in first.");
+  if (!state.sdk || !state.packageId) {
+    throw new Error("Checkout is not configured for this app.");
   }
 
   continueCheckoutBtn.disabled = true;
   try {
-    const checkout = await fetchApi("/checkout/session", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "idempotency-key": randomKey("frontend-checkout")
-      },
-      body: JSON.stringify({
-        appId: state.appId,
-        userId: state.userId,
-        packageId: state.packageId,
-        successUrl: `${window.location.origin}/?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
-        cancelUrl: `${window.location.origin}/?checkout=cancel`
-      })
+    const checkout = await state.sdk.payments.createCheckoutSession({
+      packageId: state.packageId,
+      successUrl: `${window.location.origin}/?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${window.location.origin}/?checkout=cancel`,
+      idempotencyKey: randomKey("frontend-checkout")
     });
 
     persistPendingCheckout(checkout);
@@ -1181,23 +1206,6 @@ async function buyCredits() {
   } finally {
     continueCheckoutBtn.disabled = false;
   }
-}
-
-async function completeReturnedCheckout(checkoutSessionId) {
-  await fetchApi("/demo/checkout/complete", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "idempotency-key": randomKey("frontend-complete")
-    },
-    body: JSON.stringify({
-      checkoutSessionId
-    })
-  });
-
-  clearPendingCheckout();
-  await refreshBalance();
-  showFeedback(gameFeedbackEl, "Credits added successfully.");
 }
 
 async function handleCheckoutReturn() {
@@ -1218,30 +1226,42 @@ async function handleCheckoutReturn() {
     return;
   }
 
-  const checkoutSessionId = params.get("session_id") || state.pendingCheckout?.checkoutSessionId;
-  if (!checkoutSessionId) {
-    throw new Error("Stripe Checkout returned without a session id.");
-  }
-
-  if (!state.userId) {
-    throw new Error("Player session is missing after checkout redirect.");
-  }
-
-  await completeReturnedCheckout(checkoutSessionId);
+  clearPendingCheckout();
+  await refreshBalance();
+  showFeedback(gameFeedbackEl, "Credits added successfully.");
   window.history.replaceState({}, "", window.location.pathname);
+}
+
+async function mintFeaturedItem() {
+  if (!state.sdk || !state.mintItemActionId || !state.itemDefId) {
+    throw new Error("Mint item action is not configured for this app.");
+  }
+
+  try {
+    await state.sdk.actions.execute(
+      state.mintItemActionId,
+      { itemDefId: state.itemDefId },
+      { idempotencyKey: randomKey("mint-item") }
+    );
+  } catch (error) {
+    if (error.message === "insufficient credits") {
+      showFeedback(gameFeedbackEl, "Not enough credits to mint the featured item. Add credits to continue.");
+      openCreditsModal();
+      return;
+    }
+    throw error;
+  }
+
+  await refreshAssetHistory();
+  await refreshBalance();
+  renderInventoryView();
+  showFeedback(gameFeedbackEl, `${state.itemDefId} delivered to ${formatWallet(state.walletAddress)}.`);
 }
 
 loginFormEl.addEventListener("submit", (event) => {
   event.preventDefault();
   showFeedback(loginFeedbackEl, "");
-  signIn().catch((error) => {
-    showFeedback(loginFeedbackEl, error.message);
-  });
-});
-
-signUpBtn.addEventListener("click", () => {
-  showFeedback(loginFeedbackEl, "");
-  signUp().catch((error) => {
+  connectWallet().catch((error) => {
     showFeedback(loginFeedbackEl, error.message);
   });
 });
@@ -1313,6 +1333,13 @@ openCreditsModalBtn.addEventListener("click", () => {
   openCreditsModal();
 });
 
+mintItemBtn.addEventListener("click", () => {
+  showFeedback(gameFeedbackEl, "");
+  mintFeaturedItem().catch((error) => {
+    showFeedback(gameFeedbackEl, error.message);
+  });
+});
+
 closeCreditsModalBtn.addEventListener("click", () => {
   closeCreditsModal();
 });
@@ -1353,12 +1380,11 @@ async function boot() {
   await loadConfig();
   const hasSession = restoreSession();
   if (hasSession) {
-    restoreCharacters();
-    renderCharacters();
-    renderQuestsView();
-    renderInventoryView();
-    await refreshBalance();
-    setView("game");
+    try {
+      await hydrateAuthenticatedState();
+    } catch {
+      signOut();
+    }
   }
   await handleCheckoutReturn();
 }

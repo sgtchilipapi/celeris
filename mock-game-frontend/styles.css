@@ -92,6 +92,12 @@ button {
   color: #80563a;
 }
 
+.helper-copy {
+  margin: 0;
+  color: #80563a;
+  font-size: 14px;
+}
+
 .field span {
   font-size: 13px;
 }
@@ -512,6 +518,12 @@ button {
 
 .inventory-gold-total {
   font-size: 22px;
+}
+
+.inventory-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .quest-actions {
