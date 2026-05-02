@@ -22,7 +22,8 @@ const homeFeedbackEl = document.getElementById("home-feedback");
 const createAppFormEl = document.getElementById("create-app-form");
 const createAppNameEl = document.getElementById("create-app-name");
 const createAppCreditsPerDollarEl = document.getElementById("create-app-credits-per-dollar");
-const createAppWebhookEl = document.getElementById("create-app-webhook");
+const createAppPrivyAppIdEl = document.getElementById("create-app-privy-app-id");
+const createAppAllowedChainIdEl = document.getElementById("create-app-allowed-chain-id");
 const createAppFeedbackEl = document.getElementById("create-app-feedback");
 const cancelCreateAppBtn = document.getElementById("cancel-create-app-btn");
 const submitCreateAppBtn = document.getElementById("submit-create-app-btn");
@@ -31,9 +32,6 @@ const overviewAppNameEl = document.getElementById("overview-app-name");
 const overviewAppMetaEl = document.getElementById("overview-app-meta");
 const identityListEl = document.getElementById("identity-list");
 const setupListEl = document.getElementById("setup-list");
-const sponsorWalletListEl = document.getElementById("sponsor-wallet-list");
-const walletDecreaseBtn = document.getElementById("wallet-decrease-btn");
-const walletIncreaseBtn = document.getElementById("wallet-increase-btn");
 const programsListEl = document.getElementById("programs-list");
 const overviewFeedbackEl = document.getElementById("overview-feedback");
 const overviewBackBtn = document.getElementById("overview-back-btn");
@@ -64,6 +62,7 @@ const actionTypeSelectEl = document.getElementById("action-type-select");
 const customActionFieldEl = document.getElementById("custom-action-field");
 const customActionNameEl = document.getElementById("custom-action-name");
 const actionCostInputEl = document.getElementById("action-cost-input");
+const actionExecutionModeSelectEl = document.getElementById("action-execution-mode-select");
 const actionFeedbackEl = document.getElementById("action-feedback");
 const saveActionBtn = document.getElementById("save-action-btn");
 
@@ -76,7 +75,6 @@ const userListEl = document.getElementById("user-list");
 
 const SESSION_STORAGE_KEY = "celeris-dashboard-session";
 const APP_UI_STORAGE_KEY = "celeris-dashboard-app-ui";
-const PLACEHOLDER_SPONSOR_ADDRESS = "9xQeWvG816bUx9EPjHmaT23yvVMZVbGCJx9nD2hM2W8S";
 
 const state = {
   session: null,
@@ -266,17 +264,7 @@ async function createOrRestoreDeveloper(developerId) {
 function ensureAppUi(appId) {
   if (!state.appUi[appId]) {
     state.appUi[appId] = {
-      sponsorWallet: {
-        address: PLACEHOLDER_SPONSOR_ADDRESS,
-        balance: 20
-      },
       programs: []
-    };
-  }
-  if (!state.appUi[appId].sponsorWallet) {
-    state.appUi[appId].sponsorWallet = {
-      address: PLACEHOLDER_SPONSOR_ADDRESS,
-      balance: 20
     };
   }
   if (!Array.isArray(state.appUi[appId].programs)) {
@@ -305,7 +293,8 @@ function normalizeProgramActionRecord(action) {
     id: action?.id ?? createUuid(),
     actionType: action?.actionType ?? "Custom action",
     actionId: action?.actionId ?? canonicalProgramActionId(action?.actionType ?? "custom"),
-    cost: Number(action?.cost ?? 0)
+    cost: Number(action?.cost ?? 0),
+    executionMode: action?.executionMode ?? "managed"
   };
 }
 
@@ -507,26 +496,15 @@ async function loadApps() {
 function renderSetupSummary(setup) {
   const firstPackage = setup.creditPackages[0] ?? null;
   renderDetailList(setupListEl, [
-    { label: "Webhook URL", value: setup.webhookUrl ? renderCopyValue(setup.webhookUrl) : "Not set" },
+    { label: "Auth provider", value: escapeHtml(setup.authConfig.authProvider) },
+    { label: "Privy App ID", value: renderCopyValue(setup.authConfig.privyAppId) },
+    { label: "Allowed chain", value: escapeHtml(setup.authConfig.allowedChainId) },
     {
       label: "Default package",
       value: firstPackage ? `${formatCurrency(firstPackage.priceCents)} for ${firstPackage.credits} credits` : "Not set"
     }
   ]);
   bindCopyButtons(setupListEl);
-}
-
-function renderSponsorWallet() {
-  const appUi = getSelectedAppUi();
-  if (!appUi) {
-    sponsorWalletListEl.innerHTML = "";
-    return;
-  }
-  renderDetailList(sponsorWalletListEl, [
-    { label: "Address", value: renderCopyValue(appUi.sponsorWallet.address) },
-    { label: "Balance", value: `${formatNumber(appUi.sponsorWallet.balance)} SOL` }
-  ]);
-  bindCopyButtons(sponsorWalletListEl);
 }
 
 function renderPrograms() {
@@ -584,7 +562,7 @@ function refreshOverview() {
   }
 
   overviewAppNameEl.textContent = state.selectedApp.name;
-  overviewAppMetaEl.textContent = "Review setup details, sponsor funding, and the programs attached to this app.";
+  overviewAppMetaEl.textContent = "Review setup details and the programs attached to this app.";
   renderDetailList(identityListEl, [
     { label: "App name", value: escapeHtml(state.selectedApp.name) },
     { label: "App ID", value: renderCopyValue(state.selectedApp.appId) },
@@ -593,7 +571,6 @@ function refreshOverview() {
   ]);
   bindCopyButtons(identityListEl);
   renderSetupSummary(state.selectedSetup);
-  renderSponsorWallet();
   renderPrograms();
 }
 
@@ -627,6 +604,7 @@ function renderProgramActions(program) {
           <div>
             <strong>${escapeHtml(action.actionType)}</strong>
             <small>${escapeHtml(`${action.cost} credits`)}</small>
+            <small>${escapeHtml(`mode: ${action.executionMode}`)}</small>
           </div>
           <div class="icon-actions">
             <button class="icon-button" type="button" data-edit-program-action="${escapeHtml(action.id)}" aria-label="Edit ${escapeHtml(action.actionType)}">
@@ -757,7 +735,8 @@ async function createApp() {
 
   const appName = createAppNameEl.value.trim();
   const credits = parseWholeNumber(createAppCreditsPerDollarEl.value);
-  const webhookUrl = createAppWebhookEl.value.trim();
+  const privyAppId = createAppPrivyAppIdEl.value.trim();
+  const allowedChainId = createAppAllowedChainIdEl.value;
 
   if (!appName) {
     throw new Error("App name is required.");
@@ -765,8 +744,11 @@ async function createApp() {
   if (!Number.isInteger(credits) || credits <= 0) {
     throw new Error("Credits per $1 must be a positive whole number.");
   }
-  if (!webhookUrl) {
-    throw new Error("Webhook URL is required.");
+  if (!privyAppId) {
+    throw new Error("Privy App ID is required.");
+  }
+  if (!allowedChainId) {
+    throw new Error("Allowed chain ID is required.");
   }
 
   const app = await fetchJson(state.editingAppId ? `/apps/${encodeURIComponent(state.editingAppId)}` : "/apps", {
@@ -780,7 +762,8 @@ async function createApp() {
       name: appName,
       priceCents: 100,
       credits,
-      webhookUrl
+      privyAppId,
+      allowedChainId
     })
   });
 
@@ -793,7 +776,8 @@ function resetCreateAppForm() {
   createAppFormEl.reset();
   createAppNameEl.value = "My Demo Game";
   createAppCreditsPerDollarEl.value = formatNumber(500);
-  createAppWebhookEl.value = "http://localhost:3001";
+  createAppPrivyAppIdEl.value = "cl-dev-privy-app";
+  createAppAllowedChainIdEl.value = "eip155:1";
   submitCreateAppBtn.textContent = "Create app";
   state.editingAppId = null;
 }
@@ -807,7 +791,8 @@ async function openEditApp(appId) {
   state.editingAppId = appId;
   createAppNameEl.value = app.name;
   createAppCreditsPerDollarEl.value = formatNumber(setup.creditPackages[0]?.credits ?? 500);
-  createAppWebhookEl.value = setup.webhookUrl ?? "";
+  createAppPrivyAppIdEl.value = setup.authConfig.privyAppId;
+  createAppAllowedChainIdEl.value = setup.authConfig.allowedChainId;
   submitCreateAppBtn.textContent = "Save changes";
   showFeedback(createAppFeedbackEl, "");
   setView("create");
@@ -935,10 +920,12 @@ function openActionModal(actionId = null) {
       customActionNameEl.value = action.actionType;
     }
     actionCostInputEl.value = formatNumber(action.cost);
+    actionExecutionModeSelectEl.value = action.executionMode ?? "managed";
   } else {
     actionTypeSelectEl.value = "custom";
     customActionNameEl.value = "";
     actionCostInputEl.value = "";
+    actionExecutionModeSelectEl.value = "managed";
   }
 
   saveActionBtn.textContent = action ? "Save action" : "Add action";
@@ -995,7 +982,8 @@ async function syncBackendProgramAction(nextAction, previousActionId = null) {
       headers: requestHeaders,
       body: JSON.stringify({
         actionType: nextAction.actionId,
-        cost: nextAction.cost
+        cost: nextAction.cost,
+        executionMode: nextAction.executionMode
       })
     });
   }
@@ -1010,8 +998,12 @@ async function saveProgramAction() {
   const actionType = getSelectedActionType();
   const actionId = canonicalProgramActionId(actionType);
   const cost = parseWholeNumber(actionCostInputEl.value);
+  const executionMode = actionExecutionModeSelectEl.value;
   if (!Number.isInteger(cost) || cost < 0) {
     throw new Error("Credit consumption must be zero or a positive whole number.");
+  }
+  if (!executionMode) {
+    throw new Error("Execution mode is required.");
   }
 
   if (state.editingProgramActionId) {
@@ -1023,13 +1015,15 @@ async function saveProgramAction() {
     action.actionType = actionType;
     action.actionId = actionId;
     action.cost = cost;
+    action.executionMode = executionMode;
     await syncBackendProgramAction(action, previousActionId);
   } else {
     const action = {
       id: createUuid(),
       actionType,
       actionId,
-      cost
+      cost,
+      executionMode
     };
     program.actions.push(action);
     await syncBackendProgramAction(action);
@@ -1059,16 +1053,6 @@ async function deleteProgramAction(actionId) {
   }
   saveStoredAppUi();
   openProgramView(program.id);
-}
-
-function adjustWalletBalance(delta) {
-  const appUi = getSelectedAppUi();
-  if (!appUi) {
-    return;
-  }
-  appUi.sponsorWallet.balance = Math.max(0, Number(appUi.sponsorWallet.balance) + delta);
-  saveStoredAppUi();
-  renderSponsorWallet();
 }
 
 async function restoreSession() {
@@ -1158,14 +1142,6 @@ viewMetricsBtn.addEventListener("click", () => {
 
 metricsBackBtn.addEventListener("click", () => {
   setView("overview");
-});
-
-walletDecreaseBtn.addEventListener("click", () => {
-  adjustWalletBalance(-1);
-});
-
-walletIncreaseBtn.addEventListener("click", () => {
-  adjustWalletBalance(1);
 });
 
 addProgramBtn.addEventListener("click", () => {

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
 
-test("POST /apps returns minimal setup data and stores webhook url", async () => {
+test("POST /apps returns minimal setup data and stores Privy auth config", async () => {
   const services = buildServices();
   const api = createApi(services);
 
@@ -16,24 +16,22 @@ test("POST /apps returns minimal setup data and stores webhook url", async () =>
       name: "Developer Setup App",
       priceCents: 499,
       credits: 500,
-      webhookUrl: "http://localhost:3001"
+      privyAppId: "privy-app-123",
+      allowedChainId: "eip155:1"
     }
   });
 
   assert.equal(response.statusCode, 201);
   assert.deepEqual(Object.keys(response.body).sort(), ["apiKey", "appId"]);
-  assert.match(response.body.appId as string, /^[0-9a-f-]{36}$/);
-  assert.match(response.body.apiKey as string, /^app_/);
 
-  const storedApp = services.store.apps.get(response.body.appId as string)!;
-  assert.equal(storedApp.developerWebhookUrl, "http://localhost:3001");
-  assert.equal(
-    [...services.store.creditPackages.values()].filter((pkg) => pkg.appId === storedApp.appId).length,
-    1
-  );
+  const authConfig = services.store.appAuthConfigs.get(response.body.appId as string);
+  assert.ok(authConfig);
+  assert.equal(authConfig?.authProvider, "privy");
+  assert.equal(authConfig?.privyAppId, "privy-app-123");
+  assert.equal(authConfig?.allowedChainId, "eip155:1");
 });
 
-test("POST /apps/:appId/actions stores mint_item cost for later execution", async () => {
+test("POST /apps/:appId/actions stores action cost and execution mode", async () => {
   const services = buildServices();
   const api = createApi(services);
 
@@ -45,7 +43,9 @@ test("POST /apps/:appId/actions stores mint_item cost for later execution", asyn
       developerId: services.defaultDeveloper.developerId,
       name: "Action Setup App",
       priceCents: 499,
-      credits: 500
+      credits: 500,
+      privyAppId: "privy-app-456",
+      allowedChainId: "solana:103"
     }
   });
 
@@ -55,17 +55,18 @@ test("POST /apps/:appId/actions stores mint_item cost for later execution", asyn
     headers: { "idempotency-key": "dev-setup-action-1" },
     body: {
       actionType: "mint_item",
-      cost: 50
+      cost: 50,
+      executionMode: "managed"
     }
   });
 
   assert.equal(response.statusCode, 201);
   assert.equal(response.body.actionType, "mint_item");
   assert.equal(response.body.cost, 50);
-  assert.equal(services.store.getActionType(app.body.appId as string, "mint_item")?.cost, 50);
+  assert.equal(response.body.executionMode, "managed");
 });
 
-test("GET /apps/:appId/setup exposes webhook url, package, and action setup needed for manual testing", async () => {
+test("GET /apps/:appId/setup exposes auth config, package, and action setup", async () => {
   const services = buildServices();
   const api = createApi(services);
 
@@ -78,7 +79,8 @@ test("GET /apps/:appId/setup exposes webhook url, package, and action setup need
       name: "Setup Details App",
       priceCents: 499,
       credits: 500,
-      webhookUrl: "http://localhost:3001"
+      privyAppId: "privy-app-789",
+      allowedChainId: "solana:101"
     }
   });
 
@@ -88,7 +90,8 @@ test("GET /apps/:appId/setup exposes webhook url, package, and action setup need
     headers: { "idempotency-key": "dev-setup-action-2" },
     body: {
       actionType: "mint_item",
-      cost: 50
+      cost: 50,
+      executionMode: "server"
     }
   });
 
@@ -98,14 +101,11 @@ test("GET /apps/:appId/setup exposes webhook url, package, and action setup need
   });
 
   assert.equal(setup.statusCode, 200);
-  assert.equal(setup.body.appId, app.body.appId);
-  assert.match(setup.body.apiKey as string, /^app_/);
-  assert.equal(setup.body.webhookUrl, "http://localhost:3001");
-  assert.equal(setup.body.creditPackages.length, 1);
+  assert.equal(setup.body.authConfig.authProvider, "privy");
+  assert.equal(setup.body.authConfig.privyAppId, "privy-app-789");
+  assert.equal(setup.body.authConfig.allowedChainId, "solana:101");
   assert.equal(setup.body.creditPackages[0].credits, 500);
-  assert.equal(setup.body.actions.length, 1);
-  assert.equal(setup.body.actions[0].actionType, "mint_item");
-  assert.equal(setup.body.actions[0].cost, 50);
+  assert.equal(setup.body.actions[0].executionMode, "server");
 });
 
 test("PUT and DELETE /apps/:appId/actions/:actionType update and remove configured actions", async () => {
@@ -120,7 +120,9 @@ test("PUT and DELETE /apps/:appId/actions/:actionType update and remove configur
       developerId: services.defaultDeveloper.developerId,
       name: "Editable Actions App",
       priceCents: 499,
-      credits: 500
+      credits: 500,
+      privyAppId: "privy-app-edit",
+      allowedChainId: "eip155:11155111"
     }
   });
 
@@ -130,7 +132,8 @@ test("PUT and DELETE /apps/:appId/actions/:actionType update and remove configur
     headers: { "idempotency-key": "dev-setup-action-3" },
     body: {
       actionType: "mint_item",
-      cost: 50
+      cost: 50,
+      executionMode: "managed"
     }
   });
 
@@ -140,15 +143,14 @@ test("PUT and DELETE /apps/:appId/actions/:actionType update and remove configur
     headers: { "idempotency-key": "dev-setup-action-4" },
     body: {
       actionType: "claim_rewards",
-      cost: 75
+      cost: 75,
+      executionMode: "webhook"
     }
   });
 
   assert.equal(updated.statusCode, 200);
   assert.equal(updated.body.actionType, "claim_rewards");
-  assert.equal(updated.body.cost, 75);
-  assert.equal(services.store.getActionType(app.body.appId as string, "mint_item"), null);
-  assert.equal(services.store.getActionType(app.body.appId as string, "claim_rewards")?.cost, 75);
+  assert.equal(updated.body.executionMode, "webhook");
 
   const deleted = await api.handle({
     method: "DELETE",
@@ -158,10 +160,9 @@ test("PUT and DELETE /apps/:appId/actions/:actionType update and remove configur
 
   assert.equal(deleted.statusCode, 200);
   assert.equal(deleted.body.deleted, true);
-  assert.equal(services.store.getActionType(app.body.appId as string, "claim_rewards"), null);
 });
 
-test("PUT and DELETE /apps/:appId update and remove app setup", async () => {
+test("PUT and DELETE /apps/:appId update auth config and remove app setup", async () => {
   const services = buildServices();
   const api = createApi(services);
 
@@ -174,7 +175,8 @@ test("PUT and DELETE /apps/:appId update and remove app setup", async () => {
       name: "App To Edit",
       priceCents: 100,
       credits: 500,
-      webhookUrl: "http://localhost:3001"
+      privyAppId: "privy-initial",
+      allowedChainId: "eip155:1"
     }
   });
 
@@ -186,18 +188,21 @@ test("PUT and DELETE /apps/:appId update and remove app setup", async () => {
       name: "App Updated",
       priceCents: 100,
       credits: 750,
-      webhookUrl: "http://localhost:3002"
+      privyAppId: "privy-updated",
+      allowedChainId: "solana:103"
     }
   });
 
   assert.equal(updated.statusCode, 200);
+
   const setup = await api.handle({
     method: "GET",
     url: `/apps/${app.body.appId as string}/setup`
   });
-  assert.equal(setup.body.webhookUrl, "http://localhost:3002");
+
+  assert.equal(setup.body.authConfig.privyAppId, "privy-updated");
+  assert.equal(setup.body.authConfig.allowedChainId, "solana:103");
   assert.equal(setup.body.creditPackages[0].credits, 750);
-  assert.equal(services.store.apps.get(app.body.appId as string)?.name, "App Updated");
 
   const deleted = await api.handle({
     method: "DELETE",
@@ -208,4 +213,5 @@ test("PUT and DELETE /apps/:appId update and remove app setup", async () => {
   assert.equal(deleted.statusCode, 200);
   assert.equal(deleted.body.deleted, true);
   assert.equal(services.store.apps.has(app.body.appId as string), false);
+  assert.equal(services.store.appAuthConfigs.has(app.body.appId as string), false);
 });

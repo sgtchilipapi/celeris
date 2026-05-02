@@ -17,11 +17,16 @@ type DemoConfig = {
   creditsPerDollar: number;
   itemDefId: string;
   programId: string;
+  privyAppId: string;
+  allowedChainId: string;
   firstTimeClaimActionId: string;
   mintItemActionId: string;
   claimRewardsActionId: string;
-  webhookUrl: string;
+  firstTimeClaimExecutionMode: "managed" | "server" | "webhook";
+  mintItemExecutionMode: "managed" | "server" | "webhook";
+  claimRewardsExecutionMode: "managed" | "server" | "webhook";
   enableTunnels: boolean;
+  startPlayerFrontend: boolean;
 };
 
 type DemoSession = {
@@ -31,6 +36,26 @@ type DemoSession = {
   developerPassword: string;
   appId: string;
   apiKey: string;
+};
+
+type AppSetupDetails = {
+  appId: string;
+  apiKey: string;
+  authConfig: {
+    authProvider: "privy";
+    privyAppId: string;
+    allowedChainId: string;
+  };
+  creditPackages: Array<{
+    packageId: string;
+    priceCents: number;
+    credits: number;
+  }>;
+  actions: Array<{
+    actionType: string;
+    cost: number;
+    executionMode: string;
+  }>;
 };
 
 const children: ChildProcess[] = [];
@@ -53,34 +78,35 @@ async function main() {
   const apiProcess = spawnManagedProcess("api", ["node", "--import", "tsx", "celeris/api/index.ts"]);
   await waitForHttp(`${defaultApiOrigin}/apps`);
 
-  console.log("Starting mock developer backend...");
-  spawnManagedProcess("mock-developer", ["node", "--import", "tsx", "scripts/mock-developer-backend.ts"]);
-  await waitForHttp("http://localhost:3001", { expectJson: false });
-
   const demoSession = await provisionDemo(config);
+  const setup = await getJson<AppSetupDetails>(`/apps/${demoSession.appId}/setup`);
 
-  console.log("Starting mock game frontend...");
-  spawnManagedProcess("mock-game", [
-    "node",
-    "--import",
-    "tsx",
-    "scripts/mock-game-frontend.ts",
-    `--app-id=${demoSession.appId}`,
-    `--program-id=${config.programId}`,
-    `--first-time-claim-action-id=${config.firstTimeClaimActionId}`,
-    `--mint-item-action-id=${config.mintItemActionId}`,
-    `--claim-rewards-action-id=${config.claimRewardsActionId}`,
-    `--item-def-id=${config.itemDefId}`
-  ]);
-  await waitForHttp(defaultFrontendOrigin, { expectJson: false });
+  let playerFrontendStarted = false;
+  if (config.startPlayerFrontend) {
+    console.log("Starting mock game frontend...");
+    spawnManagedProcess("mock-game", [
+      "node",
+      "--import",
+      "tsx",
+      "scripts/mock-game-frontend.ts",
+      `--app-id=${demoSession.appId}`,
+      `--program-id=${config.programId}`,
+      `--first-time-claim-action-id=${config.firstTimeClaimActionId}`,
+      `--mint-item-action-id=${config.mintItemActionId}`,
+      `--claim-rewards-action-id=${config.claimRewardsActionId}`,
+      `--item-def-id=${config.itemDefId}`
+    ]);
+    await waitForHttp(defaultFrontendOrigin, { expectJson: false });
+    playerFrontendStarted = true;
+  }
 
   const stripeMode = await detectStripeMode();
-
   let apiTunnelUrl: string | null = null;
   let gameTunnelUrl: string | null = null;
+
   if (config.enableTunnels) {
     if (!process.env.STRIPE_SECRET_KEY) {
-      console.log("Warning: STRIPE_SECRET_KEY is not configured. Checkout will stay in mock mode.");
+      console.log("Warning: STRIPE_SECRET_KEY is not configured. Checkout remains in mock mode.");
     }
 
     if (process.env.CLOUDFLARED_TUNNEL_TOKEN) {
@@ -88,42 +114,29 @@ async function main() {
       const namedTunnelUrls = await spawnNamedTunnel({
         token: process.env.CLOUDFLARED_TUNNEL_TOKEN,
         dashboardHostname: process.env.CLOUDFLARED_DASHBOARD_HOSTNAME,
-        gameHostname: process.env.CLOUDFLARED_GAME_HOSTNAME
+        gameHostname: playerFrontendStarted ? process.env.CLOUDFLARED_GAME_HOSTNAME : undefined
       });
       apiTunnelUrl = namedTunnelUrls.dashboardUrl;
       gameTunnelUrl = namedTunnelUrls.gameUrl;
     } else {
-      console.log("Starting cloudflared tunnels...");
+      console.log("Starting cloudflared dashboard tunnel...");
       apiTunnelUrl = await spawnTunnel("dashboard-tunnel", defaultApiOrigin);
-      gameTunnelUrl = await spawnTunnel("game-tunnel", defaultFrontendOrigin);
+      if (playerFrontendStarted) {
+        console.log("Starting cloudflared game tunnel...");
+        gameTunnelUrl = await spawnTunnel("game-tunnel", defaultFrontendOrigin);
+      }
     }
   }
 
-  const dashboardUrl = buildDashboardUrl(apiTunnelUrl ?? defaultDashboardOrigin, demoSession);
-
-  console.log("");
-  console.log("Full demo is ready.");
-  console.log("");
-  console.log(`Stripe checkout mode: ${stripeMode}`);
-  console.log(`Developer username: ${demoSession.developerUsername}`);
-  console.log(`Developer password: ${demoSession.developerPassword}`);
-  console.log(`Developer email: ${demoSession.developerEmail}`);
-  console.log(`App ID: ${demoSession.appId}`);
-  console.log(`API key: ${demoSession.apiKey}`);
-  console.log(`Mock Solana program ID: ${config.programId}`);
-  console.log("");
-  console.log("Add the program and actions manually in the developer dashboard before testing player actions.");
-  console.log("");
-  console.log(`Local dashboard: ${buildDashboardUrl(defaultDashboardOrigin, demoSession)}`);
-  console.log(`Local game frontend: ${defaultFrontendOrigin}`);
-  if (apiTunnelUrl) {
-    console.log(`Public dashboard: ${dashboardUrl}`);
-  }
-  if (gameTunnelUrl) {
-    console.log(`Public game frontend: ${gameTunnelUrl}`);
-  }
-  console.log("");
-  console.log("Press Ctrl+C to stop all demo services.");
+  printSummary({
+    config,
+    demoSession,
+    setup,
+    stripeMode,
+    apiTunnelUrl,
+    gameTunnelUrl,
+    playerFrontendStarted
+  });
 
   await waitForever(apiProcess);
 }
@@ -134,16 +147,25 @@ function parseArgs(args: string[]): DemoConfig {
     creditsPerDollar: 500,
     itemDefId: "iron_sword",
     programId: createMockSolanaProgramId(),
+    privyAppId: "cl-dev-privy-app",
+    allowedChainId: "eip155:1",
     firstTimeClaimActionId: "first_time_claim",
     mintItemActionId: "mint_item",
     claimRewardsActionId: "claim_rewards",
-    webhookUrl: "http://localhost:3001",
-    enableTunnels: true
+    firstTimeClaimExecutionMode: "managed",
+    mintItemExecutionMode: "managed",
+    claimRewardsExecutionMode: "managed",
+    enableTunnels: true,
+    startPlayerFrontend: false
   };
 
   for (const arg of args) {
     if (arg === "--no-tunnel") {
       config.enableTunnels = false;
+      continue;
+    }
+    if (arg === "--with-player-frontend") {
+      config.startPlayerFrontend = true;
       continue;
     }
     if (arg.startsWith("--app-name=")) {
@@ -158,6 +180,18 @@ function parseArgs(args: string[]): DemoConfig {
       config.programId = arg.slice("--program-id=".length);
       continue;
     }
+    if (arg.startsWith("--item-def-id=")) {
+      config.itemDefId = arg.slice("--item-def-id=".length);
+      continue;
+    }
+    if (arg.startsWith("--privy-app-id=")) {
+      config.privyAppId = arg.slice("--privy-app-id=".length);
+      continue;
+    }
+    if (arg.startsWith("--allowed-chain-id=")) {
+      config.allowedChainId = arg.slice("--allowed-chain-id=".length);
+      continue;
+    }
     if (arg.startsWith("--first-time-claim-action-id=")) {
       config.firstTimeClaimActionId = arg.slice("--first-time-claim-action-id=".length);
       continue;
@@ -170,16 +204,27 @@ function parseArgs(args: string[]): DemoConfig {
       config.claimRewardsActionId = arg.slice("--claim-rewards-action-id=".length);
       continue;
     }
-    if (arg.startsWith("--item-def-id=")) {
-      config.itemDefId = arg.slice("--item-def-id=".length);
+    if (arg.startsWith("--first-time-claim-mode=")) {
+      config.firstTimeClaimExecutionMode = parseExecutionMode(arg.slice("--first-time-claim-mode=".length));
       continue;
     }
-    if (arg.startsWith("--webhook-url=")) {
-      config.webhookUrl = arg.slice("--webhook-url=".length);
+    if (arg.startsWith("--mint-item-mode=")) {
+      config.mintItemExecutionMode = parseExecutionMode(arg.slice("--mint-item-mode=".length));
+      continue;
+    }
+    if (arg.startsWith("--claim-rewards-mode=")) {
+      config.claimRewardsExecutionMode = parseExecutionMode(arg.slice("--claim-rewards-mode=".length));
     }
   }
 
   return config;
+}
+
+function parseExecutionMode(value: string): "managed" | "server" | "webhook" {
+  if (value === "managed" || value === "server" || value === "webhook") {
+    return value;
+  }
+  throw new Error(`Unsupported execution mode: ${value}`);
 }
 
 function spawnManagedProcess(name: string, args: string[]) {
@@ -246,13 +291,19 @@ async function provisionDemo(config: DemoConfig): Promise<DemoSession> {
     password: developerPassword,
     developerId
   });
+
   const app = await postJson("/apps", {
     developerId: developerSession.developerId,
     name: config.appName,
     priceCents: 100,
     credits: config.creditsPerDollar,
-    webhookUrl: config.webhookUrl
+    privyAppId: config.privyAppId,
+    allowedChainId: config.allowedChainId
   });
+
+  await configureAction(app.appId, config.firstTimeClaimActionId, 10, config.firstTimeClaimExecutionMode);
+  await configureAction(app.appId, config.claimRewardsActionId, 25, config.claimRewardsExecutionMode);
+  await configureAction(app.appId, config.mintItemActionId, 50, config.mintItemExecutionMode);
 
   return {
     developerId: developerSession.developerId,
@@ -262,6 +313,19 @@ async function provisionDemo(config: DemoConfig): Promise<DemoSession> {
     appId: app.appId,
     apiKey: app.apiKey
   };
+}
+
+async function configureAction(
+  appId: string,
+  actionType: string,
+  cost: number,
+  executionMode: "managed" | "server" | "webhook"
+) {
+  await postJson(`/apps/${appId}/actions`, {
+    actionType,
+    cost,
+    executionMode
+  });
 }
 
 async function postJson(pathname: string, body: Record<string, unknown>) {
@@ -280,6 +344,15 @@ async function postJson(pathname: string, body: Record<string, unknown>) {
   }
 
   return response.json();
+}
+
+async function getJson<T>(pathname: string): Promise<T> {
+  const response = await fetch(`${defaultApiOrigin}${pathname}`);
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Request failed for ${pathname}: ${response.status} ${text}`);
+  }
+  return response.json() as Promise<T>;
 }
 
 async function detectStripeMode() {
@@ -356,24 +429,25 @@ async function spawnNamedTunnel({
   dashboardHostname?: string;
   gameHostname?: string;
 }) {
-  if (!dashboardHostname || !gameHostname) {
-    throw new Error(
-      "Named tunnel mode requires CLOUDFLARED_DASHBOARD_HOSTNAME and CLOUDFLARED_GAME_HOSTNAME."
-    );
+  if (!dashboardHostname) {
+    throw new Error("Named tunnel mode requires CLOUDFLARED_DASHBOARD_HOSTNAME.");
   }
+
+  const ingress = [
+    "ingress:",
+    `  - hostname: ${dashboardHostname}`,
+    `    service: ${defaultApiOrigin}`
+  ];
+
+  if (gameHostname) {
+    ingress.push(`  - hostname: ${gameHostname}`, `    service: ${defaultFrontendOrigin}`);
+  }
+
+  ingress.push("  - service: http_status:404", "");
 
   const isolatedHome = await fs.mkdtemp(path.join(os.tmpdir(), "cloudflared-named-"));
   const isolatedConfigPath = path.join(isolatedHome, "config.yml");
-  const configSource = [
-    "ingress:",
-    `  - hostname: ${dashboardHostname}`,
-    `    service: ${defaultApiOrigin}`,
-    `  - hostname: ${gameHostname}`,
-    `    service: ${defaultFrontendOrigin}`,
-    "  - service: http_status:404",
-    ""
-  ].join("\n");
-  await fs.writeFile(isolatedConfigPath, configSource, "utf8");
+  await fs.writeFile(isolatedConfigPath, ingress.join("\n"), "utf8");
 
   const tunnelEnv = { ...process.env };
   for (const key of Object.keys(tunnelEnv)) {
@@ -384,18 +458,14 @@ async function spawnNamedTunnel({
   tunnelEnv.HOME = isolatedHome;
   tunnelEnv.XDG_CONFIG_HOME = isolatedHome;
 
-  const child = spawn(
-    cloudflaredPath,
-    ["tunnel", "--config", isolatedConfigPath, "run", "--token", token],
-    {
-      cwd: rootDir,
-      env: tunnelEnv,
-      stdio: ["ignore", "pipe", "pipe"]
-    }
-  );
+  const child = spawn(cloudflaredPath, ["tunnel", "--config", isolatedConfigPath, "run", "--token", token], {
+    cwd: rootDir,
+    env: tunnelEnv,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
   children.push(child);
 
-  return await new Promise<{ dashboardUrl: string; gameUrl: string }>((resolve, reject) => {
+  return await new Promise<{ dashboardUrl: string; gameUrl: string | null }>((resolve, reject) => {
     let settled = false;
     let lastOutput = "";
     const timeout = setTimeout(() => {
@@ -420,7 +490,7 @@ async function spawnNamedTunnel({
         clearTimeout(timeout);
         resolve({
           dashboardUrl: `https://${dashboardHostname}`,
-          gameUrl: `https://${gameHostname}`
+          gameUrl: gameHostname ? `https://${gameHostname}` : null
         });
       }
     };
@@ -441,6 +511,69 @@ async function spawnNamedTunnel({
       }
     });
   });
+}
+
+function printSummary({
+  config,
+  demoSession,
+  setup,
+  stripeMode,
+  apiTunnelUrl,
+  gameTunnelUrl,
+  playerFrontendStarted
+}: {
+  config: DemoConfig;
+  demoSession: DemoSession;
+  setup: AppSetupDetails;
+  stripeMode: string;
+  apiTunnelUrl: string | null;
+  gameTunnelUrl: string | null;
+  playerFrontendStarted: boolean;
+}) {
+  const localDashboardUrl = buildDashboardUrl(defaultDashboardOrigin, demoSession);
+  const publicDashboardUrl = apiTunnelUrl ? buildDashboardUrl(apiTunnelUrl, demoSession) : null;
+
+  console.log("");
+  console.log("Full demo is ready.");
+  console.log("");
+  console.log(`Stripe checkout mode: ${stripeMode}`);
+  console.log(`Developer username: ${demoSession.developerUsername}`);
+  console.log(`Developer password: ${demoSession.developerPassword}`);
+  console.log(`Developer email: ${demoSession.developerEmail}`);
+  console.log(`Developer ID: ${demoSession.developerId}`);
+  console.log(`App ID: ${demoSession.appId}`);
+  console.log(`API key: ${demoSession.apiKey}`);
+  console.log(`Privy app ID: ${setup.authConfig.privyAppId}`);
+  console.log(`Allowed chain ID: ${setup.authConfig.allowedChainId}`);
+  console.log(`Mock program ID: ${config.programId}`);
+  console.log("");
+  console.log("Configured actions:");
+  for (const action of setup.actions) {
+    console.log(`- ${action.actionType}: ${action.cost} credits (${action.executionMode})`);
+  }
+  console.log("");
+  console.log(`Local dashboard: ${localDashboardUrl}`);
+  if (playerFrontendStarted) {
+    console.log(`Local game frontend: ${defaultFrontendOrigin}`);
+  } else {
+    console.log("Local game frontend: not started");
+    console.log("Reason: the current player demo still targets legacy player APIs. Start it later with --with-player-frontend when that surface is migrated.");
+  }
+  if (publicDashboardUrl) {
+    console.log(`Public dashboard: ${publicDashboardUrl}`);
+  }
+  if (gameTunnelUrl) {
+    console.log(`Public game frontend: ${gameTunnelUrl}`);
+  }
+  console.log("");
+  console.log("WO-01 manual checks:");
+  console.log(`1. Open the dashboard URL above and sign in with the provisioned developer credentials.`);
+  console.log("2. Open the provisioned app and verify Setup summary shows Privy App ID and Allowed chain.");
+  console.log("3. Verify the dashboard does not show a webhook field or sponsor-wallet section.");
+  console.log("4. Open the configured actions and verify each action has the expected execution mode.");
+  console.log(`5. Optional API check: curl ${defaultApiOrigin}/apps/${demoSession.appId}/setup`);
+  console.log("");
+  console.log("Press Ctrl+C to stop all demo services.");
 }
 
 function buildDashboardUrl(base: string, demoSession: DemoSession) {

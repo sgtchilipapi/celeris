@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   ActionType,
   App,
+  AppAuthConfig,
   Asset,
   CreditBalance,
   CreditLedgerEntry,
@@ -26,6 +27,7 @@ export class MemoryStore implements MemoryStoreContract {
   users = new Map<UUID, User>();
   userSessions = new Map<UUID, UserSession>();
   apps = new Map<UUID, App>();
+  appAuthConfigs = new Map<UUID, AppAuthConfig>();
   creditPackages = new Map<UUID, CreditPackage>();
   creditBalances = new Map<string, CreditBalance>();
   creditLedger: CreditLedgerEntry[] = [];
@@ -133,16 +135,14 @@ export class MemoryStore implements MemoryStoreContract {
     appId = randomUUID(),
     developerId,
     name,
-    apiKey,
-    developerWebhookUrl = null
+    apiKey
   }: {
     appId?: UUID;
     developerId: UUID;
     name: string;
     apiKey: string;
-    developerWebhookUrl?: string | null;
   }): App {
-    const app: App = { appId, developerId, name, apiKey, developerWebhookUrl, createdAt: new Date().toISOString() };
+    const app: App = { appId, developerId, name, apiKey, createdAt: new Date().toISOString() };
     this.apps.set(appId, app);
     return app;
   }
@@ -150,6 +150,15 @@ export class MemoryStore implements MemoryStoreContract {
   saveApp(record: App): App {
     this.apps.set(record.appId, record);
     return record;
+  }
+
+  saveAppAuthConfig(record: AppAuthConfig): AppAuthConfig {
+    const next: AppAuthConfig = {
+      ...record,
+      updatedAt: new Date().toISOString()
+    };
+    this.appAuthConfigs.set(record.appId, next);
+    return next;
   }
 
   createCreditPackage({
@@ -184,6 +193,7 @@ export class MemoryStore implements MemoryStoreContract {
         this.creditPackages.delete(packageId);
       }
     }
+    this.appAuthConfigs.delete(appId);
     for (const [key, action] of this.actionTypes.entries()) {
       if (action.appId === appId) {
         this.actionTypes.delete(key);
@@ -220,9 +230,19 @@ export class MemoryStore implements MemoryStoreContract {
     return true;
   }
 
-  upsertActionType({ appId, actionType, cost }: { appId: UUID; actionType: string; cost: number }): ActionType {
+  upsertActionType({
+    appId,
+    actionType,
+    cost,
+    executionMode
+  }: {
+    appId: UUID;
+    actionType: string;
+    cost: number;
+    executionMode: ActionType["executionMode"];
+  }): ActionType {
     const key = `${appId}:${actionType}`;
-    const record: ActionType = { appId, actionType, cost, createdAt: new Date().toISOString() };
+    const record: ActionType = { appId, actionType, cost, executionMode, createdAt: new Date().toISOString() };
     this.actionTypes.set(key, record);
     return record;
   }

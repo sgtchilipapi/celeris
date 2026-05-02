@@ -161,7 +161,8 @@ export function createApi(services: Services) {
         name: body.name as string,
         priceCents: body.priceCents as number,
         credits: body.credits as number,
-        webhookUrl: (body.webhookUrl as string | undefined) ?? null,
+        privyAppId: body.privyAppId as string,
+        allowedChainId: body.allowedChainId as string,
         idempotencyKey: requireIdempotency(headers, body)
       })
     )
@@ -174,7 +175,8 @@ export function createApi(services: Services) {
         name: body.name as string,
         priceCents: body.priceCents as number,
         credits: body.credits as number,
-        webhookUrl: (body.webhookUrl as string | undefined) ?? null,
+        privyAppId: body.privyAppId as string,
+        allowedChainId: body.allowedChainId as string,
         idempotencyKey: requireIdempotency(headers, body)
       })
     )
@@ -205,6 +207,7 @@ export function createApi(services: Services) {
       appId: params.appId,
       actionType: body.actionType as string,
       cost: body.cost as number,
+      executionMode: body.executionMode as "managed" | "server" | "webhook",
       idempotencyKey: requireIdempotency(headers, body)
     })
   }));
@@ -215,6 +218,7 @@ export function createApi(services: Services) {
       currentActionType: decodeURIComponent(params.actionType),
       nextActionType: (body.actionType as string | undefined) ?? decodeURIComponent(params.actionType),
       cost: body.cost as number,
+      executionMode: body.executionMode as "managed" | "server" | "webhook",
       idempotencyKey: requireIdempotency(headers, body)
     })
   }));

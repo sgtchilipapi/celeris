@@ -27,7 +27,8 @@ export class AppService {
     name,
     priceCents,
     credits,
-    webhookUrl = null,
+    privyAppId,
+    allowedChainId,
     idempotencyKey
   }: CreateAppRequest): StoredAppSetup {
     const cached = this.store.getIdempotent<StoredAppSetup>(`app:${developerId}`, idempotencyKey);
@@ -40,8 +41,15 @@ export class AppService {
     const app = this.store.createApp({
       developerId,
       name,
-      developerWebhookUrl: webhookUrl,
       apiKey: `app_${randomUUID()}`
+    });
+    this.store.saveAppAuthConfig({
+      appId: app.appId,
+      authProvider: "privy",
+      privyAppId,
+      allowedChainId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     });
     const creditPackage = this.store.createCreditPackage({
       appId: app.appId,
@@ -60,7 +68,7 @@ export class AppService {
     };
   }
 
-  updateApp({ appId, name, priceCents, credits, webhookUrl = null, idempotencyKey }: UpdateAppRequest): StoredAppSetup {
+  updateApp({ appId, name, priceCents, credits, privyAppId, allowedChainId, idempotencyKey }: UpdateAppRequest): StoredAppSetup {
     const cached = this.store.getIdempotent<StoredAppSetup>(`app-update:${appId}`, idempotencyKey);
     if (cached) {
       return cached;
@@ -72,8 +80,16 @@ export class AppService {
     }
 
     app.name = name;
-    app.developerWebhookUrl = webhookUrl;
     this.store.saveApp(app);
+    const existingAuthConfig = this.store.appAuthConfigs.get(appId);
+    this.store.saveAppAuthConfig({
+      appId,
+      authProvider: "privy",
+      privyAppId,
+      allowedChainId,
+      createdAt: existingAuthConfig?.createdAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
 
     const creditPackage = [...this.store.creditPackages.values()].find((pkg) => pkg.appId === appId);
     if (!creditPackage) {
@@ -93,10 +109,14 @@ export class AppService {
     if (!app) {
       throw new AppError(404, "app not found");
     }
+    const authConfig = this.store.appAuthConfigs.get(appId);
+    if (!authConfig) {
+      throw new AppError(404, "app auth config not found");
+    }
     return {
       appId: app.appId,
       apiKey: app.apiKey,
-      webhookUrl: app.developerWebhookUrl,
+      authConfig,
       creditPackages: [...this.store.creditPackages.values()].filter((pkg) => pkg.appId === appId),
       actions: [...this.store.actionTypes.values()].filter((action) => action.appId === appId)
     };
@@ -181,7 +201,7 @@ export class AppService {
     };
   }
 
-  configureAction({ appId, actionType, cost, idempotencyKey }: ConfigureActionRequest) {
+  configureAction({ appId, actionType, cost, executionMode, idempotencyKey }: ConfigureActionRequest) {
     const cached = this.store.getIdempotent(`action:${appId}:${actionType}`, idempotencyKey);
     if (cached) {
       return cached;
@@ -189,12 +209,12 @@ export class AppService {
     if (!this.store.apps.has(appId)) {
       throw new AppError(404, "app not found");
     }
-    const action = this.store.upsertActionType({ appId, actionType, cost });
+    const action = this.store.upsertActionType({ appId, actionType, cost, executionMode });
     this.store.setIdempotent(`action:${appId}:${actionType}`, idempotencyKey, action);
     return action;
   }
 
-  updateAction({ appId, currentActionType, nextActionType, cost, idempotencyKey }: UpdateActionRequest) {
+  updateAction({ appId, currentActionType, nextActionType, cost, executionMode, idempotencyKey }: UpdateActionRequest) {
     const cached = this.store.getIdempotent(`action-update:${appId}:${currentActionType}`, idempotencyKey);
     if (cached) {
       return cached;
@@ -213,7 +233,7 @@ export class AppService {
     if (currentActionType !== nextActionType) {
       this.store.deleteActionType(appId, currentActionType);
     }
-    const action = this.store.upsertActionType({ appId, actionType: nextActionType, cost });
+    const action = this.store.upsertActionType({ appId, actionType: nextActionType, cost, executionMode });
     this.store.setIdempotent(`action-update:${appId}:${currentActionType}`, idempotencyKey, action);
     return action;
   }

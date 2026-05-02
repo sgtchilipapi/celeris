@@ -76,7 +76,7 @@
             <div>
               <p class="eyebrow">Create App</p>
               <h2>New app</h2>
-              <p>Set the app name, its default credit package, and where Celeris should send approval requests.</p>
+              <p>Set the app name, default credit package, and the Privy configuration players will use.</p>
             </div>
             <button id="cancel-create-app-btn" class="button button-secondary" type="button">Back</button>
           </div>
@@ -93,16 +93,18 @@
             </label>
 
             <label class="field">
-              <span class="field-label-with-help">
-                <span>Webhook URL</span>
-                <span class="tooltip-wrap">
-                  <button class="info-button" type="button" aria-describedby="webhook-help">i</button>
-                  <span id="webhook-help" class="tooltip">
-                    Your game backend endpoint. Celeris calls this URL before sending an on-chain action so your server can approve or reject it. For the local demo, use <code>http://localhost:3001</code>.
-                  </span>
-                </span>
-              </span>
-              <input id="create-app-webhook" type="text" value="http://localhost:3001" />
+              <span>Privy App ID</span>
+              <input id="create-app-privy-app-id" type="text" value="cl-dev-privy-app" />
+            </label>
+
+            <label class="field">
+              <span>Allowed Chain ID</span>
+              <select id="create-app-allowed-chain-id" class="select-input">
+                <option value="eip155:1">Ethereum Mainnet</option>
+                <option value="eip155:11155111">Ethereum Sepolia</option>
+                <option value="solana:101">Solana Mainnet</option>
+                <option value="solana:103">Solana Devnet</option>
+              </select>
             </label>
 
             <p id="create-app-feedback" class="feedback" hidden></p>
@@ -143,19 +145,6 @@
               <dl id="setup-list" class="detail-list"></dl>
             </section>
           </div>
-
-          <section class="card">
-            <div class="page-head">
-              <div class="section-head">
-                <h3>Sponsor wallet</h3>
-              </div>
-              <div class="wallet-balance">
-                <button id="wallet-decrease-btn" class="icon-button" type="button" aria-label="Decrease sponsor wallet balance">-</button>
-                <button id="wallet-increase-btn" class="icon-button" type="button" aria-label="Increase sponsor wallet balance">+</button>
-              </div>
-            </div>
-            <dl id="sponsor-wallet-list" class="detail-list"></dl>
-          </section>
 
           <section class="card">
             <div class="page-head">
@@ -264,6 +253,15 @@
             <label class="field">
               <span>Credit consumption</span>
               <input id="action-cost-input" type="text" inputmode="numeric" />
+            </label>
+
+            <label class="field">
+              <span>Execution mode</span>
+              <select id="action-execution-mode-select" class="select-input">
+                <option value="managed">managed</option>
+                <option value="server">server</option>
+                <option value="webhook">webhook</option>
+              </select>
             </label>
 
             <p id="action-feedback" class="feedback" hidden></p>

@@ -30,7 +30,11 @@ Build the game. Celeris handles money and execution.
 For a real Stripe-hosted checkout in test mode, create a local `.env` or `.env.local` from [.env.example](.env.example) and set `STRIPE_SECRET_KEY`.
 Without it, checkout session creation stays in the local mock mode.
 
-`npm run start:full-demo` starts the API, provisions a demo developer and app, configures the demo action, starts the mock developer backend, starts the standalone game frontend against that app, and opens Cloudflare tunnels for the dashboard and game frontend. Pass `-- --no-tunnel` to skip tunnel startup locally.
+`npm run start:full-demo` starts the API, provisions a demo developer and a Privy-configured app, configures the default demo actions with execution modes, and opens the dashboard ready for manual verification.
+
+By default it does not start the player frontend, because that surface is still being migrated to the updated MVP player API. Use `-- --with-player-frontend` only when you explicitly want to boot the current standalone frontend during the migration.
+
+Pass `-- --no-tunnel` to skip Cloudflare tunnel startup locally.
 
 
 ### Overview

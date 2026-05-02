@@ -1,5 +1,7 @@
 export type UUID = string;
 export type JsonObject = Record<string, unknown>;
+export type WalletAddress = string;
+export type ChainId = string;
 
 export type LedgerEntryType = "grant" | "reserve" | "capture" | "release";
 export type PendingActionStatus =
@@ -13,6 +15,13 @@ export type PendingActionStatus =
 export type TransactionStatus = "submitted" | "success" | "failed";
 export type PaymentStatus = "pending" | "paid";
 export type AuthProvider = "dummy";
+export type ActionExecutionMode = "managed" | "server" | "webhook";
+export type AssetDeliveryStatus = "submitted" | "confirmed" | "failed";
+
+export interface WalletPrincipal {
+  walletAddress: WalletAddress;
+  chainId: ChainId;
+}
 
 export interface Developer {
   developerId: UUID;
@@ -55,8 +64,16 @@ export interface App {
   developerId: UUID;
   name: string;
   apiKey: string;
-  developerWebhookUrl: string | null;
   createdAt: string;
+}
+
+export interface AppAuthConfig {
+  appId: UUID;
+  authProvider: "privy";
+  privyAppId: string;
+  allowedChainId: ChainId;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CreditPackage {
@@ -92,6 +109,7 @@ export interface ActionType {
   appId: UUID;
   actionType: string;
   cost: number;
+  executionMode: ActionExecutionMode;
   createdAt: string;
 }
 
@@ -146,6 +164,18 @@ export interface Asset {
   createdAt: string;
 }
 
+export interface AssetDeliveryRecord {
+  deliveryId: UUID;
+  appId: UUID;
+  walletAddress: WalletAddress;
+  chainId: ChainId;
+  itemDefId: string;
+  transactionId: UUID;
+  destinationWalletAddress: WalletAddress;
+  status: AssetDeliveryStatus;
+  createdAt: string;
+}
+
 export interface Payment {
   paymentId: UUID;
   userId: UUID;
@@ -194,7 +224,8 @@ export interface CreateAppRequest {
   name: string;
   priceCents: number;
   credits: number;
-  webhookUrl?: string | null;
+  privyAppId: string;
+  allowedChainId: ChainId;
   idempotencyKey: string;
 }
 
@@ -203,7 +234,8 @@ export interface UpdateAppRequest {
   name: string;
   priceCents: number;
   credits: number;
-  webhookUrl?: string | null;
+  privyAppId: string;
+  allowedChainId: ChainId;
   idempotencyKey: string;
 }
 
@@ -244,7 +276,7 @@ export interface AppListItem {
 export interface AppSetupDetails {
   appId: UUID;
   apiKey: string;
-  webhookUrl: string | null;
+  authConfig: AppAuthConfig;
   creditPackages: CreditPackage[];
   actions: ActionType[];
 }
@@ -253,6 +285,7 @@ export interface ConfigureActionRequest {
   appId: UUID;
   actionType: string;
   cost: number;
+  executionMode: ActionExecutionMode;
   idempotencyKey: string;
 }
 
@@ -261,6 +294,7 @@ export interface UpdateActionRequest {
   currentActionType: string;
   nextActionType: string;
   cost: number;
+  executionMode: ActionExecutionMode;
   idempotencyKey: string;
 }
 
@@ -416,6 +450,7 @@ export interface MemoryStore {
   users: Map<UUID, User>;
   userSessions: Map<UUID, UserSession>;
   apps: Map<UUID, App>;
+  appAuthConfigs: Map<UUID, AppAuthConfig>;
   creditPackages: Map<UUID, CreditPackage>;
   creditBalances: Map<string, CreditBalance>;
   creditLedger: CreditLedgerEntry[];
@@ -446,8 +481,8 @@ export interface MemoryStore {
     developerId: UUID;
     name: string;
     apiKey: string;
-    developerWebhookUrl?: string | null;
   }): App;
+  saveAppAuthConfig(record: AppAuthConfig): AppAuthConfig;
   createCreditPackage(input: {
     packageId?: UUID;
     appId: UUID;
@@ -457,7 +492,7 @@ export interface MemoryStore {
   saveApp(record: App): App;
   saveCreditPackage(record: CreditPackage): CreditPackage;
   deleteApp(appId: UUID): boolean;
-  upsertActionType(input: { appId: UUID; actionType: string; cost: number }): ActionType;
+  upsertActionType(input: { appId: UUID; actionType: string; cost: number; executionMode: ActionExecutionMode }): ActionType;
   getActionType(appId: UUID, actionType: string): ActionType | null;
   deleteActionType(appId: UUID, actionType: string): boolean;
   getBalance(userId: UUID, appId: UUID): CreditBalance;
