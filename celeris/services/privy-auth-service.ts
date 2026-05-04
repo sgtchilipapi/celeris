@@ -275,10 +275,12 @@ export function resolveHostedWalletPrincipalFromLinkedAccounts(
 export function resolvePlatformPrivyConfig({
   appId,
   appSecret,
+  googleOAuthEnabled,
   clientId
 }: {
   appId?: string | null;
   appSecret?: string | null;
+  googleOAuthEnabled?: boolean | null;
   clientId?: string | null;
 }): PlatformPrivyConfig {
   const normalizedAppId = String(appId ?? "").trim();
@@ -291,11 +293,15 @@ export function resolvePlatformPrivyConfig({
   if (!normalizedAppSecret) {
     throw new Error("platform Privy app secret is required");
   }
+  if (googleOAuthEnabled !== true) {
+    throw new Error("platform Privy Google login must be enabled");
+  }
 
   return {
     authProvider: "privy",
     privyAppId: normalizedAppId,
     appSecret: normalizedAppSecret,
+    googleOAuthEnabled: true,
     ...(normalizedClientId ? { clientId: normalizedClientId } : {})
   };
 }
@@ -310,8 +316,28 @@ export function resolvePlatformPrivyConfigFromEnv(
       env.PRIVY_APP_SECRET ??
       env.PRIVY_VERIFIER_SECRET ??
       (allowDevelopmentDefaults ? "privy-dev-secret" : undefined),
+    googleOAuthEnabled: resolveGoogleOAuthEnabledFromEnv(env, { allowDevelopmentDefaults }),
     clientId: env.CELERIS_PRIVY_CLIENT_ID
   });
+}
+
+function resolveGoogleOAuthEnabledFromEnv(
+  env: NodeJS.ProcessEnv,
+  { allowDevelopmentDefaults }: { allowDevelopmentDefaults: boolean }
+) {
+  const raw = env.CELERIS_PRIVY_GOOGLE_LOGIN_ENABLED;
+  if (raw === undefined) {
+    return allowDevelopmentDefaults ? true : undefined;
+  }
+
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "true") {
+    return true;
+  }
+  if (normalized === "false") {
+    return false;
+  }
+  throw new Error("CELERIS_PRIVY_GOOGLE_LOGIN_ENABLED must be 'true' or 'false'");
 }
 
 export function createPrivyTestToken(

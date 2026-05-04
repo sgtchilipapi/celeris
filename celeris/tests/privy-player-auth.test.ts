@@ -335,10 +335,15 @@ test("platform auth bootstrap fails closed without runtime configuration and onl
   assert.deepEqual(resolveRuntimePlatformPrivyConfig({ NODE_TEST_CONTEXT: "1" }), {
     authProvider: "privy",
     privyAppId: "cl-dev-privy-app",
-    appSecret: "privy-dev-secret"
+    appSecret: "privy-dev-secret",
+    googleOAuthEnabled: true
   });
 
   assert.throws(() => resolveRuntimePlatformPrivyConfig({}), /platform Privy app ID is required/);
   assert.throws(() => resolvePlatformPrivyConfig({ appId: "", appSecret: "secret" }), /platform Privy app ID is required/);
   assert.throws(() => resolvePlatformPrivyConfig({ appId: "app", appSecret: "" }), /platform Privy app secret is required/);
+  assert.throws(
+    () => resolvePlatformPrivyConfig({ appId: "app", appSecret: "secret", googleOAuthEnabled: false }),
+    /platform Privy Google login must be enabled/
+  );
 });

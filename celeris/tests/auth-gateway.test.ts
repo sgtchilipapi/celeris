@@ -437,7 +437,7 @@ test("browser SDK redirect login uses the registered callback and rejects state 
   );
 });
 
-test("hosted auth login page no longer exposes manual wallet entry or the legacy mock grant path", async () => {
+test("hosted auth login page is Google-first and no longer exposes manual wallet entry or the legacy mock grant path", async () => {
   const services = buildServices();
   const api = createApi(services);
   const app = await api.handle({
@@ -465,10 +465,51 @@ test("hosted auth login page no longer exposes manual wallet entry or the legacy
   });
 
   const html = String(page.body);
-  assert.match(html, /Continue with Privy/);
+  assert.match(html, /Continue with Google/);
+  assert.match(html, /Google/);
+  assert.doesNotMatch(html, /Send code/);
+  assert.doesNotMatch(html, /Verification code/);
   assert.doesNotMatch(html, /Wallet address/);
   assert.doesNotMatch(html, /privy_mock/);
   assert.match(html, /\/auth\/client\.js/);
+});
+
+test("hosted auth login page fails closed when Google provider support is disabled", async () => {
+  const services = buildServices({
+    platformPrivyConfig: {
+      authProvider: "privy",
+      privyAppId: "cl-dev-privy-app",
+      appSecret: "privy-dev-secret",
+      googleOAuthEnabled: false
+    }
+  });
+  const api = createApi(services);
+  const app = await api.handle({
+    method: "POST",
+    url: "/apps",
+    headers: { "idempotency-key": "auth-gateway-app-4b" },
+    body: {
+      developerId: services.defaultDeveloper.developerId,
+      name: "Gateway Hosted Login App Disabled",
+      priceCents: 499,
+      credits: 500,
+      allowedChainId: "eip155:1"
+    }
+  });
+
+  const created = await api.handle({
+    method: "POST",
+    url: "/v1/auth/login-requests",
+    headers: { origin: "http://localhost:3002" },
+    body: { projectId: app.body.appId, redirectUri: "http://localhost:3002/auth/callback", codeChallenge: createPkcePair().codeChallenge }
+  });
+  const page = await api.handle({
+    method: "GET",
+    url: `/auth/login?loginRequestId=${created.body.loginRequestId as string}`
+  });
+
+  assert.equal(page.statusCode, 503);
+  assert.equal(page.body.error, "hosted Google login is not enabled");
 });
 
 test("auth-code exchange rejects verifier mismatches and accepts the original verifier only once", async () => {

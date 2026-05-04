@@ -81,6 +81,7 @@ export interface PlatformPrivyConfig {
   authProvider: "privy";
   privyAppId: string;
   appSecret: string;
+  googleOAuthEnabled: boolean;
   clientId?: string;
 }
 

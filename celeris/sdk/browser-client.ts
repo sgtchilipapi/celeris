@@ -88,6 +88,10 @@ type PlayerSession = {
   projectUserId: string;
 };
 
+type PopupCompletionResult =
+  | { state: string; status: "success"; session: PlayerSession }
+  | { state: string; status: "error"; error: string };
+
 type HandleCallbackOptions = {
   url?: string;
 };
@@ -245,6 +249,7 @@ export function createBrowserClient({
   const storage = getStorage(auth?.storage, runtimeWindow);
   const storageKey = auth?.storageKey ?? `celeris-player-session:${projectId}`;
   const pendingLoginStorageKey = `${storageKey}:pending-login`;
+  const popupCompletionStorageKey = `${storageKey}:popup-completion`;
   let currentSession = (safeJsonParse(storage?.getItem(storageKey) ?? null) as PlayerSession | null) ?? null;
 
   function persistSession(session: PlayerSession | null) {
@@ -277,6 +282,21 @@ export function createBrowserClient({
 
   function readPendingLogin() {
     return (safeJsonParse(storage?.getItem(pendingLoginStorageKey) ?? null) as PendingLogin | null) ?? null;
+  }
+
+  function persistPopupCompletion(result: PopupCompletionResult | null) {
+    if (!storage) {
+      return;
+    }
+    if (!result) {
+      storage.removeItem(popupCompletionStorageKey);
+      return;
+    }
+    storage.setItem(popupCompletionStorageKey, JSON.stringify(result));
+  }
+
+  function readPopupCompletion() {
+    return (safeJsonParse(storage?.getItem(popupCompletionStorageKey) ?? null) as PopupCompletionResult | null) ?? null;
   }
 
   async function getAccessToken() {
@@ -387,6 +407,7 @@ export function createBrowserClient({
     try {
       const session = await exchangeAuthorizationCode(code, pendingLogin.codeVerifier);
       persistPendingLogin(null);
+      persistPopupCompletion({ state, status: "success", session });
       finalizeCallbackUrl(pendingLogin.redirectUri);
       notifyOpener({ state, status: "success", session });
       if (runtimeWindow?.opener) {
@@ -394,13 +415,85 @@ export function createBrowserClient({
       }
       return session;
     } catch (error) {
-      notifyOpener({
+      const result = {
         state,
         status: "error",
         error: error instanceof Error ? error.message : "hosted auth callback failed"
-      });
+      } satisfies PopupCompletionResult;
+      persistPopupCompletion(result);
+      notifyOpener(result);
       throw error;
     }
+  }
+
+  async function waitForPopupCompletion(expectedOrigin: string, popup: PopupLike | null) {
+    if (auth?.waitForMessage) {
+      return auth.waitForMessage(expectedOrigin, popup);
+    }
+
+    if (
+      !runtimeWindow ||
+      typeof runtimeWindow.addEventListener !== "function" ||
+      typeof runtimeWindow.removeEventListener !== "function" ||
+      typeof runtimeWindow.setTimeout !== "function" ||
+      typeof runtimeWindow.clearTimeout !== "function"
+    ) {
+      throw new Error("message listener requires a browser window");
+    }
+    const listenerWindow = runtimeWindow;
+
+    return new Promise<{ origin: string; data: PopupCompletionResult }>((resolve, reject) => {
+      let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+      const timeout = listenerWindow.setTimeout!(() => {
+        cleanup();
+        popup?.close?.();
+        reject(new Error("hosted login timed out"));
+      }, 60_000);
+
+      function cleanup() {
+        listenerWindow.removeEventListener!("message", handleMessage);
+        listenerWindow.clearTimeout!(timeout);
+        if (pollTimer) {
+          listenerWindow.clearTimeout!(pollTimer);
+        }
+      }
+
+      function schedulePoll() {
+        pollTimer = listenerWindow.setTimeout!(() => {
+          const completion = readPopupCompletion();
+          if (completion) {
+            cleanup();
+            popup?.close?.();
+            resolve({
+              origin: expectedOrigin,
+              data: completion
+            });
+            return;
+          }
+          schedulePoll();
+        }, 200);
+      }
+
+      function handleMessage(event: any) {
+        if (event.origin !== expectedOrigin) {
+          return;
+        }
+        const data = event.data ?? {};
+        if (data.type !== "celeris-auth-callback" || typeof data.state !== "string") {
+          return;
+        }
+        cleanup();
+        popup?.close?.();
+        resolve({
+          origin: event.origin,
+          data
+        });
+      }
+
+      listenerWindow.addEventListener!("message", handleMessage);
+      schedulePoll();
+    });
   }
 
   async function login({ mode = "popup" }: { mode?: AuthFlowMode } = {}) {
@@ -440,6 +533,7 @@ export function createBrowserClient({
       return null;
     }
 
+    persistPopupCompletion(null);
     const popup = (auth.openPopup ?? defaultPopupOpener)(
       hostedLoginUrl.toString(),
       "celeris-login",
@@ -451,7 +545,7 @@ export function createBrowserClient({
     }
 
     const callbackOrigin = new URL(redirectUri).origin;
-    const message = await (auth.waitForMessage ?? defaultWaitForMessage)(callbackOrigin, popup);
+    const message = await waitForPopupCompletion(callbackOrigin, popup);
     if (message.origin !== callbackOrigin) {
       throw new Error("popup completion only accepts messages from the callback origin");
     }
@@ -459,20 +553,24 @@ export function createBrowserClient({
       throw new Error("popup completion state mismatch");
     }
     if (message.data.status === "error") {
+      persistPopupCompletion(null);
       throw new Error(String(message.data.error || "hosted auth callback failed"));
     }
 
-    const session = readPersistedSession();
+    const session = readPersistedSession() ?? message.data.session;
     if (!session) {
       throw new Error("player session was not established by the hosted auth callback");
     }
+    persistSession(session);
     persistPendingLogin(null);
+    persistPopupCompletion(null);
     return session;
   }
 
   function logout() {
     persistSession(null);
     persistPendingLogin(null);
+    persistPopupCompletion(null);
   }
 
   return {

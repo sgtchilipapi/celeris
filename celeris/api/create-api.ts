@@ -521,6 +521,9 @@ function serveHostedLoginPage(services: Services, loginRequestId: string) {
   if (!loginRequestId) {
     return json(400, { error: "loginRequestId is required" });
   }
+  if (!services.platformPrivyConfig.googleOAuthEnabled) {
+    return json(503, { error: "hosted Google login is not enabled" });
+  }
 
   const loginRequest = services.authGatewayService.getLoginRequest(loginRequestId);
   const playerPolicy = services.store.appPlayerPolicies.get(loginRequest.projectId);
@@ -539,35 +542,20 @@ function serveHostedLoginPage(services: Services, loginRequestId: string) {
       main { width: min(420px, calc(100vw - 32px)); background: white; border-radius: 20px; padding: 24px; box-shadow: 0 20px 60px rgba(58, 39, 21, 0.15); }
       h1 { margin: 0 0 8px; font-size: 1.8rem; }
       p { margin: 0 0 16px; line-height: 1.5; }
-      label { display: grid; gap: 8px; margin: 16px 0 0; font-weight: 600; }
-      input { border: 1px solid #d7c6ab; border-radius: 12px; padding: 12px 14px; font: inherit; }
       button { width: 100%; border: 0; border-radius: 999px; padding: 12px 16px; font: inherit; font-weight: 700; color: white; background: #b85c38; cursor: pointer; }
       button[disabled] { cursor: wait; opacity: 0.7; }
       .feedback { margin-top: 12px; min-height: 1.25rem; color: #8a2d17; }
-      .step { margin-top: 16px; }
-      .step[hidden] { display: none; }
+      .eyebrow { display: inline-flex; margin-bottom: 12px; padding: 6px 10px; border-radius: 999px; background: #f6efe4; color: #8a4f26; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+      .helper { color: #594736; font-size: 0.95rem; }
     </style>
   </head>
   <body>
     <main>
+      <span class="eyebrow">Celeris Hosted Auth</span>
       <h1>Celeris Hosted Login</h1>
-      <p>Sign in through Privy on the Celeris-controlled auth origin. The developer app receives only a Celeris auth code and player session, never your raw Privy session.</p>
-      <button id="login-button" type="button">Continue with Privy</button>
-      <div id="email-step" class="step" hidden>
-        <p>Use the configured email login method for this hosted auth flow.</p>
-        <label>
-          Email
-          <input id="email-input" type="email" autocomplete="email" />
-        </label>
-        <button id="send-code-button" type="button">Send code</button>
-      </div>
-      <div id="code-step" class="step" hidden>
-        <label>
-          Verification code
-          <input id="code-input" inputmode="numeric" autocomplete="one-time-code" />
-        </label>
-        <button id="verify-code-button" type="button">Verify and continue</button>
-      </div>
+      <p>Sign up or sign in with Google through the Celeris-owned Privy app. The game receives only a Celeris auth code and player session, never your raw Google or Privy credentials.</p>
+      <p class="helper">Privy creates or recovers the embedded wallet for the allowed chain before Celeris issues the player session.</p>
+      <button id="login-button" type="button">Continue with Google</button>
       <p id="feedback" class="feedback"></p>
     </main>
     <script>
@@ -575,6 +563,7 @@ function serveHostedLoginPage(services: Services, loginRequestId: string) {
         loginRequestId,
         privyAppId: services.platformPrivyConfig.privyAppId,
         privyClientId: services.platformPrivyConfig.clientId ?? null,
+        googleOAuthEnabled: services.platformPrivyConfig.googleOAuthEnabled,
         hostedAuthOrigin: services.hostedAuthConfig.hostedAuthOrigin,
         authApiBaseUrl: services.hostedAuthConfig.hostedAuthOrigin,
         allowedChainId: playerPolicy.allowedChainId

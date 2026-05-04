@@ -8,6 +8,7 @@ type HostedAuthConfig = {
   loginRequestId: string;
   privyAppId: string;
   privyClientId?: string | null;
+  googleOAuthEnabled: boolean;
   hostedAuthOrigin: string;
   authApiBaseUrl: string;
   allowedChainId: string;
@@ -22,12 +23,6 @@ declare global {
 const hostedAuthConfig = getHostedAuthConfig();
 
 const loginButton = requireElement<HTMLButtonElement>("login-button");
-const emailStep = requireElement<HTMLDivElement>("email-step");
-const emailInput = requireElement<HTMLInputElement>("email-input");
-const sendCodeButton = requireElement<HTMLButtonElement>("send-code-button");
-const codeStep = requireElement<HTMLDivElement>("code-step");
-const codeInput = requireElement<HTMLInputElement>("code-input");
-const verifyCodeButton = requireElement<HTMLButtonElement>("verify-code-button");
 const feedback = requireElement<HTMLParagraphElement>("feedback");
 
 const privy = new Privy({
@@ -35,8 +30,9 @@ const privy = new Privy({
   ...(hostedAuthConfig.privyClientId ? { clientId: hostedAuthConfig.privyClientId } : {}),
   storage: new LocalStorage()
 });
+const callbackStateStorageKey = `celeris-hosted-auth:${hostedAuthConfig.loginRequestId}:callback-state`;
+const oauthProgressStorageKey = `celeris-hosted-auth:${hostedAuthConfig.loginRequestId}:google-oauth-in-progress`;
 
-let submittedEmail = "";
 let initialized = false;
 
 void initialize();
@@ -60,18 +56,46 @@ function requireElement<T extends HTMLElement>(id: string) {
 async function initialize() {
   setBusy(loginButton, true);
   try {
+    if (!hostedAuthConfig.googleOAuthEnabled) {
+      throw new Error("Google login is not enabled for this hosted auth deployment");
+    }
+
+    captureCallbackStateFromRequest();
     await privy.initialize();
     await initializeEmbeddedWalletIframe();
     initialized = true;
 
+    const oauthCallback = readGoogleOAuthCallback();
+    if (oauthCallback) {
+      loginButton.textContent = "Completing Google sign-in...";
+      const { user } = await privy.auth.oauth.loginWithCode(
+        oauthCallback.authorizationCode,
+        oauthCallback.returnedStateCode,
+        "google",
+        undefined,
+        "login-or-sign-up",
+        {
+          embedded: embeddedWalletLoginConfigForChain(hostedAuthConfig.allowedChainId)
+        }
+      );
+      const ensuredUser = await ensureWallet(user);
+      await completeHostedLogin(ensuredUser);
+      return;
+    }
+
     const existingUser = await getExistingUser();
+    if (existingUser && readOAuthInProgress()) {
+      loginButton.textContent = "Finalizing Google sign-in...";
+      const ensuredUser = await ensureWallet(existingUser);
+      await completeHostedLogin(ensuredUser);
+      return;
+    }
+
     if (existingUser) {
-      loginButton.textContent = "Continue with existing Privy session";
-    } else {
-      emailStep.hidden = false;
-      loginButton.textContent = "Use a different Privy session";
+      loginButton.textContent = "Continue with existing Google session";
     }
   } catch (error) {
+    clearOAuthInProgress();
     setFeedback(error instanceof Error ? error.message : "Failed to initialize hosted auth");
   } finally {
     setBusy(loginButton, false);
@@ -88,73 +112,20 @@ loginButton.addEventListener("click", async () => {
   try {
     const existingUser = await getExistingUser();
     if (!existingUser) {
-      emailStep.hidden = false;
-      emailInput.focus();
+      const redirectUrl = buildGoogleRedirectUrl();
+      markOAuthInProgress();
+      const oauthInit = await privy.auth.oauth.generateURL("google", redirectUrl);
+      window.location.assign(oauthInit.url);
       return;
     }
 
     const ensuredUser = await ensureWallet(existingUser);
     await completeHostedLogin(ensuredUser);
   } catch (error) {
+    clearOAuthInProgress();
     setFeedback(error instanceof Error ? error.message : "Privy login failed");
   } finally {
     setBusy(loginButton, false);
-  }
-});
-
-sendCodeButton.addEventListener("click", async () => {
-  if (!initialized) {
-    return;
-  }
-
-  const email = emailInput.value.trim();
-  if (!email) {
-    setFeedback("Email is required");
-    emailInput.focus();
-    return;
-  }
-
-  setBusy(sendCodeButton, true);
-  setFeedback("");
-  try {
-    await privy.auth.email.sendCode(email);
-    submittedEmail = email;
-    codeStep.hidden = false;
-    codeInput.focus();
-    setFeedback("Verification code sent");
-  } catch (error) {
-    setFeedback(error instanceof Error ? error.message : "Failed to send verification code");
-  } finally {
-    setBusy(sendCodeButton, false);
-  }
-});
-
-verifyCodeButton.addEventListener("click", async () => {
-  if (!initialized) {
-    return;
-  }
-
-  const code = codeInput.value.trim();
-  if (!submittedEmail) {
-    setFeedback("Send a verification code first");
-    return;
-  }
-  if (!code) {
-    setFeedback("Verification code is required");
-    codeInput.focus();
-    return;
-  }
-
-  setBusy(verifyCodeButton, true);
-  setFeedback("");
-  try {
-    const { user } = await privy.auth.email.loginWithCode(submittedEmail, code);
-    const ensuredUser = await ensureWallet(user);
-    await completeHostedLogin(ensuredUser);
-  } catch (error) {
-    setFeedback(error instanceof Error ? error.message : "Failed to verify code");
-  } finally {
-    setBusy(verifyCodeButton, false);
   }
 });
 
@@ -234,7 +205,7 @@ async function completeHostedLogin(_user: any) {
     throw new Error("Privy access token is missing after login");
   }
 
-  const callbackState = new URL(window.location.href).searchParams.get("state");
+  const callbackState = readStoredCallbackState();
   if (!callbackState) {
     throw new Error("Hosted login is missing callback state");
   }
@@ -258,7 +229,90 @@ async function completeHostedLogin(_user: any) {
   const redirectUrl = new URL(payload.redirectUri);
   redirectUrl.searchParams.set("code", payload.code);
   redirectUrl.searchParams.set("state", callbackState);
+  clearStoredCallbackState();
+  clearOAuthInProgress();
   window.location.assign(redirectUrl.toString());
+}
+
+function buildGoogleRedirectUrl() {
+  const redirectUrl = new URL(window.location.href);
+  redirectUrl.searchParams.delete("code");
+  redirectUrl.searchParams.delete("state");
+  redirectUrl.searchParams.delete("authorization_code");
+  redirectUrl.searchParams.delete("state_code");
+  return redirectUrl.toString();
+}
+
+function readGoogleOAuthCallback() {
+  const params = new URL(window.location.href).searchParams;
+  const authorizationCode =
+    params.get("privy_oauth_code") ??
+    params.get("authorization_code") ??
+    params.get("code");
+  const returnedStateCode =
+    params.get("privy_oauth_state") ??
+    params.get("state_code") ??
+    params.get("oauth_state") ??
+    params.get("state");
+  if (!authorizationCode) {
+    return null;
+  }
+  if (!returnedStateCode) {
+    throw new Error("Google hosted auth callback is missing required parameters");
+  }
+  return {
+    authorizationCode,
+    returnedStateCode
+  };
+}
+
+function captureCallbackStateFromRequest() {
+  if (window.localStorage.getItem(callbackStateStorageKey)) {
+    return;
+  }
+  const callbackState = new URL(window.location.href).searchParams.get("state");
+  if (!callbackState) {
+    return;
+  }
+  window.localStorage.setItem(callbackStateStorageKey, callbackState);
+}
+
+function readStoredCallbackState() {
+  return window.localStorage.getItem(callbackStateStorageKey);
+}
+
+function clearStoredCallbackState() {
+  window.localStorage.removeItem(callbackStateStorageKey);
+}
+
+function markOAuthInProgress() {
+  window.localStorage.setItem(oauthProgressStorageKey, "true");
+}
+
+function readOAuthInProgress() {
+  return window.localStorage.getItem(oauthProgressStorageKey) === "true";
+}
+
+function clearOAuthInProgress() {
+  window.localStorage.removeItem(oauthProgressStorageKey);
+}
+
+function embeddedWalletLoginConfigForChain(allowedChainId: string) {
+  if (allowedChainId.startsWith("eip155:")) {
+    return {
+      ethereum: {
+        createOnLogin: "all-users" as const
+      }
+    };
+  }
+  if (allowedChainId.startsWith("solana:")) {
+    return {
+      solana: {
+        createOnLogin: "all-users" as const
+      }
+    };
+  }
+  throw new Error(`Unsupported hosted auth chain: ${allowedChainId}`);
 }
 
 function setFeedback(message: string) {
