@@ -11,7 +11,7 @@ Today, Celeris is primarily a backend service that handles:
 - identity
 - credits and payments
 - pending action orchestration
-- developer approval callbacks
+- developer and player API integration
 - relayer submission
 - asset recording
 
@@ -24,9 +24,13 @@ That works well for the MVP, but it still leaves developers with major integrati
 
 The future direction described here aims to reduce that load further.
 
+The near-term API and auth pivot that precedes this broader platform direction is documented in [sdk-pivot.md](./sdk-pivot.md).
+
 ## The core idea
 
 Celeris evolves from being only a backend API into a managed game backend platform.
+
+The immediate step before that platform expansion is to make Celeris consumable through frontend and backend SDKs with a clearer player/developer auth split.
 
 Instead of asking developers to assemble:
 

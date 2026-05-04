@@ -4,20 +4,25 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --watch --import tsx saas/api/index.ts",
-    "start": "node --import tsx saas/api/index.ts",
-    "start:api": "node --import tsx saas/api/index.ts",
-    "dev:mock-developer": "node --watch --import tsx scripts/mock-developer-backend.ts",
-    "start:mock-developer": "node --import tsx scripts/mock-developer-backend.ts",
-    "test": "node --import tsx --test saas/tests/*.test.ts",
-    "test:e2e": "node --import tsx --test saas/tests/end-to-end.test.ts",
-    "test:watch": "node --watch --import tsx --test saas/tests/*.test.ts",
+    "dev": "node --watch --import tsx celeris/api/index.ts",
+    "start": "node --import tsx celeris/api/index.ts",
+    "start:api": "node --import tsx celeris/api/index.ts",
+    "dev:mock-game-frontend": "node --watch --import tsx scripts/mock-game-frontend.ts",
+    "start:mock-game-frontend": "node --import tsx scripts/mock-game-frontend.ts",
+    "start:full-demo": "node --import tsx scripts/full-demo.ts",
+    "test": "node --import tsx --test celeris/tests/*.test.ts",
+    "test:e2e": "node --import tsx --test celeris/tests/end-to-end.test.ts",
+    "test:watch": "node --watch --import tsx --test celeris/tests/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "db:migrate": "psql \"$DATABASE_URL\" -f saas/db/migrations/001_foundations.sql"
+    "db:migrate": "psql \"$DATABASE_URL\" -f celeris/db/migrations/001_foundations.sql"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@privy-io/js-sdk-core": "^0.61.3",
+    "@privy-io/node": "^0.16.0"
   }
 }
