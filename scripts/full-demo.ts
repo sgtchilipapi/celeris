@@ -40,6 +40,7 @@ type DemoSession = {
   developerEmail: string;
   developerUsername: string;
   developerPassword: string;
+  developerAccessToken: string;
   appId: string;
   apiKey: string;
 };
@@ -83,10 +84,12 @@ async function main() {
 
   console.log("Starting Celeris API...");
   const apiProcess = spawnManagedProcess("api", ["node", "--import", "tsx", "celeris/api/index.ts"]);
-  await waitForHttp(`${defaultApiOrigin}/apps`);
+  await waitForHttp(defaultApiOrigin, { expectJson: false });
 
   const demoSession = await provisionDemo(config, tunnelConfig);
-  const setup = await getJson<AppSetupDetails>(`/apps/${demoSession.appId}/setup`);
+  const setup = await getJson<AppSetupDetails>(`/v1/developer/apps/${demoSession.appId}`, {
+    accessToken: demoSession.developerAccessToken
+  });
 
   let playerFrontendStarted = false;
   if (config.startPlayerFrontend) {
@@ -298,31 +301,33 @@ async function provisionDemo(
   const developerPassword = `demo-pass-${credentialSuffix}`;
   const developerId = `dev-${randomUUID()}`;
 
-  const developerSession = await postJson("/developer/sign-up", {
+  const developerSession = await postJson("/v1/developer/sign-up", {
     username: developerUsername,
     password: developerPassword,
     developerId
   });
 
-  const app = await postJson("/apps", {
-    developerId: developerSession.developerId,
+  const app = await postJson("/v1/developer/apps", {
     name: config.appName,
     priceCents: 100,
     credits: config.creditsPerDollar,
     allowedChainId: config.allowedChainId,
     allowedFrontendOrigins: tunnelConfig.allowedFrontendOrigins,
     allowedRedirectUris: tunnelConfig.allowedRedirectUris
+  }, {
+    accessToken: developerSession.accessToken
   });
 
-  await configureAction(app.appId, config.firstTimeClaimActionId, 10, config.firstTimeClaimExecutionMode);
-  await configureAction(app.appId, config.claimRewardsActionId, 25, config.claimRewardsExecutionMode);
-  await configureAction(app.appId, config.mintItemActionId, 50, config.mintItemExecutionMode);
+  await configureAction(app.appId, config.firstTimeClaimActionId, 10, config.firstTimeClaimExecutionMode, developerSession.accessToken);
+  await configureAction(app.appId, config.claimRewardsActionId, 25, config.claimRewardsExecutionMode, developerSession.accessToken);
+  await configureAction(app.appId, config.mintItemActionId, 50, config.mintItemExecutionMode, developerSession.accessToken);
 
   return {
     developerId: developerSession.developerId,
     developerEmail: developerSession.email,
     developerUsername,
     developerPassword,
+    developerAccessToken: developerSession.accessToken,
     appId: app.appId,
     apiKey: app.apiKey
   };
@@ -332,21 +337,25 @@ async function configureAction(
   appId: string,
   actionType: string,
   cost: number,
-  executionMode: "managed" | "server" | "webhook"
+  executionMode: "managed" | "server" | "webhook",
+  accessToken: string
 ) {
-  await postJson(`/apps/${appId}/actions`, {
+  await postJson(`/v1/developer/apps/${appId}/actions`, {
     actionType,
     cost,
     executionMode
+  }, {
+    accessToken
   });
 }
 
-async function postJson(pathname: string, body: Record<string, unknown>) {
+async function postJson(pathname: string, body: Record<string, unknown>, { accessToken }: { accessToken?: string } = {}) {
   const response = await fetch(`${defaultApiOrigin}${pathname}`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "idempotency-key": `full-demo-${randomUUID()}`
+      "idempotency-key": `full-demo-${randomUUID()}`,
+      ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {})
     },
     body: JSON.stringify(body)
   });
@@ -359,8 +368,10 @@ async function postJson(pathname: string, body: Record<string, unknown>) {
   return response.json();
 }
 
-async function getJson<T>(pathname: string): Promise<T> {
-  const response = await fetch(`${defaultApiOrigin}${pathname}`);
+async function getJson<T>(pathname: string, { accessToken }: { accessToken?: string } = {}): Promise<T> {
+  const response = await fetch(`${defaultApiOrigin}${pathname}`, {
+    headers: accessToken ? { authorization: `Bearer ${accessToken}` } : undefined
+  });
   if (!response.ok) {
     const text = await response.text();
     throw new Error(`Request failed for ${pathname}: ${response.status} ${text}`);
@@ -591,7 +602,7 @@ function printSummary({
   console.log("2. Open the provisioned app and verify Setup summary shows the shared auth provider and Allowed chain.");
   console.log("3. Verify the dashboard does not show a webhook field or sponsor-wallet section.");
   console.log("4. Open the configured actions and verify each action has the expected execution mode.");
-  console.log(`5. Optional API check: curl ${defaultApiOrigin}/apps/${demoSession.appId}/setup`);
+  console.log(`5. Optional API check: curl -H 'authorization: Bearer ${demoSession.developerAccessToken}' ${defaultApiOrigin}/v1/developer/apps/${demoSession.appId}`);
   console.log("");
   console.log("Press Ctrl+C to stop all demo services.");
 }

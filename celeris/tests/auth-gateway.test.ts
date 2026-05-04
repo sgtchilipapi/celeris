@@ -5,6 +5,7 @@ import { buildServices, resolveHostedAuthConfigFromEnv } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
 import { createBrowserClient } from "../sdk/browser-client.js";
 import { createPrivyTestToken } from "../services/privy-auth-service.js";
+import { createDeveloperApp, signUpDeveloper } from "./helpers/developer.js";
 
 function resolveTestVerifierSecret() {
   return process.env.PRIVY_APP_SECRET ?? process.env.PRIVY_VERIFIER_SECRET ?? "privy-dev-secret";
@@ -49,6 +50,34 @@ function createMemoryStorage() {
   };
 }
 
+async function createGatewayApp(
+  api: ReturnType<typeof createApi>,
+  services: ReturnType<typeof buildServices>,
+  {
+    name,
+    allowedChainId = "eip155:1",
+    allowedFrontendOrigins,
+    allowedRedirectUris
+  }: {
+    name: string;
+    allowedChainId?: string;
+    allowedFrontendOrigins?: string[];
+    allowedRedirectUris?: string[];
+  }
+) {
+  const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
+  return createDeveloperApp({
+    api,
+    accessToken: developer.accessToken,
+    name,
+    priceCents: 499,
+    credits: 500,
+    allowedChainId,
+    allowedFrontendOrigins,
+    allowedRedirectUris
+  });
+}
+
 function createWindowStub({
   href,
   storage,
@@ -91,19 +120,10 @@ function createWindowStub({
 test("login-request creation enforces project existence, exact origin matching, and exact redirect URI matching", async () => {
   const services = buildServices();
   const api = createApi(services);
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "auth-gateway-app-1" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Gateway App",
-      priceCents: 499,
-      credits: 500,
-      allowedChainId: "eip155:1",
-      allowedFrontendOrigins: ["http://localhost:3002"],
-      allowedRedirectUris: ["http://localhost:3002/auth/callback"]
-    }
+  const app = await createGatewayApp(api, services, {
+    name: "Gateway App",
+    allowedFrontendOrigins: ["http://localhost:3002"],
+    allowedRedirectUris: ["http://localhost:3002/auth/callback"]
   });
 
   const missingProject = await api.handle({
@@ -116,13 +136,13 @@ test("login-request creation enforces project existence, exact origin matching, 
     method: "POST",
     url: "/v1/auth/login-requests",
     headers: { origin: "http://evil.local" },
-    body: { projectId: app.body.appId, redirectUri: "http://localhost:3002/auth/callback", codeChallenge: createPkcePair().codeChallenge }
+    body: { projectId: app.appId, redirectUri: "http://localhost:3002/auth/callback", codeChallenge: createPkcePair().codeChallenge }
   });
   const badRedirect = await api.handle({
     method: "POST",
     url: "/v1/auth/login-requests",
     headers: { origin: "http://localhost:3002" },
-    body: { projectId: app.body.appId, redirectUri: "http://localhost:3002/other", codeChallenge: createPkcePair().codeChallenge }
+    body: { projectId: app.appId, redirectUri: "http://localhost:3002/other", codeChallenge: createPkcePair().codeChallenge }
   });
 
   assert.equal(missingProject.statusCode, 404);
@@ -136,24 +156,13 @@ test("login-request creation enforces project existence, exact origin matching, 
 test("hosted login completion rejects expired or consumed login requests", async () => {
   const services = buildServices();
   const api = createApi(services);
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "auth-gateway-app-2" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Gateway App Two",
-      priceCents: 499,
-      credits: 500,
-      allowedChainId: "eip155:1"
-    }
-  });
+  const app = await createGatewayApp(api, services, { name: "Gateway App Two" });
 
   const created = await api.handle({
     method: "POST",
     url: "/v1/auth/login-requests",
     headers: { origin: "http://localhost:3002" },
-    body: { projectId: app.body.appId, redirectUri: "http://localhost:3002/auth/callback", codeChallenge: createPkcePair().codeChallenge }
+    body: { projectId: app.appId, redirectUri: "http://localhost:3002/auth/callback", codeChallenge: createPkcePair().codeChallenge }
   });
   const loginRequestId = created.body.loginRequestId as string;
   const loginRequest = services.store.loginRequests.get(loginRequestId)!;
@@ -216,19 +225,10 @@ test("hosted login completion rejects expired or consumed login requests", async
 test("browser SDK popup login completes through the app callback origin and persists the player session", async () => {
   const services = buildServices();
   const api = createApi(services);
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "auth-gateway-app-3" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Gateway SDK App",
-      priceCents: 499,
-      credits: 500,
-      allowedChainId: "eip155:1",
-      allowedFrontendOrigins: ["http://localhost:3002"],
-      allowedRedirectUris: ["http://localhost:3002/auth/callback"]
-    }
+  const app = await createGatewayApp(api, services, {
+    name: "Gateway SDK App",
+    allowedFrontendOrigins: ["http://localhost:3002"],
+    allowedRedirectUris: ["http://localhost:3002/auth/callback"]
   });
   const fetchImpl = createFetchBridge(api);
   const storage = createMemoryStorage();
@@ -236,7 +236,7 @@ test("browser SDK popup login completes through the app callback origin and pers
 
   const client = createBrowserClient({
     apiBaseUrl: "/api",
-    appId: app.body.appId as string,
+    appId: app.appId as string,
     fetchImpl,
     auth: {
       frontendOrigin: "http://localhost:3002",
@@ -263,11 +263,11 @@ test("browser SDK popup login completes through the app callback origin and pers
             })
           }
         });
-        const pendingLogin = JSON.parse(storage.getItem(`celeris-player-session:${app.body.appId}:pending-login`) ?? "{}");
+        const pendingLogin = JSON.parse(storage.getItem(`celeris-player-session:${app.appId}:pending-login`) ?? "{}");
         let callbackMessageData: any = null;
         const callbackClient = createBrowserClient({
           apiBaseUrl: "/api",
-          appId: app.body.appId as string,
+          appId: app.appId as string,
           fetchImpl,
           auth: {
             frontendOrigin: "http://localhost:3002",
@@ -309,7 +309,7 @@ test("browser SDK popup login completes through the app callback origin and pers
 
   const badOriginClient = createBrowserClient({
     apiBaseUrl: "/api",
-    appId: app.body.appId as string,
+    appId: app.appId as string,
     fetchImpl,
     auth: {
       frontendOrigin: "http://localhost:3002",
@@ -333,19 +333,10 @@ test("browser SDK popup login completes through the app callback origin and pers
 test("browser SDK redirect login uses the registered callback and rejects state mismatches", async () => {
   const services = buildServices();
   const api = createApi(services);
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "auth-gateway-app-redirect-1" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Gateway Redirect App",
-      priceCents: 499,
-      credits: 500,
-      allowedChainId: "eip155:1",
-      allowedFrontendOrigins: ["http://localhost:3002"],
-      allowedRedirectUris: ["http://localhost:3002/auth/callback"]
-    }
+  const app = await createGatewayApp(api, services, {
+    name: "Gateway Redirect App",
+    allowedFrontendOrigins: ["http://localhost:3002"],
+    allowedRedirectUris: ["http://localhost:3002/auth/callback"]
   });
   const fetchImpl = createFetchBridge(api);
   const storage = createMemoryStorage();
@@ -364,7 +355,7 @@ test("browser SDK redirect login uses the registered callback and rejects state 
 
   const client = createBrowserClient({
     apiBaseUrl: "/api",
-    appId: app.body.appId as string,
+    appId: app.appId as string,
     fetchImpl,
     auth: {
       frontendOrigin: "http://localhost:3002",
@@ -397,14 +388,14 @@ test("browser SDK redirect login uses the registered callback and rejects state 
     }
   });
 
-  const pendingLogin = JSON.parse(storage.getItem(`celeris-player-session:${app.body.appId}:pending-login`) ?? "{}");
+  const pendingLogin = JSON.parse(storage.getItem(`celeris-player-session:${app.appId}:pending-login`) ?? "{}");
   const session = await client.auth.handleCallback({
     url: `http://localhost:3002/auth/callback?code=${encodeURIComponent(completed.body.code as string)}&state=${encodeURIComponent(pendingLogin.state)}`
   });
 
   assert.equal(session?.player.walletAddress, "0xredirect123");
   assert.equal(client.auth.getSession()?.player.walletAddress, "0xredirect123");
-  assert.equal(storage.getItem(`celeris-player-session:${app.body.appId}:pending-login`), null);
+  assert.equal(storage.getItem(`celeris-player-session:${app.appId}:pending-login`), null);
   assert.equal(cleanedUrl, "/");
 
   await client.auth.login({ mode: "redirect" });
@@ -440,24 +431,13 @@ test("browser SDK redirect login uses the registered callback and rejects state 
 test("hosted auth login page is Google-first and no longer exposes manual wallet entry or the legacy mock grant path", async () => {
   const services = buildServices();
   const api = createApi(services);
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "auth-gateway-app-4" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Gateway Hosted Login App",
-      priceCents: 499,
-      credits: 500,
-      allowedChainId: "eip155:1"
-    }
-  });
+  const app = await createGatewayApp(api, services, { name: "Gateway Hosted Login App" });
 
   const created = await api.handle({
     method: "POST",
     url: "/v1/auth/login-requests",
     headers: { origin: "http://localhost:3002" },
-    body: { projectId: app.body.appId, redirectUri: "http://localhost:3002/auth/callback", codeChallenge: createPkcePair().codeChallenge }
+    body: { projectId: app.appId, redirectUri: "http://localhost:3002/auth/callback", codeChallenge: createPkcePair().codeChallenge }
   });
   const page = await api.handle({
     method: "GET",
@@ -484,24 +464,13 @@ test("hosted auth login page fails closed when Google provider support is disabl
     }
   });
   const api = createApi(services);
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "auth-gateway-app-4b" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Gateway Hosted Login App Disabled",
-      priceCents: 499,
-      credits: 500,
-      allowedChainId: "eip155:1"
-    }
-  });
+  const app = await createGatewayApp(api, services, { name: "Gateway Hosted Login App Disabled" });
 
   const created = await api.handle({
     method: "POST",
     url: "/v1/auth/login-requests",
     headers: { origin: "http://localhost:3002" },
-    body: { projectId: app.body.appId, redirectUri: "http://localhost:3002/auth/callback", codeChallenge: createPkcePair().codeChallenge }
+    body: { projectId: app.appId, redirectUri: "http://localhost:3002/auth/callback", codeChallenge: createPkcePair().codeChallenge }
   });
   const page = await api.handle({
     method: "GET",
@@ -516,24 +485,13 @@ test("auth-code exchange rejects verifier mismatches and accepts the original ve
   const services = buildServices();
   const api = createApi(services);
   const { codeVerifier, codeChallenge } = createPkcePair();
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "auth-gateway-app-5" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Gateway PKCE App",
-      priceCents: 499,
-      credits: 500,
-      allowedChainId: "eip155:1"
-    }
-  });
+  const app = await createGatewayApp(api, services, { name: "Gateway PKCE App" });
 
   const created = await api.handle({
     method: "POST",
     url: "/v1/auth/login-requests",
     headers: { origin: "http://localhost:3002" },
-    body: { projectId: app.body.appId, redirectUri: "http://localhost:3002/auth/callback", codeChallenge }
+    body: { projectId: app.appId, redirectUri: "http://localhost:3002/auth/callback", codeChallenge }
   });
   const completed = await api.handle({
     method: "POST",

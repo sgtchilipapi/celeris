@@ -138,6 +138,23 @@ async function fetchJson(path, init = undefined) {
   return response.json();
 }
 
+function requireDeveloperSession() {
+  if (!state.session?.accessToken) {
+    throw new Error("Developer session is required.");
+  }
+  return state.session;
+}
+
+async function fetchDeveloperJson(path, init = undefined) {
+  const session = requireDeveloperSession();
+  const headers = new Headers(init?.headers ?? {});
+  headers.set("authorization", `Bearer ${session.accessToken}`);
+  return fetchJson(path, {
+    ...init,
+    headers
+  });
+}
+
 function loadStoredSession() {
   try {
     const parsed = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) ?? "null");
@@ -258,14 +275,6 @@ function getCredentials(input = null) {
   return requireCredentials();
 }
 
-async function createOrRestoreDeveloper(developerId) {
-  return fetchJson("/demo/developer/session", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ developerId })
-  });
-}
-
 function ensureAppUi(appId) {
   if (!state.appUi[appId]) {
     state.appUi[appId] = {
@@ -363,7 +372,7 @@ function bindCopyButtons(scope, feedbackTarget = overviewFeedbackEl) {
 
 async function signIn(credentials = null) {
   const { username, password } = getCredentials(credentials);
-  const backendSession = await fetchJson("/developer/sign-in", {
+  const backendSession = await fetchJson("/v1/developer/sign-in", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ username, password })
@@ -371,7 +380,9 @@ async function signIn(credentials = null) {
   state.session = {
     username,
     developerId: backendSession.developerId,
-    email: backendSession.email
+    email: backendSession.email,
+    accessToken: backendSession.accessToken,
+    expiresAt: backendSession.expiresAt
   };
   saveStoredSession(state.session);
   updateSessionSummary();
@@ -381,7 +392,7 @@ async function signIn(credentials = null) {
 
 async function signUp(credentials = null) {
   const { username, password } = getCredentials(credentials);
-  const backendSession = await fetchJson("/developer/sign-up", {
+  const backendSession = await fetchJson("/v1/developer/sign-up", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -396,7 +407,9 @@ async function signUp(credentials = null) {
   state.session = {
     username,
     developerId: backendSession.developerId,
-    email: backendSession.email
+    email: backendSession.email,
+    accessToken: backendSession.accessToken,
+    expiresAt: backendSession.expiresAt
   };
   saveStoredSession(state.session);
   updateSessionSummary();
@@ -494,7 +507,7 @@ async function loadApps() {
   if (!state.session) {
     return;
   }
-  state.apps = await fetchJson(`/apps?developerId=${encodeURIComponent(state.session.developerId)}`);
+  state.apps = await fetchDeveloperJson("/v1/developer/apps");
   renderHome();
 }
 
@@ -659,7 +672,7 @@ async function updateSelectedAppPlayerPolicy({ allowedFrontendOrigins, allowedRe
     throw new Error("Default credit package is missing.");
   }
 
-  const updated = await fetchJson(`/apps/${encodeURIComponent(state.selectedApp.appId)}`, {
+  const updated = await fetchDeveloperJson(`/v1/developer/apps/${encodeURIComponent(state.selectedApp.appId)}`, {
     method: "PUT",
     headers: {
       "content-type": "application/json",
@@ -675,7 +688,7 @@ async function updateSelectedAppPlayerPolicy({ allowedFrontendOrigins, allowedRe
     })
   });
 
-  const setup = await fetchJson(`/apps/${encodeURIComponent(updated.appId)}/setup`);
+  const setup = await fetchDeveloperJson(`/v1/developer/apps/${encodeURIComponent(updated.appId)}`);
   state.selectedSetup = setup;
   const refreshedApp = state.apps.find((entry) => entry.appId === updated.appId);
   if (refreshedApp) {
@@ -762,7 +775,7 @@ async function openAppOverview(appId) {
     throw new Error("App not found.");
   }
 
-  const setup = await fetchJson(`/apps/${encodeURIComponent(appId)}/setup`);
+  const setup = await fetchDeveloperJson(`/v1/developer/apps/${encodeURIComponent(appId)}`);
   state.selectedApp = app;
   state.selectedSetup = setup;
   state.selectedProgramId = null;
@@ -901,9 +914,9 @@ async function openMetricsView() {
 
   const appId = state.selectedApp.appId;
   const [metrics, transactions, users] = await Promise.all([
-    fetchJson(`/metrics?appId=${encodeURIComponent(appId)}`),
-    fetchJson(`/transactions?appId=${encodeURIComponent(appId)}`),
-    fetchJson(`/users?appId=${encodeURIComponent(appId)}`)
+    fetchDeveloperJson(`/v1/developer/apps/${encodeURIComponent(appId)}/metrics`),
+    fetchDeveloperJson(`/v1/developer/apps/${encodeURIComponent(appId)}/transactions`),
+    fetchDeveloperJson(`/v1/developer/apps/${encodeURIComponent(appId)}/players`)
   ]);
 
   metricsAppNameEl.textContent = `${state.selectedApp.name} activity`;
@@ -930,20 +943,22 @@ async function createApp() {
     throw new Error("Allowed chain ID is required.");
   }
 
-  const app = await fetchJson(state.editingAppId ? `/apps/${encodeURIComponent(state.editingAppId)}` : "/apps", {
+  const app = await fetchDeveloperJson(
+    state.editingAppId ? `/v1/developer/apps/${encodeURIComponent(state.editingAppId)}` : "/v1/developer/apps",
+    {
     method: state.editingAppId ? "PUT" : "POST",
     headers: {
       "content-type": "application/json",
       "idempotency-key": `dashboard-app-${createUuid()}`
     },
     body: JSON.stringify({
-      ...(state.editingAppId ? {} : { developerId: state.session.developerId }),
       name: appName,
       priceCents: 100,
       credits,
       allowedChainId
     })
-  });
+    }
+  );
 
   await loadApps();
   resetCreateAppForm();
@@ -964,7 +979,7 @@ async function openEditApp(appId) {
   if (!app) {
     throw new Error("App not found.");
   }
-  const setup = await fetchJson(`/apps/${encodeURIComponent(appId)}/setup`);
+  const setup = await fetchDeveloperJson(`/v1/developer/apps/${encodeURIComponent(appId)}`);
   state.editingAppId = appId;
   createAppNameEl.value = app.name;
   createAppCreditsPerDollarEl.value = formatNumber(setup.creditPackages[0]?.credits ?? 500);
@@ -975,7 +990,7 @@ async function openEditApp(appId) {
 }
 
 async function deleteApp(appId) {
-  await fetchJson(`/apps/${encodeURIComponent(appId)}`, {
+  await fetchDeveloperJson(`/v1/developer/apps/${encodeURIComponent(appId)}`, {
     method: "DELETE",
     headers: {
       "content-type": "application/json",
@@ -1145,7 +1160,7 @@ async function syncBackendProgramAction(nextAction, previousActionId = null) {
   };
 
   if (previousActionId && backendMirroredActionIds.has(previousActionId) && previousActionId !== nextAction.actionId) {
-    await fetchJson(`/apps/${encodeURIComponent(appId)}/actions/${encodeURIComponent(previousActionId)}`, {
+    await fetchDeveloperJson(`/v1/developer/apps/${encodeURIComponent(appId)}/actions/${encodeURIComponent(previousActionId)}`, {
       method: "DELETE",
       headers: requestHeaders,
       body: JSON.stringify({})
@@ -1153,7 +1168,7 @@ async function syncBackendProgramAction(nextAction, previousActionId = null) {
   }
 
   if (backendMirroredActionIds.has(nextAction.actionId)) {
-    await fetchJson(`/apps/${encodeURIComponent(appId)}/actions`, {
+    await fetchDeveloperJson(`/v1/developer/apps/${encodeURIComponent(appId)}/actions`, {
       method: "POST",
       headers: requestHeaders,
       body: JSON.stringify({
@@ -1218,14 +1233,17 @@ async function deleteProgramAction(actionId) {
   const removedAction = program.actions.find((entry) => entry.id === actionId);
   program.actions = program.actions.filter((entry) => entry.id !== actionId);
   if (removedAction?.actionId && backendMirroredActionIds.has(removedAction.actionId) && state.selectedApp) {
-    await fetchJson(`/apps/${encodeURIComponent(state.selectedApp.appId)}/actions/${encodeURIComponent(removedAction.actionId)}`, {
+    await fetchDeveloperJson(
+      `/v1/developer/apps/${encodeURIComponent(state.selectedApp.appId)}/actions/${encodeURIComponent(removedAction.actionId)}`,
+      {
       method: "DELETE",
       headers: {
         "content-type": "application/json",
         "idempotency-key": `dashboard-program-action-delete-${createUuid()}`
       },
       body: JSON.stringify({})
-    });
+      }
+    );
   }
   saveStoredAppUi();
   openProgramView(program.id);
@@ -1233,20 +1251,24 @@ async function deleteProgramAction(actionId) {
 
 async function restoreSession() {
   const stored = loadStoredSession();
-  if (!stored?.username || !stored?.developerId) {
+  if (!stored?.username || !stored?.developerId || !stored?.accessToken) {
     return false;
   }
 
-  const backendSession = await createOrRestoreDeveloper(stored.developerId);
-  state.session = {
-    username: stored.username,
-    developerId: backendSession.developerId,
-    email: backendSession.email
-  };
-  updateSessionSummary();
-  await loadApps();
-  setView("home");
-  return true;
+  state.session = stored;
+  try {
+    updateSessionSummary();
+    await loadApps();
+    setView("home");
+    return true;
+  } catch (error) {
+    state.session = null;
+    clearStoredSession();
+    if (error instanceof Error && /authorization|session/i.test(error.message)) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 function applyDemoBootstrap() {

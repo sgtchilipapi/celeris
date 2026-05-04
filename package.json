@@ -7,8 +7,6 @@
     "dev": "node --watch --import tsx celeris/api/index.ts",
     "start": "node --import tsx celeris/api/index.ts",
     "start:api": "node --import tsx celeris/api/index.ts",
-    "dev:mock-developer": "node --watch --import tsx scripts/mock-developer-backend.ts",
-    "start:mock-developer": "node --import tsx scripts/mock-developer-backend.ts",
     "dev:mock-game-frontend": "node --watch --import tsx scripts/mock-game-frontend.ts",
     "start:mock-game-frontend": "node --import tsx scripts/mock-game-frontend.ts",
     "start:full-demo": "node --import tsx scripts/full-demo.ts",

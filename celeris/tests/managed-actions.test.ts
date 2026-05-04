@@ -6,6 +6,7 @@ import { AssetDeliveryService } from "../services/asset-delivery-service.js";
 import { ManagedActionService } from "../services/managed-action-service.js";
 import type { WalletPrincipal } from "../types.js";
 import { createHostedPlayerSession } from "./helpers/auth.js";
+import { createDeveloperApp, configureDeveloperAction, signUpDeveloper } from "./helpers/developer.js";
 
 function buildCompletedCheckoutEvent({
   eventId,
@@ -47,21 +48,18 @@ async function createManagedActionHarness() {
     walletAddress: "0xmanaged123",
     chainId: "eip155:1"
   } satisfies WalletPrincipal;
+  const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
 
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "managed-app-1" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Managed Actions App",
-      priceCents: 499,
-      credits: 500,
-      allowedChainId: walletPrincipal.chainId
-    }
+  const app = await createDeveloperApp({
+    api,
+    accessToken: developer.accessToken,
+    name: "Managed Actions App",
+    priceCents: 499,
+    credits: 500,
+    allowedChainId: walletPrincipal.chainId
   });
 
-  const appId = app.body.appId as string;
+  const appId = app.appId as string;
   const session = await createHostedPlayerSession({
     api,
     appId,
@@ -69,23 +67,29 @@ async function createManagedActionHarness() {
   });
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
-  await api.handle({
-    method: "POST",
-    url: `/apps/${appId}/actions`,
-    headers: { "idempotency-key": "managed-action-mint" },
-    body: { actionType: "mint_item", cost: 50, executionMode: "managed" }
+  await configureDeveloperAction({
+    api,
+    accessToken: developer.accessToken,
+    appId,
+    actionType: "mint_item",
+    cost: 50,
+    executionMode: "managed"
   });
-  await api.handle({
-    method: "POST",
-    url: `/apps/${appId}/actions`,
-    headers: { "idempotency-key": "managed-action-claim" },
-    body: { actionType: "claim_rewards", cost: 25, executionMode: "managed" }
+  await configureDeveloperAction({
+    api,
+    accessToken: developer.accessToken,
+    appId,
+    actionType: "claim_rewards",
+    cost: 25,
+    executionMode: "managed"
   });
-  await api.handle({
-    method: "POST",
-    url: `/apps/${appId}/actions`,
-    headers: { "idempotency-key": "managed-action-first-claim" },
-    body: { actionType: "first_time_claim", cost: 50, executionMode: "managed" }
+  await configureDeveloperAction({
+    api,
+    accessToken: developer.accessToken,
+    appId,
+    actionType: "first_time_claim",
+    cost: 50,
+    executionMode: "managed"
   });
 
   const checkout = await api.handle({

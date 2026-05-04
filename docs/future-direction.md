@@ -11,7 +11,7 @@ Today, Celeris is primarily a backend service that handles:
 - identity
 - credits and payments
 - pending action orchestration
-- developer approval callbacks
+- developer and player API integration
 - relayer submission
 - asset recording
 

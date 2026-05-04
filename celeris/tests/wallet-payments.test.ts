@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
 import { createHostedPlayerSession } from "./helpers/auth.js";
+import { createDeveloperApp, signUpDeveloper } from "./helpers/developer.js";
 
 function buildCompletedCheckoutEvent({
   eventId,
@@ -44,21 +45,18 @@ async function createWalletPaymentHarness() {
   const api = createApi(services);
   const walletAddress = "0xabc123";
   const chainId = "eip155:1";
+  const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
 
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "wallet-payments-app" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Wallet Payments Test",
-      priceCents: 499,
-      credits: 500,
-      allowedChainId: chainId
-    }
+  const app = await createDeveloperApp({
+    api,
+    accessToken: developer.accessToken,
+    name: "Wallet Payments Test",
+    priceCents: 499,
+    credits: 500,
+    allowedChainId: chainId
   });
 
-  const appId = app.body.appId as string;
+  const appId = app.appId as string;
   const session = await createHostedPlayerSession({
     api,
     appId,

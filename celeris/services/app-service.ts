@@ -86,10 +86,7 @@ export class AppService {
       return cached;
     }
 
-    const app = this.store.apps.get(appId);
-    if (!app) {
-      throw new AppError(404, "app not found");
-    }
+    const app = this.requireApp(appId);
 
     app.name = name;
     this.store.saveApp(app);
@@ -124,10 +121,7 @@ export class AppService {
   }
 
   getAppSetupDetails(appId: string): AppSetupDetails {
-    const app = this.store.apps.get(appId);
-    if (!app) {
-      throw new AppError(404, "app not found");
-    }
+    const app = this.requireApp(appId);
     const playerPolicy = this.store.appPlayerPolicies.get(appId);
     if (!playerPolicy) {
       throw new AppError(404, "app player policy not found");
@@ -225,9 +219,7 @@ export class AppService {
     if (cached) {
       return cached;
     }
-    if (!this.store.apps.has(appId)) {
-      throw new AppError(404, "app not found");
-    }
+    this.requireApp(appId);
     const action = this.store.upsertActionType({ appId, actionType, cost, executionMode });
     this.store.setIdempotent(`action:${appId}:${actionType}`, idempotencyKey, action);
     return action;
@@ -238,9 +230,7 @@ export class AppService {
     if (cached) {
       return cached;
     }
-    if (!this.store.apps.has(appId)) {
-      throw new AppError(404, "app not found");
-    }
+    this.requireApp(appId);
     const existing = this.store.getActionType(appId, currentActionType);
     if (!existing) {
       throw new AppError(404, "action type not found");
@@ -262,9 +252,7 @@ export class AppService {
     if (cached !== null) {
       return cached;
     }
-    if (!this.store.apps.has(appId)) {
-      throw new AppError(404, "app not found");
-    }
+    this.requireApp(appId);
     if (!this.store.getActionType(appId, actionType)) {
       throw new AppError(404, "action type not found");
     }
@@ -278,11 +266,25 @@ export class AppService {
     if (cached !== null) {
       return cached;
     }
-    if (!this.store.apps.has(appId)) {
-      throw new AppError(404, "app not found");
-    }
+    this.requireApp(appId);
     const deleted = this.store.deleteApp(appId);
     this.store.setIdempotent(`app-delete:${appId}`, idempotencyKey, deleted);
     return deleted;
+  }
+
+  requireDeveloperOwnsApp(developerId: string, appId: string) {
+    const app = this.requireApp(appId);
+    if (app.developerId !== developerId) {
+      throw new AppError(403, "developer does not have access to this app");
+    }
+    return app;
+  }
+
+  private requireApp(appId: string) {
+    const app = this.store.apps.get(appId);
+    if (!app) {
+      throw new AppError(404, "app not found");
+    }
+    return app;
   }
 }

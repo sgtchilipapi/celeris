@@ -4,6 +4,7 @@ import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
 import type { WalletPrincipal } from "../types.js";
 import { createHostedPlayerSession } from "./helpers/auth.js";
+import { createDeveloperApp, configureDeveloperAction, signUpDeveloper } from "./helpers/developer.js";
 
 function buildCompletedCheckoutEvent({
   eventId,
@@ -42,20 +43,17 @@ async function createFlowHarness() {
   const services = buildServices();
   const api = createApi(services);
   const walletPrincipal = { walletAddress: "0xmvp123", chainId: "eip155:1" } satisfies WalletPrincipal;
+  const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
 
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "mvp-app-1" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Iron Forge",
-      priceCents: 499,
-      credits: 500,
-      allowedChainId: walletPrincipal.chainId
-    }
+  const app = await createDeveloperApp({
+    api,
+    accessToken: developer.accessToken,
+    name: "Iron Forge",
+    priceCents: 499,
+    credits: 500,
+    allowedChainId: walletPrincipal.chainId
   });
-  const appId = app.body.appId as string;
+  const appId = app.appId as string;
   const session = await createHostedPlayerSession({
     api,
     appId,
@@ -63,11 +61,13 @@ async function createFlowHarness() {
   });
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
-  await api.handle({
-    method: "POST",
-    url: `/apps/${appId}/actions`,
-    headers: { "idempotency-key": "mvp-action-mint-1" },
-    body: { actionType: "mint_item", cost: 50, executionMode: "managed" }
+  await configureDeveloperAction({
+    api,
+    accessToken: developer.accessToken,
+    appId,
+    actionType: "mint_item",
+    cost: 50,
+    executionMode: "managed"
   });
 
   const checkout = await api.handle({

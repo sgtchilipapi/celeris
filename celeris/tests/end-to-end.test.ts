@@ -4,6 +4,7 @@ import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
 import type { RelayerNetworkClient, TransactionStatus, WalletPrincipal } from "../types.js";
 import { createHostedPlayerSession } from "./helpers/auth.js";
+import { createDeveloperApp, configureDeveloperAction, signUpDeveloper } from "./helpers/developer.js";
 
 function buildCompletedCheckoutEvent({
   eventId,
@@ -44,6 +45,7 @@ type Harness = {
   appId: string;
   token: string;
   walletPrincipal: WalletPrincipal;
+  developerAccessToken: string;
 };
 
 async function createHarness({
@@ -66,21 +68,18 @@ async function createHarness({
     walletAddress: "0xe2e123",
     chainId: "eip155:1"
   } satisfies WalletPrincipal;
+  const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
 
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "e2e-app-1" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "End to End App",
-      priceCents: 499,
-      credits: checkoutCredits,
-      allowedChainId: walletPrincipal.chainId
-    }
+  const app = await createDeveloperApp({
+    api,
+    accessToken: developer.accessToken,
+    name: "End to End App",
+    priceCents: 499,
+    credits: checkoutCredits,
+    allowedChainId: walletPrincipal.chainId
   });
 
-  const appId = app.body.appId as string;
+  const appId = app.appId as string;
   const session = await createHostedPlayerSession({
     api,
     appId,
@@ -93,11 +92,13 @@ async function createHarness({
     ["e2e-action-first-claim-1", "first_time_claim", 50],
     ["e2e-action-claim-1", "claim_rewards", 25]
   ] as const) {
-    await api.handle({
-      method: "POST",
-      url: `/apps/${appId}/actions`,
-      headers: { "idempotency-key": key },
-      body: { actionType, cost, executionMode: "managed" }
+    await configureDeveloperAction({
+      api,
+      accessToken: developer.accessToken,
+      appId,
+      actionType,
+      cost,
+      executionMode: "managed"
     });
   }
 
@@ -127,11 +128,11 @@ async function createHarness({
     body: paymentEvent
   });
 
-  return { services, api, appId, token: session.accessToken, walletPrincipal };
+  return { services, api, appId, token: session.accessToken, walletPrincipal, developerAccessToken: developer.accessToken };
 }
 
 test("end-to-end happy path covers checkout, mint, wallet delivery, and dashboard metrics", async () => {
-  const { services, api, appId, token, walletPrincipal } = await createHarness();
+  const { services, api, appId, token, walletPrincipal, developerAccessToken } = await createHarness();
 
   const mint = await api.handle({
     method: "POST",
@@ -148,7 +149,11 @@ test("end-to-end happy path covers checkout, mint, wallet delivery, and dashboar
   assert.equal(delivery.appId, appId);
   assert.equal(delivery.status, "confirmed");
 
-  const metrics = await api.handle({ method: "GET", url: `/metrics?appId=${appId}` });
+  const metrics = await api.handle({
+    method: "GET",
+    url: `/v1/developer/apps/${appId}/metrics`,
+    headers: { authorization: `Bearer ${developerAccessToken}` }
+  });
   const dashboard = await api.handle({ method: "GET", url: "/" });
 
   assert.equal(metrics.body.totalUsers, 1);
@@ -222,20 +227,17 @@ test("end-to-end duplicate payment webhook only grants credits once", async () =
   const api = createApi(services);
   const walletPrincipal = { walletAddress: "0xe2edup123", chainId: "eip155:1" } satisfies WalletPrincipal;
 
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "e2e-dup-app-1" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Duplicate Webhook App",
-      priceCents: 499,
-      credits: 500,
-      allowedChainId: walletPrincipal.chainId
-    }
+  const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
+  const app = await createDeveloperApp({
+    api,
+    accessToken: developer.accessToken,
+    name: "Duplicate Webhook App",
+    priceCents: 499,
+    credits: 500,
+    allowedChainId: walletPrincipal.chainId
   });
 
-  const appId = app.body.appId as string;
+  const appId = app.appId as string;
   const session = await createHostedPlayerSession({
     api,
     appId,

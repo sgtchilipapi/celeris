@@ -14,6 +14,7 @@ import type { PrivyAuthService } from "../services/privy-auth-service.js";
 import type { ManagedActionService } from "../services/managed-action-service.js";
 import type { AuthGatewayService } from "../services/auth-gateway-service.js";
 import type { PlayerSessionService } from "../services/player-session-service.js";
+import type { DeveloperSessionService } from "../services/developer-session-service.js";
 
 function json(statusCode: number, body: any) {
   return { statusCode, headers: { "content-type": "application/json" }, body };
@@ -47,6 +48,7 @@ type Services = {
   privyAuthService: PrivyAuthService;
   authGatewayService: AuthGatewayService;
   playerSessionService: PlayerSessionService;
+  developerSessionService: DeveloperSessionService;
   appService: AppService;
   paymentService: PaymentService;
   claimRewardsService: ClaimRewardsService;
@@ -218,108 +220,150 @@ export function createApi(services: Services) {
     };
   });
 
-  addRoute("POST", "/developer/sign-up", ({ headers, body }) => ({
-    statusCode: 201,
-    body: services.appService.signUpDeveloper({
+  addRoute("POST", "/v1/developer/sign-up", ({ headers, body }) => {
+    const developer = services.appService.signUpDeveloper({
       username: body.username as string,
       password: body.password as string,
       developerId: body.developerId as string | undefined,
       idempotencyKey: requireIdempotency(headers, body)
-    })
-  }));
+    });
+    const session = services.developerSessionService.createDeveloperSession({
+      developerId: developer.developerId
+    });
+    return {
+      statusCode: 201,
+      body: {
+        ...developer,
+        ...session
+      }
+    };
+  });
 
-  addRoute("POST", "/developer/sign-in", ({ body }) => ({
-    body: services.appService.signInDeveloper({
+  addRoute("POST", "/v1/developer/sign-in", ({ body }) => {
+    const developer = services.appService.signInDeveloper({
       username: body.username as string,
       password: body.password as string
-    })
-  }));
+    });
+    const session = services.developerSessionService.createDeveloperSession({
+      developerId: developer.developerId
+    });
+    return {
+      body: {
+        ...developer,
+        ...session
+      }
+    };
+  });
 
-  addRoute("POST", "/apps", ({ headers, body }) => ({
-    statusCode: 201,
-    body: services.appService.toCreateAppResponse(
-      services.appService.createApp({
-        developerId: body.developerId as string,
-        name: body.name as string,
-        priceCents: body.priceCents as number,
-        credits: body.credits as number,
-        allowedChainId: body.allowedChainId as string,
-        allowedFrontendOrigins: body.allowedFrontendOrigins as string[] | undefined,
-        allowedRedirectUris: body.allowedRedirectUris as string[] | undefined,
-        idempotencyKey: requireIdempotency(headers, body)
-      })
-    )
-  }));
+  addRoute("GET", "/v1/developer/apps", ({ headers }) => {
+    const developer = requireAuthenticatedDeveloper(services, headers);
+    return {
+      body: services.appService.listApps(developer.developerId)
+    };
+  });
 
-  addRoute("PUT", "/apps/:appId", ({ params, headers, body }) => ({
-    body: services.appService.toCreateAppResponse(
-      services.appService.updateApp({
+  addRoute("POST", "/v1/developer/apps", ({ headers, body }) => {
+    const developer = requireAuthenticatedDeveloper(services, headers);
+    return {
+      statusCode: 201,
+      body: services.appService.toCreateAppResponse(
+        services.appService.createApp({
+          developerId: developer.developerId,
+          name: body.name as string,
+          priceCents: body.priceCents as number,
+          credits: body.credits as number,
+          allowedChainId: body.allowedChainId as string,
+          allowedFrontendOrigins: body.allowedFrontendOrigins as string[] | undefined,
+          allowedRedirectUris: body.allowedRedirectUris as string[] | undefined,
+          idempotencyKey: requireIdempotency(headers, body)
+        })
+      )
+    };
+  });
+
+  addRoute("GET", "/v1/developer/apps/:appId", ({ params, headers }) => {
+    const developer = requireAuthenticatedDeveloper(services, headers);
+    services.appService.requireDeveloperOwnsApp(developer.developerId, params.appId);
+    return {
+      body: services.appService.getAppSetupDetails(params.appId)
+    };
+  });
+
+  addRoute("PUT", "/v1/developer/apps/:appId", ({ params, headers, body }) => {
+    const developer = requireAuthenticatedDeveloper(services, headers);
+    services.appService.requireDeveloperOwnsApp(developer.developerId, params.appId);
+    return {
+      body: services.appService.toCreateAppResponse(
+        services.appService.updateApp({
+          appId: params.appId,
+          name: body.name as string,
+          priceCents: body.priceCents as number,
+          credits: body.credits as number,
+          allowedChainId: body.allowedChainId as string,
+          allowedFrontendOrigins: body.allowedFrontendOrigins as string[] | undefined,
+          allowedRedirectUris: body.allowedRedirectUris as string[] | undefined,
+          idempotencyKey: requireIdempotency(headers, body)
+        })
+      )
+    };
+  });
+
+  addRoute("DELETE", "/v1/developer/apps/:appId", ({ params, headers, body }) => {
+    const developer = requireAuthenticatedDeveloper(services, headers);
+    services.appService.requireDeveloperOwnsApp(developer.developerId, params.appId);
+    return {
+      body: {
+        deleted: services.appService.deleteApp({
+          appId: params.appId,
+          idempotencyKey: requireIdempotency(headers, body)
+        })
+      }
+    };
+  });
+
+  addRoute("POST", "/v1/developer/apps/:appId/actions", ({ params, headers, body }) => {
+    const developer = requireAuthenticatedDeveloper(services, headers);
+    services.appService.requireDeveloperOwnsApp(developer.developerId, params.appId);
+    return {
+      statusCode: 201,
+      body: services.appService.configureAction({
         appId: params.appId,
-        name: body.name as string,
-        priceCents: body.priceCents as number,
-        credits: body.credits as number,
-        allowedChainId: body.allowedChainId as string,
-        allowedFrontendOrigins: body.allowedFrontendOrigins as string[] | undefined,
-        allowedRedirectUris: body.allowedRedirectUris as string[] | undefined,
+        actionType: body.actionType as string,
+        cost: body.cost as number,
+        executionMode: body.executionMode as "managed" | "server" | "webhook",
         idempotencyKey: requireIdempotency(headers, body)
       })
-    )
-  }));
+    };
+  });
 
-  addRoute("DELETE", "/apps/:appId", ({ params, headers, body }) => ({
-    body: {
-      deleted: services.appService.deleteApp({
+  addRoute("PUT", "/v1/developer/apps/:appId/actions/:actionType", ({ params, headers, body }) => {
+    const developer = requireAuthenticatedDeveloper(services, headers);
+    services.appService.requireDeveloperOwnsApp(developer.developerId, params.appId);
+    return {
+      body: services.appService.updateAction({
         appId: params.appId,
+        currentActionType: decodeURIComponent(params.actionType),
+        nextActionType: (body.actionType as string | undefined) ?? decodeURIComponent(params.actionType),
+        cost: body.cost as number,
+        executionMode: body.executionMode as "managed" | "server" | "webhook",
         idempotencyKey: requireIdempotency(headers, body)
       })
-    }
-  }));
+    };
+  });
 
-  addRoute("POST", "/demo/developer/session", ({ body }) => ({
-    body: services.appService.createDemoDeveloperSession(
-      typeof body.developerId === "string" ? body.developerId : undefined
-    )
-  }));
-
-  addRoute("GET", "/apps", ({ query }) => ({
-    body: services.appService.listApps(query.developerId)
-  }));
-
-  addRoute("POST", "/apps/:appId/actions", ({ params, headers, body }) => ({
-    statusCode: 201,
-    body: services.appService.configureAction({
-      appId: params.appId,
-      actionType: body.actionType as string,
-      cost: body.cost as number,
-      executionMode: body.executionMode as "managed" | "server" | "webhook",
-      idempotencyKey: requireIdempotency(headers, body)
-    })
-  }));
-
-  addRoute("PUT", "/apps/:appId/actions/:actionType", ({ params, headers, body }) => ({
-    body: services.appService.updateAction({
-      appId: params.appId,
-      currentActionType: decodeURIComponent(params.actionType),
-      nextActionType: (body.actionType as string | undefined) ?? decodeURIComponent(params.actionType),
-      cost: body.cost as number,
-      executionMode: body.executionMode as "managed" | "server" | "webhook",
-      idempotencyKey: requireIdempotency(headers, body)
-    })
-  }));
-
-  addRoute("DELETE", "/apps/:appId/actions/:actionType", ({ params, headers, body }) => ({
-    body: {
-      deleted: services.appService.deleteAction({
-        appId: params.appId,
-        actionType: decodeURIComponent(params.actionType),
-        idempotencyKey: requireIdempotency(headers, body)
-      })
-    }
-  }));
-
-  addRoute("GET", "/apps/:appId/setup", ({ params }) => ({
-    body: services.appService.getAppSetupDetails(params.appId)
-  }));
+  addRoute("DELETE", "/v1/developer/apps/:appId/actions/:actionType", ({ params, headers, body }) => {
+    const developer = requireAuthenticatedDeveloper(services, headers);
+    services.appService.requireDeveloperOwnsApp(developer.developerId, params.appId);
+    return {
+      body: {
+        deleted: services.appService.deleteAction({
+          appId: params.appId,
+          actionType: decodeURIComponent(params.actionType),
+          idempotencyKey: requireIdempotency(headers, body)
+        })
+      }
+    };
+  });
 
   addRoute("POST", "/v1/apps/:appId/checkout-sessions", async ({ params, headers, body }) => ({
     statusCode: 201,
@@ -370,17 +414,28 @@ export function createApi(services: Services) {
     throw new AppError(404, "action not supported");
   });
 
-  addRoute("GET", "/metrics", ({ query }) => ({
-    body: services.metricsService.getAppMetrics(query.appId) as AppMetrics
-  }));
+  addRoute("GET", "/v1/developer/apps/:appId/metrics", ({ params, headers }) => {
+    const developer = requireAuthenticatedDeveloper(services, headers);
+    services.appService.requireDeveloperOwnsApp(developer.developerId, params.appId);
+    return {
+      body: services.metricsService.getAppMetrics(params.appId) as AppMetrics
+    };
+  });
 
-  addRoute("GET", "/transactions", ({ query }) => ({
-    body: [...services.store.transactions.values()].filter((tx) => !query.appId || tx.appId === query.appId)
-  }));
+  addRoute("GET", "/v1/developer/apps/:appId/transactions", ({ params, headers }) => {
+    const developer = requireAuthenticatedDeveloper(services, headers);
+    services.appService.requireDeveloperOwnsApp(developer.developerId, params.appId);
+    return {
+      body: [...services.store.transactions.values()].filter((tx) => tx.appId === params.appId)
+    };
+  });
 
-  addRoute("GET", "/users", ({ query }) => ({
-    body: [...services.store.creditBalances.values()]
-      .filter((balance) => !query.appId || balance.appId === query.appId)
+  addRoute("GET", "/v1/developer/apps/:appId/players", ({ params, headers }) => {
+    const developer = requireAuthenticatedDeveloper(services, headers);
+    services.appService.requireDeveloperOwnsApp(developer.developerId, params.appId);
+    return {
+      body: [...services.store.creditBalances.values()]
+      .filter((balance) => balance.appId === params.appId)
       .map((balance) => ({
         walletAddress: balance.walletAddress,
         chainId: balance.chainId,
@@ -388,7 +443,8 @@ export function createApi(services: Services) {
         balance: balance.balance,
         reserved: balance.reserved
       }))
-  }));
+    };
+  });
 
   function createNodeServer() {
     return http.createServer(async (req, res) => {
@@ -468,6 +524,16 @@ function requireAuthenticatedWalletPrincipal(
   body: Record<string, unknown>
 ) {
   return requireAuthenticatedPlayer(services, headers, body).walletPrincipal;
+}
+
+function requireAuthenticatedDeveloper(services: Services, headers: http.IncomingHttpHeaders) {
+  const authorization = headers.authorization;
+  if (typeof authorization !== "string" || !authorization.startsWith("Bearer ")) {
+    throw new AppError(401, "authorization token required");
+  }
+
+  const token = authorization.slice("Bearer ".length).trim();
+  return services.developerSessionService.authenticateDeveloperSessionToken(token);
 }
 
 function rejectPlayerIdentityInput(body: Record<string, unknown>) {

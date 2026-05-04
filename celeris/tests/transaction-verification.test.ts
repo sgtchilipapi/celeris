@@ -5,6 +5,7 @@ import { createApi } from "../api/create-api.js";
 import { ManagedActionService } from "../services/managed-action-service.js";
 import type { ManagedMintItemRequest, ManagedMintItemResult, WalletPrincipal } from "../types.js";
 import { createHostedPlayerSession } from "./helpers/auth.js";
+import { createDeveloperApp, configureDeveloperAction, signUpDeveloper } from "./helpers/developer.js";
 
 class TestManagedActionService extends ManagedActionService {
   readonly buildResult: (request: ManagedMintItemRequest) => ManagedMintItemResult;
@@ -59,21 +60,18 @@ async function setupMintFlow(managedActionService: ManagedActionService) {
     walletAddress: "0xtxv123",
     chainId: "eip155:1"
   } satisfies WalletPrincipal;
+  const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
 
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "txv-app-1" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Transaction Verification App",
-      priceCents: 499,
-      credits: 500,
-      allowedChainId: walletPrincipal.chainId
-    }
+  const app = await createDeveloperApp({
+    api,
+    accessToken: developer.accessToken,
+    name: "Transaction Verification App",
+    priceCents: 499,
+    credits: 500,
+    allowedChainId: walletPrincipal.chainId
   });
 
-  const appId = app.body.appId as string;
+  const appId = app.appId as string;
   const session = await createHostedPlayerSession({
     api,
     appId,
@@ -81,11 +79,13 @@ async function setupMintFlow(managedActionService: ManagedActionService) {
   });
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
-  await api.handle({
-    method: "POST",
-    url: `/apps/${appId}/actions`,
-    headers: { "idempotency-key": "txv-action-1" },
-    body: { actionType: "mint_item", cost: 50, executionMode: "managed" }
+  await configureDeveloperAction({
+    api,
+    accessToken: developer.accessToken,
+    appId,
+    actionType: "mint_item",
+    cost: 50,
+    executionMode: "managed"
   });
 
   const checkout = await api.handle({

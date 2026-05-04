@@ -302,6 +302,11 @@ export interface DeveloperSessionResponse {
   email: string;
 }
 
+export interface DeveloperAuthResponse extends DeveloperSessionResponse {
+  accessToken: string;
+  expiresAt: string;
+}
+
 export interface DeveloperCredentialsRequest {
   username: string;
   password: string;

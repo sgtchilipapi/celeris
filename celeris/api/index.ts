@@ -14,6 +14,7 @@ import { MockStripeGateway } from "../services/mock-stripe-gateway.js";
 import { PaymentService } from "../services/payment-service.js";
 import { PendingActionService } from "../services/pending-action-service.js";
 import { PlayerSessionService } from "../services/player-session-service.js";
+import { DeveloperSessionService } from "../services/developer-session-service.js";
 import { RelayerService } from "../services/relayer-service.js";
 import { MockRelayerNetwork } from "../services/mock-relayer-network.js";
 import { StripeTestCheckoutGateway } from "../services/stripe-test-checkout-gateway.js";
@@ -64,12 +65,14 @@ export function buildServices({
     });
   const privyAuthService = new PrivyAuthService({ store, verifier: resolvedPrivyVerifier });
   const playerSessionService = new PlayerSessionService({ store, config: hostedAuthConfig });
+  const developerSessionService = new DeveloperSessionService({ store, config: hostedAuthConfig });
   const services = {
     store,
     platformPrivyConfig,
     hostedAuthConfig,
     privyAuthService,
     playerSessionService,
+    developerSessionService,
     authGatewayService: new AuthGatewayService({
       store,
       privyAuthService,

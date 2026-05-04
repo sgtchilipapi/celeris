@@ -1,16 +1,9 @@
 # SDK-First Integration Pivot
 
-This document captures the planned pivot from the current MVP integration model to an SDK-first product model.
+This document captures the pivot that moved Celeris from the original MVP integration model to an SDK-first product model.
 
-It is not the current implementation.
-
-The current MVP still uses:
-
-- direct browser calls to Celeris for player-facing flows
-- a mock developer backend webhook for demo action approval
-- local Celeris-issued demo auth tokens
-
-The target described here changes that direction.
+It is now primarily historical context rather than the source of truth for the current runtime.
+The current implementation already uses the hosted auth gateway, player and developer `v1` APIs, SDK entrypoints, managed demo actions, and wallet-native delivery records described here.
 
 ## Decision Summary
 

@@ -10,6 +10,19 @@ import {
   resolvePlatformPrivyConfig
 } from "../services/privy-auth-service.js";
 import { createHostedPlayerSession } from "./helpers/auth.js";
+import { createDeveloperApp, signUpDeveloper } from "./helpers/developer.js";
+
+async function createPlayerTestApp(api: ReturnType<typeof createApi>, services: ReturnType<typeof buildServices>, name: string) {
+  const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
+  return createDeveloperApp({
+    api,
+    accessToken: developer.accessToken,
+    name,
+    priceCents: 499,
+    credits: 500,
+    allowedChainId: "eip155:1"
+  });
+}
 
 test("PrivyAuthService accepts a valid token and resolves a verified wallet principal", async () => {
   const services = buildServices();
@@ -93,22 +106,11 @@ test("hosted Privy wallet resolution falls back by chain family for embedded wal
 test("GET /v1/me returns wallet identity from the authenticated Celeris player session", async () => {
   const services = buildServices();
   const api = createApi(services);
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "player-session-app-1" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Player Session App",
-      priceCents: 499,
-      credits: 500,
-      allowedChainId: "eip155:1"
-    }
-  });
+  const app = await createPlayerTestApp(api, services, "Player Session App");
 
   const session = await createHostedPlayerSession({
     api,
-    appId: app.body.appId as string,
+    appId: app.appId as string,
     walletAddress: "0xFf00Aa11"
   });
   const response = await api.handle({
@@ -147,32 +149,21 @@ test("GET /v1/me returns 401 for missing or invalid bearer tokens", async () => 
 test("GET /v1/apps/:appId/me/credits returns a zero balance for a valid wallet with no prior activity", async () => {
   const services = buildServices();
   const api = createApi(services);
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "privy-app-1" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Privy Credits App",
-      priceCents: 499,
-      credits: 500,
-      allowedChainId: "eip155:1"
-    }
-  });
+  const app = await createPlayerTestApp(api, services, "Privy Credits App");
   const session = await createHostedPlayerSession({
     api,
-    appId: app.body.appId as string,
+    appId: app.appId as string,
     walletAddress: "0xabc123"
   });
 
   const response = await api.handle({
     method: "GET",
-    url: `/v1/apps/${app.body.appId as string}/me/credits`,
+    url: `/v1/apps/${app.appId as string}/me/credits`,
     headers: { authorization: `Bearer ${session.accessToken}` }
   });
 
   assert.equal(response.statusCode, 200);
-  assert.equal(response.body.appId, app.body.appId);
+  assert.equal(response.body.appId, app.appId);
   assert.equal(response.body.walletAddress, "0xabc123");
   assert.equal(response.body.chainId, "eip155:1");
   assert.equal(response.body.balance, 0);
@@ -182,27 +173,16 @@ test("GET /v1/apps/:appId/me/credits returns a zero balance for a valid wallet w
 test("player identity spoofing through request input is rejected and legacy player auth routes are removed", async () => {
   const services = buildServices();
   const api = createApi(services);
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "privy-app-2" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Spoofing App",
-      priceCents: 499,
-      credits: 500,
-      allowedChainId: "eip155:1"
-    }
-  });
+  const app = await createPlayerTestApp(api, services, "Spoofing App");
   const session = await createHostedPlayerSession({
     api,
-    appId: app.body.appId as string,
+    appId: app.appId as string,
     walletAddress: "0xabc123"
   });
 
   const spoofed = await api.handle({
     method: "GET",
-    url: `/v1/apps/${app.body.appId as string}/me/credits`,
+    url: `/v1/apps/${app.appId as string}/me/credits`,
     headers: { authorization: `Bearer ${session.accessToken}` },
     body: {
       walletAddress: "0xdef456",
@@ -252,19 +232,8 @@ test("shared wallet identity is reused across apps while project membership rema
     ["shared-app-1", "Shared App One"],
     ["shared-app-2", "Shared App Two"]
   ] as const) {
-    const response = await api.handle({
-      method: "POST",
-      url: "/apps",
-      headers: { "idempotency-key": key },
-      body: {
-        developerId: services.defaultDeveloper.developerId,
-        name,
-        priceCents: 499,
-        credits: 500,
-        allowedChainId: "eip155:1"
-      }
-    });
-    appIds.push(response.body.appId as string);
+    const response = await createPlayerTestApp(api, services, name);
+    appIds.push(response.appId as string);
   }
 
   for (const appId of appIds) {
@@ -293,28 +262,17 @@ test("shared Celeris identity stays stable when the same Privy subject reprovisi
   const api = createApi(services);
   const subject = "did:privy:reprovisioned-user";
 
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "privy-app-reprovision-1" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Reprovision App",
-      priceCents: 499,
-      credits: 500,
-      allowedChainId: "eip155:1"
-    }
-  });
+  const app = await createPlayerTestApp(api, services, "Reprovision App");
 
   const firstSession = await createHostedPlayerSession({
     api,
-    appId: app.body.appId as string,
+    appId: app.appId as string,
     walletAddress: "0xaaa111",
     subject
   });
   const secondSession = await createHostedPlayerSession({
     api,
-    appId: app.body.appId as string,
+    appId: app.appId as string,
     walletAddress: "0xbbb222",
     subject
   });

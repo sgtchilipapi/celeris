@@ -4,6 +4,7 @@ import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
 import type { RelayerNetworkClient, TransactionStatus, WalletPrincipal } from "../types.js";
 import { createHostedPlayerSession } from "./helpers/auth.js";
+import { createDeveloperApp, configureDeveloperAction, signUpDeveloper } from "./helpers/developer.js";
 
 function buildCompletedCheckoutEvent({
   eventId,
@@ -45,21 +46,18 @@ async function setupRelayerFlow(relayerNetworkClient: RelayerNetworkClient) {
     walletAddress: "0xrelayer123",
     chainId: "eip155:1"
   } satisfies WalletPrincipal;
+  const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
 
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "relayer-app-1" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Relayer App",
-      priceCents: 499,
-      credits: 500,
-      allowedChainId: walletPrincipal.chainId
-    }
+  const app = await createDeveloperApp({
+    api,
+    accessToken: developer.accessToken,
+    name: "Relayer App",
+    priceCents: 499,
+    credits: 500,
+    allowedChainId: walletPrincipal.chainId
   });
 
-  const appId = app.body.appId as string;
+  const appId = app.appId as string;
   const session = await createHostedPlayerSession({
     api,
     appId,
@@ -67,11 +65,13 @@ async function setupRelayerFlow(relayerNetworkClient: RelayerNetworkClient) {
   });
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
-  await api.handle({
-    method: "POST",
-    url: `/apps/${appId}/actions`,
-    headers: { "idempotency-key": "relayer-action-1" },
-    body: { actionType: "mint_item", cost: 50, executionMode: "managed" }
+  await configureDeveloperAction({
+    api,
+    accessToken: developer.accessToken,
+    appId,
+    actionType: "mint_item",
+    cost: 50,
+    executionMode: "managed"
   });
 
   const checkout = await api.handle({

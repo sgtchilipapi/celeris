@@ -1,11 +1,11 @@
 # Celeris
-Celeris handles how players pay for game actions and execute them on-chain so players don't need wallets.
+Celeris handles hosted player auth, wallet-keyed credits, and managed on-chain action execution for web3 games.
 
 ### Built for indie web3 game devs
 
 Built for server-authoritative games to strike the right balance between on-chain programs and off-chain execution.
 
-Aimed primarily to help indie game devs monetize their games and execute on-chain actions without dealing with wallets, payments, or transaction infrastructure.
+Aimed primarily to help indie game devs monetize their games and execute on-chain actions without building wallet, payment, or transaction infrastructure from scratch.
 
 Game devs can focus on building gameplay and content.
 
@@ -60,11 +60,11 @@ Celeris is a backend service for game developers.
 
 It provides:
 
-- user identity
-- credit based payments
+- hosted player identity
+- wallet-keyed credit payments
 - action authorization
 - transaction execution
-- asset handling
+- asset delivery tracking
 
 Developers keep full control of game logic. Celeris handles money and execution.
 
@@ -91,34 +91,30 @@ A possible long-term direction is for Celeris to evolve into a managed game back
 - shared Celeris configuration
 - repo generation and optional hosting
 
-See [docs/sdk-pivot.md](docs/sdk-pivot.md) for the planned SDK/auth pivot and demo backend removal.
+See [docs/sdk-pivot.md](docs/sdk-pivot.md) for the completed SDK/auth pivot and demo backend removal.
 See [docs/future-direction.md](docs/future-direction.md) for the full concept.
 See [docs/future-refactorings.md](docs/future-refactorings.md) for deferred architecture backlog items.
 
 ### How it works
 
 Player starts game
-→ signs in through Celeris
+→ signs in through the Celeris-hosted auth gateway
 → buys credits
 
 Player performs an action
 → Celeris checks credits and reserves cost
-→ Celeris calls developer server
-
-Developer validates action
-→ builds transaction
-→ returns transaction
+→ Celeris executes the configured managed action
 
 Celeris verifies and executes transaction
 → updates credits
-→ records asset
+→ records wallet delivery metadata
 → returns result to game
 
 ### Core concepts
-#### UserId
+#### Wallet principal
 
-Celeris generates the canonical userId.
-Developers use this as the player identifier.
+Players authenticate through the hosted Celeris auth flow.
+The resulting wallet address plus chain ID is the player reference for credits, actions, and delivery history.
 
 #### Credits
 
@@ -128,7 +124,7 @@ Actions consume credits.
 
 #### Actions
 
-Developers define actions and their cost (i.e. Item transfers, mints, etc.).
+Developers define actions, their cost, and the execution mode used by Celeris.
 
 #### PendingAction
 
@@ -136,11 +132,11 @@ Represents a reserved and authorized action before execution.
 
 #### Execution
 
-Celeris verifies developer transactions and submits them on-chain.
+Celeris verifies and submits managed transactions on-chain.
 
-#### Assets
+#### Asset delivery
 
-Assets are minted and held in custody, mapped to userId.
+Assets are delivered directly to player wallets, while Celeris records transaction and delivery metadata.
 
 # Why Blockchain and why Celeris
 

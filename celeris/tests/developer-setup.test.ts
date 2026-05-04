@@ -2,98 +2,85 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
+import { createDeveloperApp, configureDeveloperAction, signUpDeveloper } from "./helpers/developer.js";
 
-test("POST /apps returns minimal setup data and stores player policy", async () => {
+test("POST /v1/developer/apps returns minimal setup data and stores player policy", async () => {
   const services = buildServices();
   const api = createApi(services);
+  const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
 
-  const response = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "dev-setup-app-1" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Developer Setup App",
-      priceCents: 499,
-      credits: 500,
-      allowedChainId: "eip155:1"
-    }
+  const response = await createDeveloperApp({
+    api,
+    accessToken: developer.accessToken,
+    name: "Developer Setup App",
+    priceCents: 499,
+    credits: 500,
+    allowedChainId: "eip155:1"
   });
 
-  assert.equal(response.statusCode, 201);
-  assert.deepEqual(Object.keys(response.body).sort(), ["apiKey", "appId"]);
+  assert.deepEqual(Object.keys(response).sort(), ["apiKey", "appId"]);
 
-  const playerPolicy = services.store.appPlayerPolicies.get(response.body.appId as string);
+  const playerPolicy = services.store.appPlayerPolicies.get(response.appId as string);
   assert.ok(playerPolicy);
   assert.equal(playerPolicy?.authProvider, "privy");
   assert.equal(playerPolicy?.allowedChainId, "eip155:1");
 });
 
-test("POST /apps/:appId/actions stores action cost and execution mode", async () => {
+test("POST /v1/developer/apps/:appId/actions stores action cost and execution mode", async () => {
   const services = buildServices();
   const api = createApi(services);
+  const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
 
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "dev-setup-app-2" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Action Setup App",
-      priceCents: 499,
-      credits: 500,
-      allowedChainId: "solana:103"
-    }
+  const app = await createDeveloperApp({
+    api,
+    accessToken: developer.accessToken,
+    name: "Action Setup App",
+    priceCents: 499,
+    credits: 500,
+    allowedChainId: "solana:103"
   });
 
-  const response = await api.handle({
-    method: "POST",
-    url: `/apps/${app.body.appId as string}/actions`,
-    headers: { "idempotency-key": "dev-setup-action-1" },
-    body: {
-      actionType: "mint_item",
-      cost: 50,
-      executionMode: "managed"
-    }
+  const response = await configureDeveloperAction({
+    api,
+    accessToken: developer.accessToken,
+    appId: app.appId,
+    actionType: "mint_item",
+    cost: 50,
+    executionMode: "managed"
   });
 
-  assert.equal(response.statusCode, 201);
-  assert.equal(response.body.actionType, "mint_item");
-  assert.equal(response.body.cost, 50);
-  assert.equal(response.body.executionMode, "managed");
+  assert.equal(response.actionType, "mint_item");
+  assert.equal(response.cost, 50);
+  assert.equal(response.executionMode, "managed");
 });
 
-test("GET /apps/:appId/setup exposes player policy, package, and action setup", async () => {
+test("GET /v1/developer/apps/:appId exposes player policy, package, and action setup", async () => {
   const services = buildServices();
   const api = createApi(services);
+  const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
 
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "dev-setup-app-3" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Setup Details App",
-      priceCents: 499,
-      credits: 500,
-      allowedChainId: "solana:101"
-    }
+  const app = await createDeveloperApp({
+    api,
+    accessToken: developer.accessToken,
+    name: "Setup Details App",
+    priceCents: 499,
+    credits: 500,
+    allowedChainId: "solana:101"
   });
 
-  await api.handle({
-    method: "POST",
-    url: `/apps/${app.body.appId as string}/actions`,
-    headers: { "idempotency-key": "dev-setup-action-2" },
-    body: {
-      actionType: "mint_item",
-      cost: 50,
-      executionMode: "server"
-    }
+  await configureDeveloperAction({
+    api,
+    accessToken: developer.accessToken,
+    appId: app.appId,
+    actionType: "mint_item",
+    cost: 50,
+    executionMode: "server"
   });
 
   const setup = await api.handle({
     method: "GET",
-    url: `/apps/${app.body.appId as string}/setup`
+    url: `/v1/developer/apps/${app.appId}`,
+    headers: { authorization: `Bearer ${developer.accessToken}` }
   });
 
   assert.equal(setup.statusCode, 200);
@@ -103,38 +90,36 @@ test("GET /apps/:appId/setup exposes player policy, package, and action setup", 
   assert.equal(setup.body.actions[0].executionMode, "server");
 });
 
-test("PUT and DELETE /apps/:appId/actions/:actionType update and remove configured actions", async () => {
+test("PUT and DELETE /v1/developer/apps/:appId/actions/:actionType update and remove configured actions", async () => {
   const services = buildServices();
   const api = createApi(services);
+  const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
 
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "dev-setup-app-4" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Editable Actions App",
-      priceCents: 499,
-      credits: 500,
-      allowedChainId: "eip155:11155111"
-    }
+  const app = await createDeveloperApp({
+    api,
+    accessToken: developer.accessToken,
+    name: "Editable Actions App",
+    priceCents: 499,
+    credits: 500,
+    allowedChainId: "eip155:11155111"
   });
 
-  await api.handle({
-    method: "POST",
-    url: `/apps/${app.body.appId as string}/actions`,
-    headers: { "idempotency-key": "dev-setup-action-3" },
-    body: {
-      actionType: "mint_item",
-      cost: 50,
-      executionMode: "managed"
-    }
+  await configureDeveloperAction({
+    api,
+    accessToken: developer.accessToken,
+    appId: app.appId,
+    actionType: "mint_item",
+    cost: 50,
+    executionMode: "managed"
   });
 
   const updated = await api.handle({
     method: "PUT",
-    url: `/apps/${app.body.appId as string}/actions/mint_item`,
-    headers: { "idempotency-key": "dev-setup-action-4" },
+    url: `/v1/developer/apps/${app.appId}/actions/mint_item`,
+    headers: {
+      authorization: `Bearer ${developer.accessToken}`,
+      "idempotency-key": "dev-setup-action-4"
+    },
     body: {
       actionType: "claim_rewards",
       cost: 75,
@@ -148,35 +133,38 @@ test("PUT and DELETE /apps/:appId/actions/:actionType update and remove configur
 
   const deleted = await api.handle({
     method: "DELETE",
-    url: `/apps/${app.body.appId as string}/actions/claim_rewards`,
-    headers: { "idempotency-key": "dev-setup-action-5" }
+    url: `/v1/developer/apps/${app.appId}/actions/claim_rewards`,
+    headers: {
+      authorization: `Bearer ${developer.accessToken}`,
+      "idempotency-key": "dev-setup-action-5"
+    }
   });
 
   assert.equal(deleted.statusCode, 200);
   assert.equal(deleted.body.deleted, true);
 });
 
-test("PUT and DELETE /apps/:appId update player policy and remove app setup", async () => {
+test("PUT and DELETE /v1/developer/apps/:appId update player policy and remove app setup", async () => {
   const services = buildServices();
   const api = createApi(services);
+  const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
 
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "dev-setup-app-5" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "App To Edit",
-      priceCents: 100,
-      credits: 500,
-      allowedChainId: "eip155:1"
-    }
+  const app = await createDeveloperApp({
+    api,
+    accessToken: developer.accessToken,
+    name: "App To Edit",
+    priceCents: 100,
+    credits: 500,
+    allowedChainId: "eip155:1"
   });
 
   const updated = await api.handle({
     method: "PUT",
-    url: `/apps/${app.body.appId as string}`,
-    headers: { "idempotency-key": "dev-setup-app-6" },
+    url: `/v1/developer/apps/${app.appId}`,
+    headers: {
+      authorization: `Bearer ${developer.accessToken}`,
+      "idempotency-key": "dev-setup-app-6"
+    },
     body: {
       name: "App Updated",
       priceCents: 100,
@@ -189,7 +177,8 @@ test("PUT and DELETE /apps/:appId update player policy and remove app setup", as
 
   const setup = await api.handle({
     method: "GET",
-    url: `/apps/${app.body.appId as string}/setup`
+    url: `/v1/developer/apps/${app.appId}`,
+    headers: { authorization: `Bearer ${developer.accessToken}` }
   });
 
   assert.equal(setup.body.playerPolicy.allowedChainId, "solana:103");
@@ -197,12 +186,15 @@ test("PUT and DELETE /apps/:appId update player policy and remove app setup", as
 
   const deleted = await api.handle({
     method: "DELETE",
-    url: `/apps/${app.body.appId as string}`,
-    headers: { "idempotency-key": "dev-setup-app-7" }
+    url: `/v1/developer/apps/${app.appId}`,
+    headers: {
+      authorization: `Bearer ${developer.accessToken}`,
+      "idempotency-key": "dev-setup-app-7"
+    }
   });
 
   assert.equal(deleted.statusCode, 200);
   assert.equal(deleted.body.deleted, true);
-  assert.equal(services.store.apps.has(app.body.appId as string), false);
-  assert.equal(services.store.appPlayerPolicies.has(app.body.appId as string), false);
+  assert.equal(services.store.apps.has(app.appId as string), false);
+  assert.equal(services.store.appPlayerPolicies.has(app.appId as string), false);
 });

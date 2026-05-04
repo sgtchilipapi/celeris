@@ -4,6 +4,7 @@ import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
 import { createBrowserClient } from "../sdk/browser-client.js";
 import { createHostedPlayerSession } from "./helpers/auth.js";
+import { createDeveloperApp, configureDeveloperAction, signUpDeveloper } from "./helpers/developer.js";
 
 function buildCompletedCheckoutEvent({
   eventId,
@@ -109,26 +110,23 @@ test("browser SDK composes player routes with bearer auth and rejects missing to
   await assert.rejects(() => missingTokenClient.me.get(), /player session is required/);
 });
 
-test("player catalog and asset history routes support the standalone SDK flow", async () => {
+test("player catalog and asset history routes support the standalone browser SDK flow", async () => {
   const services = buildServices();
   const api = createApi(services);
   const walletAddress = "0xdemo123";
   const chainId = "eip155:1";
+  const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
 
-  const app = await api.handle({
-    method: "POST",
-    url: "/apps",
-    headers: { "idempotency-key": "demo-sdk-app-1" },
-    body: {
-      developerId: services.defaultDeveloper.developerId,
-      name: "Demo UI App",
-      priceCents: 499,
-      credits: 500,
-      allowedChainId: chainId
-    }
+  const app = await createDeveloperApp({
+    api,
+    accessToken: developer.accessToken,
+    name: "Browser SDK App",
+    priceCents: 499,
+    credits: 500,
+    allowedChainId: chainId
   });
 
-  const appId = app.body.appId as string;
+  const appId = app.appId as string;
   const session = await createHostedPlayerSession({
     api,
     appId,
@@ -136,22 +134,24 @@ test("player catalog and asset history routes support the standalone SDK flow", 
   });
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
-  await api.handle({
-    method: "POST",
-    url: `/apps/${appId}/actions`,
-    headers: { "idempotency-key": "demo-sdk-action-1" },
-    body: { actionType: "mint_item", cost: 50, executionMode: "managed" }
+  await configureDeveloperAction({
+    api,
+    accessToken: developer.accessToken,
+    appId,
+    actionType: "mint_item",
+    cost: 50,
+    executionMode: "managed"
   });
 
   const checkout = await api.handle({
     method: "POST",
     url: `/v1/apps/${appId}/checkout-sessions`,
-    headers: { "idempotency-key": "demo-sdk-checkout-1", authorization: `Bearer ${session.accessToken}` },
+    headers: { "idempotency-key": "browser-sdk-checkout-1", authorization: `Bearer ${session.accessToken}` },
     body: { packageId }
   });
 
   const paymentEvent = buildCompletedCheckoutEvent({
-    eventId: "evt_demo_sdk_1",
+    eventId: "evt_browser_sdk_1",
     checkoutSessionId: checkout.body.checkoutSessionId as string,
     appId,
     walletAddress,
@@ -164,7 +164,7 @@ test("player catalog and asset history routes support the standalone SDK flow", 
     method: "POST",
     url: "/v1/webhooks/stripe",
     headers: {
-      "idempotency-key": "demo-sdk-webhook-1",
+      "idempotency-key": "browser-sdk-webhook-1",
       "stripe-signature": services.stripeGateway.signWebhookPayload(paymentEvent)
     },
     body: paymentEvent
@@ -173,7 +173,7 @@ test("player catalog and asset history routes support the standalone SDK flow", 
   await api.handle({
     method: "POST",
     url: `/v1/apps/${appId}/actions/mint_item/execute`,
-    headers: { "idempotency-key": "demo-sdk-mint-1", authorization: `Bearer ${session.accessToken}` },
+    headers: { "idempotency-key": "browser-sdk-mint-1", authorization: `Bearer ${session.accessToken}` },
     body: { payload: { itemDefId: "iron_sword" } }
   });
 
@@ -189,7 +189,7 @@ test("player catalog and asset history routes support the standalone SDK flow", 
   });
 
   assert.equal(catalog.statusCode, 200);
-  assert.equal(catalog.body.name, "Demo UI App");
+  assert.equal(catalog.body.name, "Browser SDK App");
   assert.equal(catalog.body.playerPolicy.allowedChainId, chainId);
   assert.equal(catalog.body.creditPackages[0].packageId, packageId);
   assert.equal(catalog.body.actions[0].actionType, "mint_item");
