@@ -234,6 +234,11 @@ async function completeHostedLogin(_user: any) {
     throw new Error("Privy access token is missing after login");
   }
 
+  const callbackState = new URL(window.location.href).searchParams.get("state");
+  if (!callbackState) {
+    throw new Error("Hosted login is missing callback state");
+  }
+
   const tokenUrl = new URL("/v1/auth/token", hostedAuthConfig.authApiBaseUrl).toString();
   const response = await fetch(tokenUrl, {
     method: "POST",
@@ -249,22 +254,11 @@ async function completeHostedLogin(_user: any) {
   if (!response.ok) {
     throw new Error(payload?.error || "Hosted login failed");
   }
-  if (!window.opener) {
-    throw new Error("login opener not available");
-  }
 
-  window.opener.postMessage(
-    {
-      type: "celeris-auth-complete",
-      code: payload.code,
-      projectId: payload.projectId,
-      redirectUri: payload.redirectUri,
-      player: payload.player
-    },
-    payload.origin
-  );
-
-  window.close();
+  const redirectUrl = new URL(payload.redirectUri);
+  redirectUrl.searchParams.set("code", payload.code);
+  redirectUrl.searchParams.set("state", callbackState);
+  window.location.assign(redirectUrl.toString());
 }
 
 function setFeedback(message: string) {

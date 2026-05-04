@@ -150,8 +150,10 @@ Exact file names may expand during implementation, but the responsibilities abov
 | [WO-05.6](./WORK_ORDERS/WO-05.6-celeris-hosted-auth-gateway.md) | Celeris-hosted auth gateway | hosted login on `auth.celeris.pro`, project origin validation, Celeris-issued player sessions | WO-05, WO-05.5 |
 | [WO-05.7](./WORK_ORDERS/WO-05.7-real-privy-hosted-auth-integration.md) | Real Privy hosted auth integration | real Privy login on `auth.celeris.pro`, removal of hosted auth mock path | WO-05.5, WO-05.6 |
 | [WO-05.8](./WORK_ORDERS/WO-05.8-hosted-celeris-user-sign-up-and-sign-in.md) | Hosted Celeris user sign-up and sign-in | Celeris-wrapped Privy SSO, stable shared player identity, hardened auth-code session flow | WO-05.5, WO-05.6, WO-05.7 |
-| [WO-06](./WORK_ORDERS/WO-06-developer-api-and-server-sdk.md) | Developer API hardening and server SDK | protected developer API and backend SDK | WO-01, WO-03, WO-04, WO-05.5, WO-05.6, WO-05.7, WO-05.8 |
-| [WO-07](./WORK_ORDERS/WO-07-legacy-removal-and-regression.md) | Legacy removal and regression rewrite | deletion of incompatible files/routes/tests and final green suite | WO-01, WO-02, WO-03, WO-04, WO-05, WO-05.5, WO-05.6, WO-05.7, WO-05.8, WO-06 |
+| [WO-05.9](./WORK_ORDERS/wo-05.9-sdk-owned-browser-callback.md) | SDK-owned browser callback and redirect flow | SDK-owned callback handling, redirect completion, popup/redirect convergence | WO-05.6, WO-05.7, WO-05.8 |
+| [WO-05.10](./WORK_ORDERS/WO-05.10-google-sso-and-privy-wallet-provisioning.md) | Google SSO and Privy wallet provisioning | Google-based hosted sign-up/sign-in and automatic Privy wallet creation | WO-05.7, WO-05.8, WO-05.9 |
+| [WO-06](./WORK_ORDERS/WO-06-developer-api-and-server-sdk.md) | Developer API hardening and server SDK | protected developer API and backend SDK | WO-01, WO-03, WO-04, WO-05.5, WO-05.6, WO-05.7, WO-05.8, WO-05.9, WO-05.10 |
+| [WO-07](./WORK_ORDERS/WO-07-legacy-removal-and-regression.md) | Legacy removal and regression rewrite | deletion of incompatible files/routes/tests and final green suite | WO-01, WO-02, WO-03, WO-04, WO-05, WO-05.5, WO-05.6, WO-05.7, WO-05.8, WO-05.9, WO-05.10, WO-06 |
 
 ## Dependency Map
 
@@ -181,19 +183,29 @@ WO-05.5 -> WO-05.6
 WO-05.6 -> WO-06
 WO-05.6 -> WO-05.7
 WO-05.6 -> WO-05.8
+WO-05.6 -> WO-05.9
 WO-05.7 -> WO-06
 WO-05.7 -> WO-05.8
+WO-05.7 -> WO-05.9
+WO-05.7 -> WO-05.10
 WO-05.8 -> WO-06
+WO-05.8 -> WO-05.9
+WO-05.8 -> WO-05.10
+WO-05.9 -> WO-05.10
+WO-05.9 -> WO-06
 WO-05.5 -> WO-07
 WO-05.6 -> WO-07
 WO-05.7 -> WO-07
 WO-05.8 -> WO-07
+WO-05.9 -> WO-07
+WO-05.10 -> WO-06
+WO-05.10 -> WO-07
 WO-06 -> WO-07
 ```
 
 ## Execution Strategy
 
-The plan is intentionally split into one foundation cut, two backend player slices, one action/custody cut, one player demo slice, one auth-ownership pivot, one hosted-auth contract slice, one real-Privy completion slice, one hosted-user-auth completion slice, one developer integration slice, and one final deletion/regression WO.
+The plan is intentionally split into one foundation cut, two backend player slices, one action/custody cut, one player demo slice, one auth-ownership pivot, one hosted-auth contract slice, one real-Privy completion slice, one hosted-user-auth completion slice, one browser-callback contract slice, one Google-SSO completion slice, one developer integration slice, and one final deletion/regression WO.
 
 ### Why this sequence
 
@@ -205,6 +217,8 @@ The plan is intentionally split into one foundation cut, two backend player slic
 - `WO-05.6` moves browser login behind a hosted Celeris auth gateway on `auth.celeris.pro` before the developer surface is hardened.
 - `WO-05.7` removes the remaining hosted-auth mock implementation and finishes real Privy login on the hosted auth origin before the developer surface is hardened.
 - `WO-05.8` completes the hosted user sign-up/sign-in contract so app frontends rely on Celeris-wrapped Privy SSO, stable shared player identity, and a hardened auth-code session exchange before the developer surface is hardened.
+- `WO-05.9` makes the browser SDK own callback and redirect completion so app frontends no longer carry custom hosted-auth plumbing before the provider-specific SSO contract is hardened.
+- `WO-05.10` hardens the supported browser-login product contract to true Google SSO with Privy-managed wallet creation before the developer surface is hardened.
 - `WO-06` moves the developer surface to a real protected API and server SDK only after the auth-ownership and hosted-login contracts are stable, real Privy browser auth is in place, and the hosted user flow is hardened.
 - `WO-07` performs final deletion and suite rewrite only after the replacements are already working.
 
@@ -212,12 +226,13 @@ The plan is intentionally split into one foundation cut, two backend player slic
 
 The transition is complete only when:
 
-- all eleven work orders are complete
+- all thirteen work orders are complete
 - `npm test` passes
 - `npm run typecheck` passes
 - the player demo uses the Celeris-hosted auth gateway and the browser SDK
 - browser login on the hosted auth gateway is backed by real Privy authentication, not a mock hosted-login path
 - browser login on the hosted auth gateway uses Celeris-wrapped Privy sign-up/sign-in and returns a Celeris player session by auth-code exchange rather than exposing a raw Privy player token to app frontends
+- the supported hosted browser-login path provides true Google SSO and causes Privy to create or recover the embedded wallet before the Celeris session is issued
 - the demo no longer starts or references a mock developer backend
 - no runtime code path requires developer-supplied `privyAppId`
 - no runtime code path references player username/password auth
@@ -238,5 +253,7 @@ The transition is complete only when:
 - [WO-05.6-celeris-hosted-auth-gateway.md](./WORK_ORDERS/WO-05.6-celeris-hosted-auth-gateway.md)
 - [WO-05.7-real-privy-hosted-auth-integration.md](./WORK_ORDERS/WO-05.7-real-privy-hosted-auth-integration.md)
 - [WO-05.8-hosted-celeris-user-sign-up-and-sign-in.md](./WORK_ORDERS/WO-05.8-hosted-celeris-user-sign-up-and-sign-in.md)
+- [wo-05.9-sdk-owned-browser-callback.md](./WORK_ORDERS/wo-05.9-sdk-owned-browser-callback.md)
+- [WO-05.10-google-sso-and-privy-wallet-provisioning.md](./WORK_ORDERS/WO-05.10-google-sso-and-privy-wallet-provisioning.md)
 - [WO-06-developer-api-and-server-sdk.md](./WORK_ORDERS/WO-06-developer-api-and-server-sdk.md)
 - [WO-07-legacy-removal-and-regression.md](./WORK_ORDERS/WO-07-legacy-removal-and-regression.md)

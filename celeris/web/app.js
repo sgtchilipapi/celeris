@@ -31,6 +31,12 @@ const overviewAppNameEl = document.getElementById("overview-app-name");
 const overviewAppMetaEl = document.getElementById("overview-app-meta");
 const identityListEl = document.getElementById("identity-list");
 const setupListEl = document.getElementById("setup-list");
+const frontendOriginTagsEl = document.getElementById("frontend-origin-tags");
+const frontendOriginFormEl = document.getElementById("frontend-origin-form");
+const frontendOriginInputEl = document.getElementById("frontend-origin-input");
+const redirectUriTagsEl = document.getElementById("redirect-uri-tags");
+const redirectUriFormEl = document.getElementById("redirect-uri-form");
+const redirectUriInputEl = document.getElementById("redirect-uri-input");
 const programsListEl = document.getElementById("programs-list");
 const overviewFeedbackEl = document.getElementById("overview-feedback");
 const overviewBackBtn = document.getElementById("overview-back-btn");
@@ -495,14 +501,67 @@ async function loadApps() {
 function renderSetupSummary(setup) {
   const firstPackage = setup.creditPackages[0] ?? null;
   renderDetailList(setupListEl, [
-    { label: "Auth provider", value: escapeHtml(setup.playerPolicy.authProvider) },
-    { label: "Allowed chain", value: escapeHtml(setup.playerPolicy.allowedChainId) },
     {
       label: "Default package",
       value: firstPackage ? `${formatCurrency(firstPackage.priceCents)} for ${firstPackage.credits} credits` : "Not set"
     }
   ]);
   bindCopyButtons(setupListEl);
+}
+
+function renderClosableTags({
+  element,
+  values,
+  emptyTitle,
+  emptyCopy,
+  dataAttribute,
+  removeHandler
+}) {
+  if (values.length === 0) {
+    element.innerHTML = `<div class="list-row"><strong>${escapeHtml(emptyTitle)}</strong><small>${escapeHtml(emptyCopy)}</small></div>`;
+    return;
+  }
+
+  element.innerHTML = values
+    .map(
+      (value) => `
+        <span class="tag">
+          <code>${escapeHtml(value)}</code>
+          <button class="tag-close" type="button" ${dataAttribute}="${encodeURIComponent(value)}" aria-label="Remove ${escapeHtml(value)}">×</button>
+        </span>
+      `
+    )
+    .join("");
+
+  for (const button of element.querySelectorAll(`[${dataAttribute}]`)) {
+    button.addEventListener("click", () => {
+      removeHandler(decodeURIComponent(button.getAttribute(dataAttribute) ?? "")).catch((error) => {
+        showFeedback(overviewFeedbackEl, error.message);
+      });
+    });
+  }
+}
+
+function renderAllowedFrontendOrigins() {
+  renderClosableTags({
+    element: frontendOriginTagsEl,
+    values: state.selectedSetup?.playerPolicy?.allowedFrontendOrigins ?? [],
+    emptyTitle: "No allowed frontend origins",
+    emptyCopy: "Add one to enable hosted login from a frontend.",
+    dataAttribute: "data-remove-origin",
+    removeHandler: removeAllowedFrontendOrigin
+  });
+}
+
+function renderAllowedRedirectUris() {
+  renderClosableTags({
+    element: redirectUriTagsEl,
+    values: state.selectedSetup?.playerPolicy?.allowedRedirectUris ?? [],
+    emptyTitle: "No redirect URIs",
+    emptyCopy: "Add one callback URL for hosted auth completion.",
+    dataAttribute: "data-remove-redirect-uri",
+    removeHandler: removeAllowedRedirectUri
+  });
 }
 
 function renderPrograms() {
@@ -569,7 +628,132 @@ function refreshOverview() {
   ]);
   bindCopyButtons(identityListEl);
   renderSetupSummary(state.selectedSetup);
+  renderAllowedFrontendOrigins();
+  renderAllowedRedirectUris();
   renderPrograms();
+}
+
+function normalizeOriginInput(origin) {
+  try {
+    return new URL(origin).origin;
+  } catch {
+    throw new Error("Enter a valid frontend origin.");
+  }
+}
+
+function normalizeRedirectUriInput(redirectUri) {
+  try {
+    return new URL(redirectUri).toString();
+  } catch {
+    throw new Error("Enter a valid redirect URI.");
+  }
+}
+
+async function updateSelectedAppPlayerPolicy({ allowedFrontendOrigins, allowedRedirectUris }) {
+  if (!state.selectedApp || !state.selectedSetup) {
+    throw new Error("Choose an app first.");
+  }
+
+  const creditPackage = state.selectedSetup.creditPackages[0];
+  if (!creditPackage) {
+    throw new Error("Default credit package is missing.");
+  }
+
+  const updated = await fetchJson(`/apps/${encodeURIComponent(state.selectedApp.appId)}`, {
+    method: "PUT",
+    headers: {
+      "content-type": "application/json",
+      "idempotency-key": `dashboard-app-policy-${createUuid()}`
+    },
+    body: JSON.stringify({
+      name: state.selectedApp.name,
+      priceCents: creditPackage.priceCents,
+      credits: creditPackage.credits,
+      allowedChainId: state.selectedSetup.playerPolicy.allowedChainId,
+      allowedFrontendOrigins: allowedFrontendOrigins ?? state.selectedSetup.playerPolicy.allowedFrontendOrigins,
+      allowedRedirectUris: allowedRedirectUris ?? state.selectedSetup.playerPolicy.allowedRedirectUris
+    })
+  });
+
+  const setup = await fetchJson(`/apps/${encodeURIComponent(updated.appId)}/setup`);
+  state.selectedSetup = setup;
+  const refreshedApp = state.apps.find((entry) => entry.appId === updated.appId);
+  if (refreshedApp) {
+    state.selectedApp = refreshedApp;
+  }
+  refreshOverview();
+}
+
+async function addAllowedFrontendOrigin() {
+  const rawOrigin = frontendOriginInputEl.value.trim();
+  if (!rawOrigin) {
+    throw new Error("Frontend origin is required.");
+  }
+
+  const nextOrigin = normalizeOriginInput(rawOrigin);
+  const currentOrigins = state.selectedSetup?.playerPolicy?.allowedFrontendOrigins ?? [];
+  if (currentOrigins.includes(nextOrigin)) {
+    frontendOriginInputEl.value = "";
+    return;
+  }
+
+  await updateSelectedAppPlayerPolicy({
+    allowedFrontendOrigins: [...currentOrigins, nextOrigin]
+  });
+  frontendOriginInputEl.value = "";
+  showFeedback(overviewFeedbackEl, "");
+}
+
+async function removeAllowedFrontendOrigin(origin) {
+  const currentOrigins = state.selectedSetup?.playerPolicy?.allowedFrontendOrigins ?? [];
+  if (!currentOrigins.includes(origin)) {
+    return;
+  }
+
+  if (currentOrigins.length === 1) {
+    throw new Error("At least one allowed frontend origin is required.");
+  }
+
+  await updateSelectedAppPlayerPolicy({
+    allowedFrontendOrigins: currentOrigins.filter((entry) => entry !== origin)
+  });
+  showFeedback(overviewFeedbackEl, "");
+}
+
+async function addAllowedRedirectUri() {
+  const rawRedirectUri = redirectUriInputEl.value.trim();
+  if (!rawRedirectUri) {
+    throw new Error("Redirect URI is required.");
+  }
+
+  const nextRedirectUri = normalizeRedirectUriInput(rawRedirectUri);
+  const currentRedirectUris = state.selectedSetup?.playerPolicy?.allowedRedirectUris ?? [];
+  if (currentRedirectUris.includes(nextRedirectUri)) {
+    redirectUriInputEl.value = "";
+    return;
+  }
+
+  await updateSelectedAppPlayerPolicy({
+    allowedRedirectUris: [...currentRedirectUris, nextRedirectUri]
+  });
+  redirectUriInputEl.value = "";
+  showFeedback(overviewFeedbackEl, "");
+}
+
+async function removeAllowedRedirectUri(redirectUri) {
+  const currentRedirectUris = state.selectedSetup?.playerPolicy?.allowedRedirectUris ?? [];
+  if (!currentRedirectUris.includes(redirectUri)) {
+    return;
+  }
+
+  if (currentRedirectUris.length === 1) {
+    throw new Error("At least one redirect URI is required.");
+  }
+
+  await updateSelectedAppPlayerPolicy({
+    allowedRedirectUris: currentRedirectUris.filter((entry) => entry !== redirectUri)
+  });
+  showFeedback(overviewFeedbackEl, "");
 }
 
 async function openAppOverview(appId) {
@@ -1118,6 +1302,22 @@ createAppFormEl.addEventListener("submit", (event) => {
   showFeedback(createAppFeedbackEl, "");
   createApp().catch((error) => {
     showFeedback(createAppFeedbackEl, error.message);
+  });
+});
+
+frontendOriginFormEl.addEventListener("submit", (event) => {
+  event.preventDefault();
+  showFeedback(overviewFeedbackEl, "");
+  addAllowedFrontendOrigin().catch((error) => {
+    showFeedback(overviewFeedbackEl, error.message);
+  });
+});
+
+redirectUriFormEl.addEventListener("submit", (event) => {
+  event.preventDefault();
+  showFeedback(overviewFeedbackEl, "");
+  addAllowedRedirectUri().catch((error) => {
+    showFeedback(overviewFeedbackEl, error.message);
   });
 });
 

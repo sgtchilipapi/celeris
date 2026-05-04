@@ -502,7 +502,10 @@ async function serveFile(filePath: string, contentType: string) {
     const body = await fs.readFile(filePath);
     return {
       statusCode: 200,
-      headers: { "content-type": contentType },
+      headers: {
+        "content-type": contentType,
+        "cache-control": "no-store"
+      },
       body
     };
   } catch {
@@ -592,7 +595,10 @@ async function serveHostedAuthClientBundle() {
   const body = await getHostedAuthClientBundle();
   return {
     statusCode: 200,
-    headers: { "content-type": "text/javascript; charset=utf-8" },
+    headers: {
+      "content-type": "text/javascript; charset=utf-8",
+      "cache-control": "no-store"
+    },
     body
   };
 }

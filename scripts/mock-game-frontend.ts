@@ -141,7 +141,8 @@ async function proxyApiRequest(
 }
 
 async function serveAsset(res: http.ServerResponse, requestPath: string, headOnly: boolean) {
-  const normalized = path.normalize(requestPath).replace(/^(\.\.[/\\])+/, "");
+  const resolvedRequestPath = requestPath === "/auth/callback" ? "/index.html" : requestPath;
+  const normalized = path.normalize(resolvedRequestPath).replace(/^(\.\.[/\\])+/, "");
   const absolutePath = path.resolve(frontendRoot, `.${normalized}`);
   if (!absolutePath.startsWith(frontendRoot)) {
     res.writeHead(403, { "content-type": "application/json" });

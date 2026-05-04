@@ -1230,6 +1230,22 @@ async function handleCheckoutReturn() {
   window.history.replaceState({}, "", window.location.pathname);
 }
 
+async function handleAuthCallback() {
+  if (!state.sdk) {
+    return false;
+  }
+
+  const session = await state.sdk.auth.handleCallback();
+  if (!session) {
+    return false;
+  }
+
+  state.token = session.accessToken;
+  state.walletAddress = session.player.walletAddress;
+  state.chainId = session.player.chainId;
+  return true;
+}
+
 async function mintFeaturedItem() {
   if (!state.sdk || !state.mintItemActionId || !state.itemDefId) {
     throw new Error("Mint item action is not configured for this app.");
@@ -1376,6 +1392,18 @@ async function boot() {
   setGameView("home");
   restorePendingCheckout();
   await loadConfig();
+  try {
+    const handledCallback = await handleAuthCallback();
+    if (handledCallback) {
+      await hydrateAuthenticatedState();
+      await handleCheckoutReturn();
+      return;
+    }
+  } catch (error) {
+    signOut();
+    showFeedback(loginFeedbackEl, error.message);
+    return;
+  }
   const hasSession = restoreSession();
   if (hasSession) {
     try {

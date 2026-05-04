@@ -34,6 +34,60 @@ function createFetchBridge(api: ReturnType<typeof createApi>): typeof fetch {
   };
 }
 
+function createMemoryStorage() {
+  const values = new Map<string, string>();
+  return {
+    getItem(key: string) {
+      return values.get(key) ?? null;
+    },
+    setItem(key: string, value: string) {
+      values.set(key, value);
+    },
+    removeItem(key: string) {
+      values.delete(key);
+    }
+  };
+}
+
+function createWindowStub({
+  href,
+  storage,
+  opener = null,
+  onAssign,
+  onReplaceState,
+  onClose
+}: {
+  href: string;
+  storage: ReturnType<typeof createMemoryStorage>;
+  opener?: { postMessage?: (message: any, targetOrigin: string) => void } | null;
+  onAssign?: (url: string) => void;
+  onReplaceState?: (url?: string | URL | null) => void;
+  onClose?: () => void;
+}) {
+  const locationUrl = new URL(href);
+  return {
+    location: {
+      href: locationUrl.toString(),
+      origin: locationUrl.origin,
+      pathname: locationUrl.pathname,
+      search: locationUrl.search,
+      assign(url: string) {
+        onAssign?.(url);
+      }
+    },
+    localStorage: storage,
+    opener,
+    history: {
+      replaceState(_data: unknown, _unused: string, url?: string | URL | null) {
+        onReplaceState?.(url);
+      }
+    },
+    close() {
+      onClose?.();
+    }
+  };
+}
+
 test("login-request creation enforces project existence, exact origin matching, and exact redirect URI matching", async () => {
   const services = buildServices();
   const api = createApi(services);
@@ -159,7 +213,7 @@ test("hosted login completion rejects expired or consumed login requests", async
   assert.equal(consumed.body.error, "login request already consumed");
 });
 
-test("browser SDK login exchanges a hosted auth code for a player session and enforces popup origin", async () => {
+test("browser SDK popup login completes through the app callback origin and persists the player session", async () => {
   const services = buildServices();
   const api = createApi(services);
   const app = await api.handle({
@@ -177,6 +231,8 @@ test("browser SDK login exchanges a hosted auth code for a player session and en
     }
   });
   const fetchImpl = createFetchBridge(api);
+  const storage = createMemoryStorage();
+  let popupClosed = false;
 
   const client = createBrowserClient({
     apiBaseUrl: "/api",
@@ -185,6 +241,11 @@ test("browser SDK login exchanges a hosted auth code for a player session and en
     auth: {
       frontendOrigin: "http://localhost:3002",
       redirectUri: "http://localhost:3002/auth/callback",
+      storage,
+      window: createWindowStub({
+        href: "http://localhost:3002/",
+        storage
+      }),
       openPopup: () => ({ close() {} }),
       waitForMessage: async (expectedOrigin) => {
         const created = [...services.store.loginRequests.values()].slice(-1)[0]!;
@@ -202,23 +263,49 @@ test("browser SDK login exchanges a hosted auth code for a player session and en
             })
           }
         });
+        const pendingLogin = JSON.parse(storage.getItem(`celeris-player-session:${app.body.appId}:pending-login`) ?? "{}");
+        let callbackMessageData: any = null;
+        const callbackClient = createBrowserClient({
+          apiBaseUrl: "/api",
+          appId: app.body.appId as string,
+          fetchImpl,
+          auth: {
+            frontendOrigin: "http://localhost:3002",
+            redirectUri: "http://localhost:3002/auth/callback",
+            storage,
+            window: createWindowStub({
+              href: `http://localhost:3002/auth/callback?code=${encodeURIComponent(completed.body.code as string)}&state=${encodeURIComponent(pendingLogin.state)}`,
+              storage,
+              opener: {
+                postMessage(message: any, targetOrigin: string) {
+                  assert.equal(targetOrigin, expectedOrigin);
+                  callbackMessageData = message;
+                }
+              },
+              onClose() {
+                popupClosed = true;
+              }
+            })
+          }
+        });
+        await callbackClient.auth.handleCallback();
+        assert.ok(callbackMessageData);
         return {
           origin: expectedOrigin,
-          data: {
-            type: "celeris-auth-complete",
-            code: completed.body.code
-          }
+          data: callbackMessageData
         };
       }
     }
   });
 
   const session = await client.auth.login();
+  assert.ok(session);
   const me = await client.me.get();
   assert.equal(session.player.walletAddress, "0xshared123");
   assert.equal(me.walletAddress, "0xshared123");
   assert.equal(services.store.celerisUsers.size, 1);
   assert.equal(services.store.projectUsers.size, 1);
+  assert.equal(popupClosed, true);
 
   const badOriginClient = createBrowserClient({
     apiBaseUrl: "/api",
@@ -227,15 +314,127 @@ test("browser SDK login exchanges a hosted auth code for a player session and en
     auth: {
       frontendOrigin: "http://localhost:3002",
       redirectUri: "http://localhost:3002/auth/callback",
+      storage: createMemoryStorage(),
+      window: createWindowStub({
+        href: "http://localhost:3002/",
+        storage: createMemoryStorage()
+      }),
       openPopup: () => ({ close() {} }),
       waitForMessage: async () => ({
         origin: "http://malicious.local",
-        data: { type: "celeris-auth-complete", code: "nope" }
+        data: { type: "celeris-auth-callback", state: "nope", status: "success" }
       })
     }
   });
 
-  await assert.rejects(() => badOriginClient.auth.login(), /popup completion only accepts messages from the hosted auth origin/);
+  await assert.rejects(() => badOriginClient.auth.login(), /popup completion only accepts messages from the callback origin/);
+});
+
+test("browser SDK redirect login uses the registered callback and rejects state mismatches", async () => {
+  const services = buildServices();
+  const api = createApi(services);
+  const app = await api.handle({
+    method: "POST",
+    url: "/apps",
+    headers: { "idempotency-key": "auth-gateway-app-redirect-1" },
+    body: {
+      developerId: services.defaultDeveloper.developerId,
+      name: "Gateway Redirect App",
+      priceCents: 499,
+      credits: 500,
+      allowedChainId: "eip155:1",
+      allowedFrontendOrigins: ["http://localhost:3002"],
+      allowedRedirectUris: ["http://localhost:3002/auth/callback"]
+    }
+  });
+  const fetchImpl = createFetchBridge(api);
+  const storage = createMemoryStorage();
+  let redirectedTo = "";
+  let cleanedUrl = "";
+  const runtimeWindow = createWindowStub({
+    href: "http://localhost:3002/",
+    storage,
+    onAssign(url) {
+      redirectedTo = url;
+    },
+    onReplaceState(url) {
+      cleanedUrl = String(url ?? "");
+    }
+  });
+
+  const client = createBrowserClient({
+    apiBaseUrl: "/api",
+    appId: app.body.appId as string,
+    fetchImpl,
+    auth: {
+      frontendOrigin: "http://localhost:3002",
+      redirectUri: "http://localhost:3002/auth/callback",
+      storage,
+      window: runtimeWindow
+    }
+  });
+
+  await client.auth.login({ mode: "redirect" });
+  assert.match(redirectedTo, /^https:\/\/auth\.celeris\.pro\/auth\/login\?/);
+
+  const created = [...services.store.loginRequests.values()].slice(-1)[0]!;
+  const completed = await api.handle({
+    method: "POST",
+    url: "/v1/auth/token",
+    body: {
+      grantType: "privy_access_token",
+      loginRequestId: created.loginRequestId,
+      privyAccessToken: createPrivyTestToken(
+        {
+          subject: "did:privy:callback-user",
+          walletAddress: "0xredirect123",
+          chainId: "eip155:1"
+        },
+        {
+          secret: resolveTestVerifierSecret()
+        }
+      )
+    }
+  });
+
+  const pendingLogin = JSON.parse(storage.getItem(`celeris-player-session:${app.body.appId}:pending-login`) ?? "{}");
+  const session = await client.auth.handleCallback({
+    url: `http://localhost:3002/auth/callback?code=${encodeURIComponent(completed.body.code as string)}&state=${encodeURIComponent(pendingLogin.state)}`
+  });
+
+  assert.equal(session?.player.walletAddress, "0xredirect123");
+  assert.equal(client.auth.getSession()?.player.walletAddress, "0xredirect123");
+  assert.equal(storage.getItem(`celeris-player-session:${app.body.appId}:pending-login`), null);
+  assert.equal(cleanedUrl, "/");
+
+  await client.auth.login({ mode: "redirect" });
+  const nextCreated = [...services.store.loginRequests.values()].slice(-1)[0]!;
+  const nextCompleted = await api.handle({
+    method: "POST",
+    url: "/v1/auth/token",
+    body: {
+      grantType: "privy_access_token",
+      loginRequestId: nextCreated.loginRequestId,
+      privyAccessToken: createPrivyTestToken(
+        {
+          subject: "did:privy:callback-user",
+          walletAddress: "0xredirect123",
+          chainId: "eip155:1"
+        },
+        {
+          secret: resolveTestVerifierSecret()
+        }
+      )
+    }
+  });
+
+  await assert.rejects(
+    () =>
+      client.auth.handleCallback({
+        url: `http://localhost:3002/auth/callback?code=${encodeURIComponent(nextCompleted.body.code as string)}&state=wrong-state`
+      }),
+    /hosted auth callback state mismatch/
+  );
 });
 
 test("hosted auth login page no longer exposes manual wallet entry or the legacy mock grant path", async () => {

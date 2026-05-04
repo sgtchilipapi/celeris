@@ -6,6 +6,7 @@ It is served separately from the API and proxies `/api/*` requests back to the C
 The frontend uses the browser SDK and the hosted Celeris auth gateway flow for player sign-in.
 Hosted login expects the API runtime to be configured with `CELERIS_PRIVY_APP_ID`, `PRIVY_APP_SECRET`, and `CELERIS_SESSION_SECRET`.
 The frontend never uses a raw Privy token against player routes. Hosted login returns a one-time auth code that the browser SDK exchanges for a Celeris player session.
+The frontend serves `/auth/callback` from the same app bundle so the browser SDK can own callback parsing, state validation, auth-code exchange, and popup or redirect completion without custom app auth code.
 
 Default ports:
 

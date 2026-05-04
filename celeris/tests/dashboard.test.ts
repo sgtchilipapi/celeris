@@ -17,7 +17,10 @@ test("dashboard page removes webhook and sponsor-wallet copy", async () => {
   assert.match(html, /Celeris Dashboard/);
   assert.doesNotMatch(html, /Webhook URL/);
   assert.doesNotMatch(html, /Sponsor wallet/i);
-  assert.match(html, /Allowed Chain ID/);
+  assert.doesNotMatch(html, /Auth provider/);
+  assert.match(html, /Browser auth policy/);
+  assert.match(html, /Allowed frontend origins/);
+  assert.match(html, /Redirect URIs/);
   assert.match(html, /Execution mode/);
 });
 
