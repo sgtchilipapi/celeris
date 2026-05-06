@@ -17,6 +17,9 @@ import type {
   PendingAction,
   PlayerSession,
   ProjectUser,
+  RegisteredProgram,
+  SponsorWallet,
+  SponsorWalletSecret,
   TransactionRecord,
   UsageEvent,
   User,
@@ -32,6 +35,9 @@ export class MemoryStore implements MemoryStoreContract {
   projectUsers = new Map<UUID, ProjectUser>();
   apps = new Map<UUID, App>();
   appPlayerPolicies = new Map<UUID, AppPlayerPolicy>();
+  registeredPrograms = new Map<UUID, RegisteredProgram>();
+  sponsorWallets = new Map<UUID, SponsorWallet>();
+  sponsorWalletSecrets = new Map<UUID, SponsorWalletSecret>();
   loginRequests = new Map<UUID, LoginRequest>();
   authCodes = new Map<UUID, AuthCode>();
   playerSessions = new Map<UUID, PlayerSession>();
@@ -197,6 +203,51 @@ export class MemoryStore implements MemoryStoreContract {
     return next;
   }
 
+  saveRegisteredProgram(record: RegisteredProgram): RegisteredProgram {
+    const existing = this.registeredPrograms.get(record.appId);
+    const next: RegisteredProgram = {
+      ...record,
+      createdAt: existing?.createdAt ?? record.createdAt,
+      updatedAt: new Date().toISOString()
+    };
+    this.registeredPrograms.set(record.appId, next);
+    return next;
+  }
+
+  getRegisteredProgram(appId: UUID): RegisteredProgram | null {
+    return this.registeredPrograms.get(appId) ?? null;
+  }
+
+  saveSponsorWallet(record: SponsorWallet): SponsorWallet {
+    const existing = this.sponsorWallets.get(record.appId);
+    const next: SponsorWallet = {
+      ...record,
+      createdAt: existing?.createdAt ?? record.createdAt,
+      updatedAt: new Date().toISOString()
+    };
+    this.sponsorWallets.set(record.appId, next);
+    return next;
+  }
+
+  getSponsorWallet(appId: UUID): SponsorWallet | null {
+    return this.sponsorWallets.get(appId) ?? null;
+  }
+
+  saveSponsorWalletSecret(record: SponsorWalletSecret): SponsorWalletSecret {
+    const existing = this.sponsorWalletSecrets.get(record.appId);
+    const next: SponsorWalletSecret = {
+      ...record,
+      createdAt: existing?.createdAt ?? record.createdAt,
+      updatedAt: new Date().toISOString()
+    };
+    this.sponsorWalletSecrets.set(record.appId, next);
+    return next;
+  }
+
+  getSponsorWalletSecret(appId: UUID): SponsorWalletSecret | null {
+    return this.sponsorWalletSecrets.get(appId) ?? null;
+  }
+
   createCreditPackage({
     packageId = randomUUID(),
     appId,
@@ -230,6 +281,9 @@ export class MemoryStore implements MemoryStoreContract {
       }
     }
     this.appPlayerPolicies.delete(appId);
+    this.registeredPrograms.delete(appId);
+    this.sponsorWallets.delete(appId);
+    this.sponsorWalletSecrets.delete(appId);
     for (const [id, projectUser] of this.projectUsers.entries()) {
       if (projectUser.projectId === appId) {
         this.projectUsers.delete(id);

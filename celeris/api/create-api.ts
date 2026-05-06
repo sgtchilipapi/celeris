@@ -289,6 +289,47 @@ export function createApi(services: Services) {
     };
   });
 
+  addRoute("PUT", "/v1/developer/apps/:appId/program", ({ params, headers, body }) => {
+    const developer = requireAuthenticatedDeveloper(services, headers);
+    services.appService.requireDeveloperOwnsApp(developer.developerId, params.appId);
+    return {
+      body: services.appService.registerProgram({
+        appId: params.appId,
+        programId: body.programId as string,
+        idempotencyKey: requireIdempotency(headers, body)
+      })
+    };
+  });
+
+  addRoute("GET", "/v1/developer/apps/:appId/program", ({ params, headers }) => {
+    const developer = requireAuthenticatedDeveloper(services, headers);
+    services.appService.requireDeveloperOwnsApp(developer.developerId, params.appId);
+    return {
+      body: services.appService.getProgram(params.appId)
+    };
+  });
+
+  addRoute("POST", "/v1/developer/apps/:appId/sponsor-wallet", ({ params, headers, body }) => {
+    const developer = requireAuthenticatedDeveloper(services, headers);
+    services.appService.requireDeveloperOwnsApp(developer.developerId, params.appId);
+    const result = services.appService.provisionSponsorWallet({
+      appId: params.appId,
+      idempotencyKey: requireIdempotency(headers, body)
+    });
+    return {
+      statusCode: result.created ? 201 : 200,
+      body: result.sponsorWallet
+    };
+  });
+
+  addRoute("GET", "/v1/developer/apps/:appId/sponsor-wallet", ({ params, headers }) => {
+    const developer = requireAuthenticatedDeveloper(services, headers);
+    services.appService.requireDeveloperOwnsApp(developer.developerId, params.appId);
+    return {
+      body: services.appService.getSponsorWallet(params.appId)
+    };
+  });
+
   addRoute("PUT", "/v1/developer/apps/:appId", ({ params, headers, body }) => {
     const developer = requireAuthenticatedDeveloper(services, headers);
     services.appService.requireDeveloperOwnsApp(developer.developerId, params.appId);

@@ -94,6 +94,7 @@ A possible long-term direction is for Celeris to evolve into a managed game back
 See [docs/sdk-pivot.md](docs/sdk-pivot.md) for the completed SDK/auth pivot and demo backend removal.
 See [docs/future-direction.md](docs/future-direction.md) for the full concept.
 See [docs/future-refactorings.md](docs/future-refactorings.md) for deferred architecture backlog items.
+See [docs/solana-devnet-hello-demo-plan.md](docs/solana-devnet-hello-demo-plan.md) for the devnet sponsor-wallet Hello Celeris implementation plan.
 
 ### How it works
 

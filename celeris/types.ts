@@ -77,6 +77,32 @@ export interface AppPlayerPolicy {
   updatedAt: string;
 }
 
+export interface RegisteredProgram {
+  appId: UUID;
+  chainFamily: "solana";
+  cluster: "devnet";
+  programId: string;
+  statePda: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SponsorWallet {
+  appId: UUID;
+  chainFamily: "solana";
+  cluster: "devnet";
+  publicKey: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SponsorWalletSecret {
+  appId: UUID;
+  secretKey: number[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PlatformPrivyConfig {
   authProvider: "privy";
   privyAppId: string;
@@ -327,6 +353,8 @@ export interface AppSetupDetails {
   playerPolicy: AppPlayerPolicy;
   creditPackages: CreditPackage[];
   actions: ActionType[];
+  registeredProgram: RegisteredProgram | null;
+  sponsorWallet: SponsorWallet | null;
 }
 
 export interface AuthLoginRequestResponse {
@@ -510,6 +538,9 @@ export interface MemoryStore {
   projectUsers: Map<UUID, ProjectUser>;
   apps: Map<UUID, App>;
   appPlayerPolicies: Map<UUID, AppPlayerPolicy>;
+  registeredPrograms: Map<UUID, RegisteredProgram>;
+  sponsorWallets: Map<UUID, SponsorWallet>;
+  sponsorWalletSecrets: Map<UUID, SponsorWalletSecret>;
   loginRequests: Map<UUID, LoginRequest>;
   authCodes: Map<UUID, AuthCode>;
   playerSessions: Map<UUID, PlayerSession>;
@@ -545,6 +576,12 @@ export interface MemoryStore {
     apiKey: string;
   }): App;
   saveAppPlayerPolicy(record: AppPlayerPolicy): AppPlayerPolicy;
+  saveRegisteredProgram(record: RegisteredProgram): RegisteredProgram;
+  getRegisteredProgram(appId: UUID): RegisteredProgram | null;
+  saveSponsorWallet(record: SponsorWallet): SponsorWallet;
+  getSponsorWallet(appId: UUID): SponsorWallet | null;
+  saveSponsorWalletSecret(record: SponsorWalletSecret): SponsorWalletSecret;
+  getSponsorWalletSecret(appId: UUID): SponsorWalletSecret | null;
   createCreditPackage(input: {
     packageId?: UUID;
     appId: UUID;
