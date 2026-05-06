@@ -246,6 +246,11 @@ export function createServerClient({ apiBaseUrl, accessToken = null, fetchImpl =
             return requestJson(`/v1/apps/${encodeURIComponent(appId)}/me/asset-history`, { playerAccessToken });
           }
         },
+        transactions: {
+          list(appId: string) {
+            return requestJson(`/v1/apps/${encodeURIComponent(appId)}/transactions`, { playerAccessToken });
+          }
+        },
         payments: {
           createCheckoutSession(appId: string, body: { packageId: string; successUrl?: string; cancelUrl?: string; idempotencyKey?: string }) {
             return requestJson(`/v1/apps/${encodeURIComponent(appId)}/checkout-sessions`, {

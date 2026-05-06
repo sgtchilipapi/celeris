@@ -147,3 +147,33 @@ export async function provisionSponsorWallet({
 
   return response.body;
 }
+
+export async function registerProgram({
+  api,
+  accessToken,
+  appId,
+  programId
+}: {
+  api: ApiLike;
+  accessToken: string;
+  appId: string;
+  programId: string;
+}) {
+  const response = await api.handle({
+    method: "PUT",
+    url: `/v1/developer/apps/${appId}/program`,
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "idempotency-key": `developer-program-${randomUUID()}`
+    },
+    body: {
+      programId
+    }
+  });
+
+  if (response.statusCode !== 200) {
+    throw new Error(`failed to register program: ${JSON.stringify(response.body)}`);
+  }
+
+  return response.body;
+}

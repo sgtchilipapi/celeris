@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 
 export const HELLO_CELERIS_APP_STATE_SEED = "app_state";
 export const HELLO_CELERIS_MAX_GREETING_ENTRIES = 100;
@@ -65,6 +65,12 @@ export function assertValidHelloCelerisUsername(username: string) {
   }
 }
 
+export function normalizeHelloCelerisUsername(username: string) {
+  const normalized = username.trim();
+  assertValidHelloCelerisUsername(normalized);
+  return normalized;
+}
+
 export function renderHelloCelerisMessage(username: string) {
   assertValidHelloCelerisUsername(username);
   return `${username}${HELLO_CELERIS_MESSAGE_SUFFIX}`;
@@ -104,5 +110,70 @@ export function appendHelloCelerisGreetingEntry({
     ...state,
     entryCount: nextEntries.length,
     entries: nextEntries
+  };
+}
+
+function createAnchorInstructionDiscriminator(name: string) {
+  return createHash("sha256").update(`global:${name}`, "utf8").digest().subarray(0, 8);
+}
+
+export function encodeHelloCelerisSayHelloInstructionData({
+  playerWallet,
+  username
+}: {
+  playerWallet: string | PublicKey;
+  username: string;
+}) {
+  const normalizedUsername = normalizeHelloCelerisUsername(username);
+  const usernameBytes = Buffer.from(normalizedUsername, "utf8");
+  const usernameLength = Buffer.alloc(4);
+  usernameLength.writeUInt32LE(usernameBytes.length, 0);
+
+  return Buffer.concat([
+    createAnchorInstructionDiscriminator("say_hello"),
+    (typeof playerWallet === "string" ? parseSolanaProgramId(playerWallet) : playerWallet).toBuffer(),
+    usernameLength,
+    usernameBytes
+  ]);
+}
+
+export function createHelloCelerisSayHelloInstruction({
+  appId,
+  programId,
+  sponsorWalletPublicKey,
+  playerWallet,
+  username
+}: {
+  appId: string;
+  programId: string | PublicKey;
+  sponsorWalletPublicKey: string | PublicKey;
+  playerWallet: string | PublicKey;
+  username: string;
+}) {
+  const parsedProgramId = typeof programId === "string" ? parseSolanaProgramId(programId) : programId;
+  const parsedSponsorWallet = typeof sponsorWalletPublicKey === "string"
+    ? parseSolanaProgramId(sponsorWalletPublicKey)
+    : sponsorWalletPublicKey;
+  const normalizedUsername = normalizeHelloCelerisUsername(username);
+  const { statePda } = deriveHelloCelerisStatePda({
+    appId,
+    programId: parsedProgramId
+  });
+
+  return {
+    statePda,
+    username: normalizedUsername,
+    message: renderHelloCelerisMessage(normalizedUsername),
+    instruction: new TransactionInstruction({
+      programId: parsedProgramId,
+      keys: [
+        { pubkey: statePda, isSigner: false, isWritable: true },
+        { pubkey: parsedSponsorWallet, isSigner: true, isWritable: false }
+      ],
+      data: encodeHelloCelerisSayHelloInstructionData({
+        playerWallet,
+        username: normalizedUsername
+      })
+    })
   };
 }

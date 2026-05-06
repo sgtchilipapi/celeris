@@ -16,6 +16,7 @@ import { PendingActionService } from "../services/pending-action-service.js";
 import { PlayerSessionService } from "../services/player-session-service.js";
 import { DeveloperSessionService } from "../services/developer-session-service.js";
 import { RelayerService } from "../services/relayer-service.js";
+import { SayHelloService } from "../services/say-hello-service.js";
 import { MockRelayerNetwork } from "../services/mock-relayer-network.js";
 import { SolanaRelayerNetwork } from "../services/solana-relayer-network.js";
 import { StripeTestCheckoutGateway } from "../services/stripe-test-checkout-gateway.js";
@@ -94,6 +95,13 @@ export function buildServices({
       relayerService,
       pendingActionService,
       assetDeliveryService
+    }),
+    sayHelloService: new SayHelloService({
+      store,
+      ledgerService,
+      managedActionService: resolvedManagedActionService,
+      relayerService,
+      pendingActionService
     }),
     metricsService: new MetricsService({ store }),
     stripeGateway,

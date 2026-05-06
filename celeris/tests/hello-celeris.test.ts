@@ -5,9 +5,12 @@ import {
   HELLO_CELERIS_MAX_GREETING_ENTRIES,
   appendHelloCelerisGreetingEntry,
   assertValidHelloCelerisUsername,
+  createHelloCelerisSayHelloInstruction,
   createHelloCelerisGreetingEntry,
   deriveHelloCelerisStatePda,
+  encodeHelloCelerisSayHelloInstructionData,
   hashHelloCelerisAppId,
+  normalizeHelloCelerisUsername,
   renderHelloCelerisMessage
 } from "../solana/hello-celeris.js";
 
@@ -41,6 +44,36 @@ test("username validation rejects empty and oversized input", () => {
   assert.throws(() => assertValidHelloCelerisUsername(""), /must not be empty/);
   assert.throws(() => assertValidHelloCelerisUsername("x".repeat(33)), /at most 32 UTF-8 bytes/);
   assert.doesNotThrow(() => assertValidHelloCelerisUsername("valid_name"));
+});
+
+test("username normalization trims before validation", () => {
+  assert.equal(normalizeHelloCelerisUsername("  Sam  "), "Sam");
+});
+
+test("say_hello instruction helper uses the canonical accounts and message encoding", () => {
+  const sponsorWalletPublicKey = "11111111111111111111111111111111";
+  const { instruction, statePda, username, message } = createHelloCelerisSayHelloInstruction({
+    appId: APP_ID,
+    programId: PROGRAM_ID,
+    sponsorWalletPublicKey,
+    playerWallet: PLAYER_WALLET,
+    username: "  Sam  "
+  });
+
+  assert.equal(username, "Sam");
+  assert.equal(message, "Sam says Hello Celeris!");
+  assert.equal(instruction.programId.toBase58(), PROGRAM_ID);
+  assert.equal(instruction.keys[0].pubkey.toBase58(), statePda.toBase58());
+  assert.equal(instruction.keys[0].isWritable, true);
+  assert.equal(instruction.keys[1].pubkey.toBase58(), sponsorWalletPublicKey);
+  assert.equal(instruction.keys[1].isSigner, true);
+  assert.deepEqual(
+    instruction.data,
+    encodeHelloCelerisSayHelloInstructionData({
+      playerWallet: PLAYER_WALLET,
+      username: "Sam"
+    })
+  );
 });
 
 test("app state append helper rejects writes after the max greeting capacity", () => {

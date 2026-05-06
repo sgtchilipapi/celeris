@@ -631,6 +631,11 @@ export function createBrowserClient({
       getHistory() {
         return getJson(`/v1/apps/${encodeURIComponent(appId)}/me/asset-history`, "failed to load asset history");
       }
+    },
+    transactions: {
+      list() {
+        return getJson(`/v1/apps/${encodeURIComponent(appId)}/transactions`, "failed to load app transactions");
+      }
     }
   };
 }

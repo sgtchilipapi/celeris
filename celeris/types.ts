@@ -224,6 +224,22 @@ export interface MintItemApprovalSummary {
   debit: number;
 }
 
+export interface SayHelloTransactionSummary {
+  actionType: "say_hello";
+  debit: number;
+  username: string;
+  message: string;
+  sponsorWalletPublicKey: string;
+  playerWalletAddress: string;
+  providerTxId: string;
+  explorerUrl: string;
+  status: TransactionStatus;
+  submittedAt: string;
+  confirmedAt: string | null;
+}
+
+export type TransactionSummary = MintItemApprovalSummary | SayHelloTransactionSummary;
+
 export interface TransactionRecord {
   txId: UUID;
   pendingActionId: UUID;
@@ -234,8 +250,9 @@ export interface TransactionRecord {
   rawTx: string;
   explorerUrl?: string;
   status: TransactionStatus;
-  summary: MintItemApprovalSummary;
+  summary: TransactionSummary;
   createdAt: string;
+  confirmedAt?: string | null;
 }
 
 export interface AssetDeliveryRecord {
@@ -444,10 +461,21 @@ export interface MintItemPayload {
   itemDefId: string;
 }
 
+export interface SayHelloPayload {
+  username: string;
+}
+
 export interface ExecuteMintItemRequest {
   appId: UUID;
   walletPrincipal: WalletPrincipal;
   payload: MintItemPayload;
+  idempotencyKey: string;
+}
+
+export interface ExecuteSayHelloRequest {
+  appId: UUID;
+  walletPrincipal: WalletPrincipal;
+  payload: Record<string, unknown>;
   idempotencyKey: string;
 }
 
@@ -471,10 +499,35 @@ export interface ManagedMintItemResult {
   summary: MintItemApprovalSummary;
 }
 
+export interface ManagedSayHelloRequest {
+  pendingActionId: UUID;
+  appId: UUID;
+  walletPrincipal: WalletPrincipal;
+  cost: number;
+  payload: SayHelloPayload;
+  registeredProgram: RegisteredProgram;
+  sponsorWallet: SponsorWallet;
+}
+
+export interface ManagedSayHelloResult {
+  preparedTransaction: PreparedSolanaTransaction;
+  summary: SayHelloTransactionSummary;
+}
+
 export interface MintItemExecutionResult {
   pendingActionId: UUID;
   transactionId: UUID;
   deliveryId: UUID;
+  status: TransactionStatus;
+}
+
+export interface SayHelloExecutionResult {
+  pendingActionId: UUID;
+  transactionId: UUID;
+  providerTxId: string;
+  explorerUrl: string;
+  username: string;
+  message: string;
   status: TransactionStatus;
 }
 
@@ -546,6 +599,19 @@ export interface AppMetrics {
     userActivity: Array<{ walletAddress: WalletAddress; chainId: ChainId; value: number }>;
   };
   users: AppMetricsUser[];
+}
+
+export interface PlayerTransactionFeedItem {
+  transactionId: UUID;
+  actionId: string;
+  providerTxId: string;
+  explorerUrl: string | null;
+  walletAddress: WalletAddress;
+  username: string | null;
+  message: string | null;
+  status: TransactionStatus;
+  submittedAt: string;
+  confirmedAt: string | null;
 }
 
 export interface MemoryStore {

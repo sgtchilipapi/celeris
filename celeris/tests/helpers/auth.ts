@@ -9,6 +9,7 @@ export async function createHostedPlayerSession({
   api,
   appId,
   walletAddress,
+  chainId = "eip155:1",
   subject = `did:privy:test-user:${walletAddress.toLowerCase()}`,
   origin = "http://localhost:3002",
   redirectUri = "http://localhost:3002/auth/callback"
@@ -23,6 +24,7 @@ export async function createHostedPlayerSession({
   };
   appId: string;
   walletAddress: string;
+  chainId?: string;
   subject?: string;
   origin?: string;
   redirectUri?: string;
@@ -55,7 +57,7 @@ export async function createHostedPlayerSession({
       privyAccessToken: createPrivyTestToken({
         subject,
         walletAddress,
-        chainId: "eip155:1"
+        chainId
       }, {
         secret: resolveTestVerifierSecret()
       })
