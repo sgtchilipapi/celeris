@@ -1,39 +1,91 @@
-import { createHash } from "node:crypto";
+import { Transaction } from "@solana/web3.js";
 import { AppError } from "./errors.js";
-import type { RelayerNetworkClient, RelayerSubmissionResult, TransactionStatus } from "../types.js";
+import { getSolanaExplorerTransactionUrl } from "../solana/explorer.js";
+import { resolveAppSponsorWallet } from "../solana/sponsor-wallet.js";
+import type { MemoryStore, PreparedSolanaTransaction, RelayerNetworkClient, RelayerSubmissionResult } from "../types.js";
 
 export class RelayerService {
+  readonly store: MemoryStore;
   readonly networkClient: RelayerNetworkClient;
-  readonly signerKey: string;
+  readonly safetyBufferLamports: number;
 
   constructor({
     networkClient,
-    signerKey = "relayer_dev_key"
+    store,
+    safetyBufferLamports = 100_000
   }: {
     networkClient: RelayerNetworkClient;
-    signerKey?: string;
+    store: MemoryStore;
+    safetyBufferLamports?: number;
   }) {
+    this.store = store;
     this.networkClient = networkClient;
-    this.signerKey = signerKey;
+    this.safetyBufferLamports = safetyBufferLamports;
   }
 
-  async submitTransaction(unsignedTx: string): Promise<RelayerSubmissionResult> {
-    const signedTx = this.signTransaction(unsignedTx);
+  async submitTransaction(preparedTransaction: PreparedSolanaTransaction): Promise<RelayerSubmissionResult> {
     let attempts = 0;
     let lastError: unknown;
 
     while (attempts < 2) {
       attempts += 1;
       try {
+        const { sponsorWallet, keypair } = resolveAppSponsorWallet({
+          store: this.store,
+          appId: preparedTransaction.appId
+        });
+
+        if (
+          preparedTransaction.sponsorWalletPublicKey &&
+          preparedTransaction.sponsorWalletPublicKey !== sponsorWallet.publicKey
+        ) {
+          throw new AppError(422, "prepared transaction sponsor wallet mismatch");
+        }
+
+        const tx = this.cloneTransaction(preparedTransaction.transaction);
+        tx.feePayer = keypair.publicKey;
+
+        const { blockhash, lastValidBlockHeight } = await this.networkClient.getLatestBlockhash();
+        tx.recentBlockhash = blockhash;
+
+        const estimatedFeeLamports = await this.networkClient.getFeeForTransaction(tx);
+        if (estimatedFeeLamports === null) {
+          throw new AppError(502, "unable to estimate Solana transaction fee");
+        }
+
+        const sponsorBalanceLamports = await this.networkClient.getBalance(sponsorWallet.publicKey);
+        const requiredLamports = estimatedFeeLamports + this.safetyBufferLamports;
+        if (sponsorBalanceLamports < requiredLamports) {
+          throw new AppError(422, "sponsor wallet has insufficient SOL", {
+            sponsorWalletPublicKey: sponsorWallet.publicKey,
+            balanceLamports: sponsorBalanceLamports,
+            estimatedFeeLamports,
+            safetyBufferLamports: this.safetyBufferLamports,
+            requiredLamports
+          });
+        }
+
+        tx.sign(keypair);
+        const signedTx = tx.serialize().toString("base64");
         const submission = await this.networkClient.sendTransaction(signedTx);
+        const status = await this.networkClient.confirmTransaction({
+          txHash: submission.txHash,
+          blockhash,
+          lastValidBlockHeight
+        });
+
         return {
           providerTxId: submission.txHash,
-          status: "submitted",
+          status,
           signedTx,
+          explorerUrl: getSolanaExplorerTransactionUrl(submission.txHash),
           attempts
         };
       } catch (error) {
         lastError = error;
+        if (error instanceof AppError) {
+          throw error;
+        }
         if (attempts >= 2 || !this.isRetryableNetworkError(error)) {
           throw new AppError(502, "transaction submission failed", {
             attempts,
@@ -49,19 +101,12 @@ export class RelayerService {
     });
   }
 
-  async resolveTransactionStatus(providerTxId: string): Promise<Exclude<TransactionStatus, "submitted">> {
-    try {
-      return await this.networkClient.getTransactionStatus(providerTxId);
-    } catch (error) {
-      throw new AppError(502, "transaction status check failed", {
-        cause: error instanceof Error ? error.message : "unknown network error"
-      });
+  private cloneTransaction(transaction: Transaction): Transaction {
+    const next = new Transaction();
+    for (const instruction of transaction.instructions) {
+      next.add(instruction);
     }
-  }
-
-  private signTransaction(unsignedTx: string): string {
-    const signature = createHash("sha256").update(`${unsignedTx}:${this.signerKey}`).digest("hex");
-    return Buffer.from(JSON.stringify({ unsignedTx, signature })).toString("base64");
+    return next;
   }
 
   private isRetryableNetworkError(error: unknown): boolean {

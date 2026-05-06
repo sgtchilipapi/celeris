@@ -95,24 +95,23 @@ export class MintItemService {
         walletAddress: walletPrincipal.walletAddress,
         chainId: walletPrincipal.chainId,
         providerTxId: "",
-        rawTx: managedAction.tx,
+        rawTx: "",
         status: "submitted",
         summary: managedAction.summary,
         createdAt: new Date().toISOString()
       });
 
-      const submission = await this.relayerService.submitTransaction(managedAction.tx);
+      const submission = await this.relayerService.submitTransaction(managedAction.preparedTransaction);
       transaction.providerTxId = submission.providerTxId;
+      transaction.rawTx = submission.signedTx;
+      transaction.explorerUrl = submission.explorerUrl;
+      transaction.status = submission.status;
       this.store.saveTransaction(transaction);
 
       pendingAction.status = "submitted";
       this.store.savePendingAction(pendingAction);
 
-      const finalStatus = await this.relayerService.resolveTransactionStatus(submission.providerTxId);
-      transaction.status = finalStatus;
-      this.store.saveTransaction(transaction);
-
-      if (finalStatus === "failed") {
+      if (submission.status === "failed") {
         pendingAction.status = "failed";
         this.store.savePendingAction(pendingAction);
         this.ledgerService.releaseCredits({
@@ -126,7 +125,8 @@ export class MintItemService {
           pendingActionId: pendingAction.id,
           transactionId: transaction.txId,
           providerTxId: submission.providerTxId,
-          status: "failed"
+          status: "failed",
+          explorerUrl: submission.explorerUrl
         });
       }
 
@@ -229,11 +229,11 @@ export class MintItemService {
       throw new AppError(422, "reserved credits mismatch");
     }
 
-    if (!managedAction.tx) {
-      throw new AppError(422, "managed action response missing tx");
+    if (!managedAction.preparedTransaction) {
+      throw new AppError(422, "managed action response missing prepared transaction");
     }
-    if (!this.isSaneTransactionPayload(managedAction.tx)) {
-      throw new AppError(422, "managed action tx failed basic sanity checks");
+    if (!this.isSanePreparedTransaction(managedAction.preparedTransaction, storedPendingAction.appId)) {
+      throw new AppError(422, "managed action prepared transaction failed basic sanity checks");
     }
     if (managedAction.summary.actionType !== storedPendingAction.actionType) {
       throw new AppError(422, "managed action summary action type mismatch");
@@ -246,16 +246,15 @@ export class MintItemService {
     }
   }
 
-  private isSaneTransactionPayload(tx: string): boolean {
-    if (typeof tx !== "string" || tx.trim().length < 8) {
-      return false;
-    }
-    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(tx) || tx.length % 4 !== 0) {
+  private isSanePreparedTransaction(
+    preparedTransaction: ManagedMintItemResult["preparedTransaction"],
+    appId: string
+  ): boolean {
+    if (!preparedTransaction || preparedTransaction.appId !== appId) {
       return false;
     }
     try {
-      const decoded = Buffer.from(tx, "base64").toString("utf8");
-      return decoded.trim().length > 0;
+      return preparedTransaction.transaction.instructions.length > 0;
     } catch {
       return false;
     }

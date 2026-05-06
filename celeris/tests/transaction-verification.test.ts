@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { Transaction } from "@solana/web3.js";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
 import { ManagedActionService } from "../services/managed-action-service.js";
 import type { ManagedMintItemRequest, ManagedMintItemResult, WalletPrincipal } from "../types.js";
 import { createHostedPlayerSession } from "./helpers/auth.js";
-import { createDeveloperApp, configureDeveloperAction, signUpDeveloper } from "./helpers/developer.js";
+import { createDeveloperApp, configureDeveloperAction, provisionSponsorWallet, signUpDeveloper } from "./helpers/developer.js";
 
 class TestManagedActionService extends ManagedActionService {
   readonly buildResult: (request: ManagedMintItemRequest) => ManagedMintItemResult;
@@ -87,6 +88,11 @@ async function setupMintFlow(managedActionService: ManagedActionService) {
     cost: 50,
     executionMode: "managed"
   });
+  await provisionSponsorWallet({
+    api,
+    accessToken: developer.accessToken,
+    appId
+  });
 
   const checkout = await api.handle({
     method: "POST",
@@ -118,11 +124,11 @@ async function setupMintFlow(managedActionService: ManagedActionService) {
 }
 
 test("verification rejects mismatched debit and releases reserved credits", async () => {
-  const managedActionService = new TestManagedActionService(({ payload }) => ({
-    tx: Buffer.from("mint").toString("base64"),
+  const managedActionService = new TestManagedActionService((request) => ({
+    preparedTransaction: new ManagedActionService().buildMintItemTransaction(request).preparedTransaction,
     summary: {
       actionType: "mint_item",
-      itemDefId: payload.itemDefId,
+      itemDefId: request.payload.itemDefId,
       debit: 75
     }
   }));
@@ -143,9 +149,12 @@ test("verification rejects mismatched debit and releases reserved credits", asyn
   assert.equal(pendingAction.status, "failed");
 });
 
-test("verification rejects invalid tx structure and releases reserved credits", async () => {
+test("verification rejects invalid prepared transaction structure and releases reserved credits", async () => {
   const managedActionService = new TestManagedActionService(({ payload }) => ({
-    tx: "not base64!!!",
+    preparedTransaction: {
+      appId: "wrong-app-id",
+      transaction: new Transaction()
+    },
     summary: {
       actionType: "mint_item",
       itemDefId: payload.itemDefId,
@@ -162,17 +171,17 @@ test("verification rejects invalid tx structure and releases reserved credits", 
   });
 
   assert.equal(mint.statusCode, 422);
-  assert.equal(mint.body.error, "managed action tx failed basic sanity checks");
+  assert.equal(mint.body.error, "managed action prepared transaction failed basic sanity checks");
   assert.equal(services.store.getBalance(walletPrincipal, appId).balance, 500);
   assert.equal(services.store.getBalance(walletPrincipal, appId).reserved, 0);
 });
 
 test("verification rejects disallowed action types and releases reserved credits", async () => {
-  const managedActionService = new TestManagedActionService(({ payload }) => ({
-    tx: Buffer.from("mint").toString("base64"),
+  const managedActionService = new TestManagedActionService((request) => ({
+    preparedTransaction: new ManagedActionService().buildMintItemTransaction(request).preparedTransaction,
     summary: {
       actionType: "burn_item" as "mint_item",
-      itemDefId: payload.itemDefId,
+      itemDefId: request.payload.itemDefId,
       debit: 50
     }
   }));
@@ -196,7 +205,10 @@ test("verification rejects when pending action disappears before execution", asy
   const managedActionService = new TestManagedActionService((request) => {
     capturedPendingActionId = request.pendingActionId;
     return {
-      tx: Buffer.from("mint").toString("base64"),
+      preparedTransaction: {
+        appId: request.appId,
+        transaction: new Transaction().add(...new ManagedActionService().buildMintItemTransaction(request).preparedTransaction.transaction.instructions)
+      },
       summary: {
         actionType: "mint_item",
         itemDefId: request.payload.itemDefId,

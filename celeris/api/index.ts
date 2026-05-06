@@ -17,6 +17,7 @@ import { PlayerSessionService } from "../services/player-session-service.js";
 import { DeveloperSessionService } from "../services/developer-session-service.js";
 import { RelayerService } from "../services/relayer-service.js";
 import { MockRelayerNetwork } from "../services/mock-relayer-network.js";
+import { SolanaRelayerNetwork } from "../services/solana-relayer-network.js";
 import { StripeTestCheckoutGateway } from "../services/stripe-test-checkout-gateway.js";
 import type { HostedAuthConfig, PlatformPrivyConfig, PrivyTokenVerifier, RelayerNetworkClient } from "../types.js";
 import { AuthGatewayService } from "../services/auth-gateway-service.js";
@@ -35,16 +36,18 @@ loadDotEnv(path.join(projectRoot, ".env.local"));
 const enableStripeCheckout = Boolean(process.env.STRIPE_SECRET_KEY) && !isTestRuntime();
 
 export function buildServices({
-  relayerNetworkClient = new MockRelayerNetwork(),
+  relayerNetworkClient,
   managedActionService,
   platformPrivyConfig = resolvePlatformPrivyConfigFromEnv(process.env, { allowDevelopmentDefaults: true }),
   hostedAuthConfig = resolveHostedAuthConfigFromEnv(process.env, { allowDevelopmentDefaults: true }),
+  solanaRpcOrigin = resolveSolanaRpcOriginFromEnv(process.env),
   privyVerifier
 }: {
   relayerNetworkClient?: RelayerNetworkClient;
   managedActionService?: ManagedActionService;
   platformPrivyConfig?: PlatformPrivyConfig;
   hostedAuthConfig?: HostedAuthConfig;
+  solanaRpcOrigin?: string;
   privyVerifier?: PrivyTokenVerifier;
 } = {}) {
   const store = new MemoryStore();
@@ -55,7 +58,8 @@ export function buildServices({
     ? new StripeTestCheckoutGateway({ secretKey: process.env.STRIPE_SECRET_KEY! })
     : null;
   const pendingActionService = new PendingActionService({ store, ledgerService });
-  const relayerService = new RelayerService({ networkClient: relayerNetworkClient });
+  const resolvedRelayerNetworkClient = relayerNetworkClient ?? new MockRelayerNetwork();
+  const relayerService = new RelayerService({ networkClient: resolvedRelayerNetworkClient, store });
   const assetDeliveryService = new AssetDeliveryService({ store });
   const resolvedManagedActionService = managedActionService ?? new ManagedActionService();
   const resolvedPrivyVerifier =
@@ -70,6 +74,7 @@ export function buildServices({
     store,
     platformPrivyConfig,
     hostedAuthConfig,
+    solanaRpcOrigin,
     privyAuthService,
     playerSessionService,
     developerSessionService,
@@ -106,6 +111,9 @@ const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
 if (isMainModule) {
   const platformPrivyConfig = resolveRuntimePlatformPrivyConfig();
   const services = buildServices({
+    relayerNetworkClient: new SolanaRelayerNetwork({
+      rpcOrigin: resolveSolanaRpcOriginFromEnv(process.env)
+    }),
     platformPrivyConfig,
     hostedAuthConfig: resolveHostedAuthConfigFromEnv(process.env, { allowDevelopmentDefaults: false }),
     privyVerifier: new HostedPrivyTokenVerifier({
@@ -195,4 +203,8 @@ export function resolveHostedAuthConfigFromEnv(
     hostedAuthOrigin,
     sessionSecret
   };
+}
+
+export function resolveSolanaRpcOriginFromEnv(env: NodeJS.ProcessEnv = process.env) {
+  return String(env.SOLANA_RPC_ORIGIN ?? "https://api.devnet.solana.com").trim() || "https://api.devnet.solana.com";
 }

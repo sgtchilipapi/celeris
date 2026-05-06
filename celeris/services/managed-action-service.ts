@@ -1,3 +1,4 @@
+import { PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
 import type {
   ExecuteClaimRewardsRequest,
   ManagedMintItemRequest,
@@ -16,19 +17,34 @@ export class ManagedActionService {
   }: ManagedMintItemRequest): ManagedMintItemResult {
     this.validateMintItemPayload(payload);
 
-    const tx = Buffer.from(
-      JSON.stringify({
-        kind: "managed_mint_item",
-        pendingActionId,
-        appId,
-        walletAddress: walletPrincipal.walletAddress,
-        chainId: walletPrincipal.chainId,
-        itemDefId: payload.itemDefId
-      })
-    ).toString("base64");
-
     return {
-      tx,
+      preparedTransaction: {
+        appId,
+        transaction: new Transaction().add(
+          new TransactionInstruction({
+            programId: new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"),
+            keys: [],
+            data: Buffer.from(
+              JSON.stringify({
+                kind: "managed_mint_item",
+                pendingActionId,
+                appId,
+                walletAddress: walletPrincipal.walletAddress,
+                chainId: walletPrincipal.chainId,
+                itemDefId: payload.itemDefId,
+                debit: cost
+              }),
+              "utf8"
+            )
+          })
+        ),
+        debugMetadata: {
+          pendingActionId,
+          walletAddress: walletPrincipal.walletAddress,
+          chainId: walletPrincipal.chainId,
+          itemDefId: payload.itemDefId
+        }
+      },
       summary: {
         actionType: "mint_item",
         itemDefId: payload.itemDefId,

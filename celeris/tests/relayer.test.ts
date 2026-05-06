@@ -1,10 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
-import type { RelayerNetworkClient, TransactionStatus, WalletPrincipal } from "../types.js";
+import type { WalletPrincipal } from "../types.js";
+import { getSolanaExplorerTransactionUrl } from "../solana/explorer.js";
+import { MockRelayerNetwork } from "../services/mock-relayer-network.js";
 import { createHostedPlayerSession } from "./helpers/auth.js";
-import { createDeveloperApp, configureDeveloperAction, signUpDeveloper } from "./helpers/developer.js";
+import { createDeveloperApp, configureDeveloperAction, provisionSponsorWallet, signUpDeveloper } from "./helpers/developer.js";
 
 function buildCompletedCheckoutEvent({
   eventId,
@@ -39,7 +42,7 @@ function buildCompletedCheckoutEvent({
   };
 }
 
-async function setupRelayerFlow(relayerNetworkClient: RelayerNetworkClient) {
+async function setupRelayerFlow(relayerNetworkClient: MockRelayerNetwork) {
   const services = buildServices({ relayerNetworkClient });
   const api = createApi(services);
   const walletPrincipal = {
@@ -73,6 +76,11 @@ async function setupRelayerFlow(relayerNetworkClient: RelayerNetworkClient) {
     cost: 50,
     executionMode: "managed"
   });
+  const sponsorWallet = await provisionSponsorWallet({
+    api,
+    accessToken: developer.accessToken,
+    appId
+  });
 
   const checkout = await api.handle({
     method: "POST",
@@ -100,23 +108,21 @@ async function setupRelayerFlow(relayerNetworkClient: RelayerNetworkClient) {
     body: paymentEvent
   });
 
-  return { services, api, appId, token: session.accessToken, walletPrincipal };
+  return { services, api, appId, token: session.accessToken, walletPrincipal, sponsorWallet };
 }
 
 test("relayer retries submission once on retryable network error and succeeds", async () => {
   let sendAttempts = 0;
-  const networkClient: RelayerNetworkClient = {
-    async sendTransaction() {
+  const networkClient = new MockRelayerNetwork({
+    sendTransaction: async () => {
       sendAttempts += 1;
       if (sendAttempts === 1) {
         throw Object.assign(new Error("temporary network issue"), { retryable: true });
       }
       return { txHash: "mock_chain_retry_success" };
     },
-    async getTransactionStatus(): Promise<Exclude<TransactionStatus, "submitted">> {
-      return "success";
-    }
-  };
+    confirmTransaction: async () => "success"
+  });
 
   const { services, api, appId, token, walletPrincipal } = await setupRelayerFlow(networkClient);
   const mint = await api.handle({
@@ -131,19 +137,16 @@ test("relayer retries submission once on retryable network error and succeeds", 
   const tx = [...services.store.transactions.values()][0];
   assert.equal(tx.providerTxId, "mock_chain_retry_success");
   assert.equal(tx.status, "success");
+  assert.equal(tx.explorerUrl, getSolanaExplorerTransactionUrl("mock_chain_retry_success"));
   assert.equal(services.store.getBalance(walletPrincipal, appId).balance, 450);
   assert.equal(services.store.getBalance(walletPrincipal, appId).reserved, 0);
 });
 
 test("relayer marks submitted transaction failed and releases credits", async () => {
-  const networkClient: RelayerNetworkClient = {
-    async sendTransaction() {
-      return { txHash: "mock_chain_failed" };
-    },
-    async getTransactionStatus(): Promise<Exclude<TransactionStatus, "submitted">> {
-      return "failed";
-    }
-  };
+  const networkClient = new MockRelayerNetwork({
+    sendTransaction: async () => ({ txHash: "mock_chain_failed" }),
+    confirmTransaction: async () => "failed"
+  });
 
   const { services, api, appId, token, walletPrincipal } = await setupRelayerFlow(networkClient);
   const mint = await api.handle({
@@ -168,15 +171,15 @@ test("relayer marks submitted transaction failed and releases credits", async ()
 
 test("relayer fails after one retryable submission retry and leaves no capture", async () => {
   let sendAttempts = 0;
-  const networkClient: RelayerNetworkClient = {
-    async sendTransaction() {
+  const networkClient = new MockRelayerNetwork({
+    sendTransaction: async () => {
       sendAttempts += 1;
       throw Object.assign(new Error("network still down"), { retryable: true });
     },
-    async getTransactionStatus(): Promise<Exclude<TransactionStatus, "submitted">> {
+    confirmTransaction: async () => {
       throw new Error("should not be called");
     }
-  };
+  });
 
   const { services, api, appId, token, walletPrincipal } = await setupRelayerFlow(networkClient);
   const mint = await api.handle({
@@ -194,4 +197,41 @@ test("relayer fails after one retryable submission retry and leaves no capture",
   assert.equal(services.store.creditLedger.filter((entry) => entry.type === "release").length, 1);
   assert.equal(services.store.getBalance(walletPrincipal, appId).balance, 500);
   assert.equal(services.store.getBalance(walletPrincipal, appId).reserved, 0);
+});
+
+test("relayer rejects apps without a sponsor wallet", async () => {
+  const services = buildServices({ relayerNetworkClient: new MockRelayerNetwork() });
+  await assert.rejects(
+    () =>
+      services.relayerService.submitTransaction({
+        appId: "missing-sponsor-app",
+        sponsorWalletPublicKey: null,
+        transaction: new Transaction()
+      }),
+    /sponsor wallet not provisioned/
+  );
+});
+
+test("relayer rejects insufficient sponsor-wallet SOL before submission", async () => {
+  const networkClient = new MockRelayerNetwork({
+    balanceLamports: 50_000,
+    feeLamports: 10_000
+  });
+  const { services, sponsorWallet, appId } = await setupRelayerFlow(networkClient);
+
+  await assert.rejects(
+    () =>
+      services.relayerService.submitTransaction({
+        appId,
+        sponsorWalletPublicKey: sponsorWallet.publicKey,
+        transaction: new Transaction().add(
+          new TransactionInstruction({
+            programId: new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"),
+            keys: [],
+            data: Buffer.from("insufficient-sol-test", "utf8")
+          })
+        )
+      }),
+    /insufficient SOL/
+  );
 });

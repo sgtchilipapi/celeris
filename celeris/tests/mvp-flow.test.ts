@@ -4,7 +4,7 @@ import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
 import type { WalletPrincipal } from "../types.js";
 import { createHostedPlayerSession } from "./helpers/auth.js";
-import { createDeveloperApp, configureDeveloperAction, signUpDeveloper } from "./helpers/developer.js";
+import { createDeveloperApp, configureDeveloperAction, provisionSponsorWallet, signUpDeveloper } from "./helpers/developer.js";
 
 function buildCompletedCheckoutEvent({
   eventId,
@@ -68,6 +68,11 @@ async function createFlowHarness() {
     actionType: "mint_item",
     cost: 50,
     executionMode: "managed"
+  });
+  await provisionSponsorWallet({
+    api,
+    accessToken: developer.accessToken,
+    appId
   });
 
   const checkout = await api.handle({

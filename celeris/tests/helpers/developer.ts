@@ -122,3 +122,28 @@ export async function configureDeveloperAction({
 
   return response.body;
 }
+
+export async function provisionSponsorWallet({
+  api,
+  accessToken,
+  appId
+}: {
+  api: ApiLike;
+  accessToken: string;
+  appId: string;
+}) {
+  const response = await api.handle({
+    method: "POST",
+    url: `/v1/developer/apps/${appId}/sponsor-wallet`,
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "idempotency-key": `developer-sponsor-wallet-${randomUUID()}`
+    }
+  });
+
+  if (response.statusCode !== 201 && response.statusCode !== 200) {
+    throw new Error(`failed to provision sponsor wallet: ${JSON.stringify(response.body)}`);
+  }
+
+  return response.body;
+}

@@ -1,3 +1,5 @@
+import type { Transaction } from "@solana/web3.js";
+
 export type UUID = string;
 export type JsonObject = Record<string, unknown>;
 export type WalletAddress = string;
@@ -230,6 +232,7 @@ export interface TransactionRecord {
   chainId: ChainId;
   providerTxId: string;
   rawTx: string;
+  explorerUrl?: string;
   status: TransactionStatus;
   summary: MintItemApprovalSummary;
   createdAt: string;
@@ -464,7 +467,7 @@ export interface ManagedMintItemRequest {
 }
 
 export interface ManagedMintItemResult {
-  tx: string;
+  preparedTransaction: PreparedSolanaTransaction;
   summary: MintItemApprovalSummary;
 }
 
@@ -493,16 +496,31 @@ export interface ExecutionResult {
   status: TransactionStatus;
 }
 
+export interface PreparedSolanaTransaction {
+  appId: UUID;
+  transaction: Transaction;
+  sponsorWalletPublicKey?: string | null;
+  debugMetadata?: JsonObject;
+}
+
 export interface RelayerSubmissionResult {
   providerTxId: string;
-  status: "submitted";
+  status: Exclude<TransactionStatus, "submitted">;
   signedTx: string;
+  explorerUrl: string;
   attempts: number;
 }
 
 export interface RelayerNetworkClient {
+  getBalance(walletAddress: string): Promise<number>;
+  getLatestBlockhash(): Promise<{ blockhash: string; lastValidBlockHeight: number }>;
+  getFeeForTransaction(transaction: Transaction): Promise<number | null>;
   sendTransaction(signedTx: string): Promise<{ txHash: string }>;
-  getTransactionStatus(txHash: string): Promise<Exclude<TransactionStatus, "submitted">>;
+  confirmTransaction(input: {
+    txHash: string;
+    blockhash: string;
+    lastValidBlockHeight: number;
+  }): Promise<Exclude<TransactionStatus, "submitted">>;
 }
 
 export interface AppMetricsUser {

@@ -7,3 +7,12 @@ dist/
 tmp/
 *.log
 .codex
+
+# Local Rust/Cargo toolchain state
+/.cargo/
+/.rustup/
+
+# Solana/Anchor generated output
+/solana/target/
+/solana/test-ledger/
+/solana/.anchor/

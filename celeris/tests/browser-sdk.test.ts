@@ -4,7 +4,7 @@ import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
 import { createBrowserClient } from "../sdk/browser-client.js";
 import { createHostedPlayerSession } from "./helpers/auth.js";
-import { createDeveloperApp, configureDeveloperAction, signUpDeveloper } from "./helpers/developer.js";
+import { createDeveloperApp, configureDeveloperAction, provisionSponsorWallet, signUpDeveloper } from "./helpers/developer.js";
 
 function buildCompletedCheckoutEvent({
   eventId,
@@ -141,6 +141,11 @@ test("player catalog and asset history routes support the standalone browser SDK
     actionType: "mint_item",
     cost: 50,
     executionMode: "managed"
+  });
+  await provisionSponsorWallet({
+    api,
+    accessToken: developer.accessToken,
+    appId
   });
 
   const checkout = await api.handle({

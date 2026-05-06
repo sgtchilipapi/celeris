@@ -6,7 +6,7 @@ import { AssetDeliveryService } from "../services/asset-delivery-service.js";
 import { ManagedActionService } from "../services/managed-action-service.js";
 import type { WalletPrincipal } from "../types.js";
 import { createHostedPlayerSession } from "./helpers/auth.js";
-import { createDeveloperApp, configureDeveloperAction, signUpDeveloper } from "./helpers/developer.js";
+import { createDeveloperApp, configureDeveloperAction, provisionSponsorWallet, signUpDeveloper } from "./helpers/developer.js";
 
 function buildCompletedCheckoutEvent({
   eventId,
@@ -74,6 +74,11 @@ async function createManagedActionHarness() {
     actionType: "mint_item",
     cost: 50,
     executionMode: "managed"
+  });
+  await provisionSponsorWallet({
+    api,
+    accessToken: developer.accessToken,
+    appId
   });
   await configureDeveloperAction({
     api,

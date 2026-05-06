@@ -2,9 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
-import type { RelayerNetworkClient, TransactionStatus, WalletPrincipal } from "../types.js";
+import type { WalletPrincipal } from "../types.js";
 import { createHostedPlayerSession } from "./helpers/auth.js";
-import { createDeveloperApp, configureDeveloperAction, signUpDeveloper } from "./helpers/developer.js";
+import { createDeveloperApp, configureDeveloperAction, provisionSponsorWallet, signUpDeveloper } from "./helpers/developer.js";
+import { MockRelayerNetwork } from "../services/mock-relayer-network.js";
 
 function buildCompletedCheckoutEvent({
   eventId,
@@ -49,17 +50,13 @@ type Harness = {
 };
 
 async function createHarness({
-  relayerNetworkClient = {
-    async sendTransaction() {
-      return { txHash: "mock_chain_e2e_success" };
-    },
-    async getTransactionStatus(): Promise<Exclude<TransactionStatus, "submitted">> {
-      return "success";
-    }
-  } satisfies RelayerNetworkClient,
+  relayerNetworkClient = new MockRelayerNetwork({
+    sendTransaction: async () => ({ txHash: "mock_chain_e2e_success" }),
+    confirmTransaction: async () => "success"
+  }),
   checkoutCredits = 500
 }: {
-  relayerNetworkClient?: RelayerNetworkClient;
+  relayerNetworkClient?: MockRelayerNetwork;
   checkoutCredits?: number;
 } = {}): Promise<Harness> {
   const services = buildServices({ relayerNetworkClient });
@@ -101,6 +98,11 @@ async function createHarness({
       executionMode: "managed"
     });
   }
+  await provisionSponsorWallet({
+    api,
+    accessToken: developer.accessToken,
+    appId
+  });
 
   const checkout = await api.handle({
     method: "POST",
@@ -289,14 +291,10 @@ test("end-to-end duplicate payment webhook only grants credits once", async () =
 
 test("end-to-end transaction failure returns error and does not create delivery record", async () => {
   const { services, api, appId, token, walletPrincipal } = await createHarness({
-    relayerNetworkClient: {
-      async sendTransaction() {
-        return { txHash: "mock_chain_e2e_failed" };
-      },
-      async getTransactionStatus(): Promise<Exclude<TransactionStatus, "submitted">> {
-        return "failed";
-      }
-    }
+    relayerNetworkClient: new MockRelayerNetwork({
+      sendTransaction: async () => ({ txHash: "mock_chain_e2e_failed" }),
+      confirmTransaction: async () => "failed"
+    })
   });
 
   const mint = await api.handle({
