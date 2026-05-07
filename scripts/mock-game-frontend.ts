@@ -15,17 +15,14 @@ const browserSdkPath = path.join(projectRoot, "celeris/sdk/browser-client.ts");
 const port = Number(process.env.MOCK_GAME_FRONTEND_PORT ?? 3002);
 const apiOrigin = process.env.CELERIS_API_ORIGIN ?? "http://localhost:3000";
 const hostedAuthOrigin = process.env.CELERIS_HOSTED_AUTH_ORIGIN ?? apiOrigin;
+const defaultFrontendOrigin = `http://localhost:${port}`;
 const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
 const defaultRunConfig = buildRunConfig({
   appId: "",
   appName: "Mock Game",
-  programId: "core_gameplay",
+  apiOrigin: "/api",
   hostedAuthOrigin,
-  allowedChainId: "solana:103",
-  firstTimeClaimActionId: "first_time_claim",
-  claimRewardsActionId: "claim_rewards",
-  mintItemActionId: "mint_item",
-  itemDefId: "iron_sword"
+  redirectUri: `${defaultFrontendOrigin}/auth/callback`
 });
 const runConfig = isMainModule ? parseArgs(process.argv.slice(2)) : defaultRunConfig;
 
@@ -245,13 +242,9 @@ function parseArgs(args: string[]) {
   const config = {
     appId: "",
     appName: "Mock Game",
-    programId: "core_gameplay",
+    apiOrigin: "/api",
     hostedAuthOrigin,
-    allowedChainId: "solana:103",
-    firstTimeClaimActionId: "first_time_claim",
-    claimRewardsActionId: "claim_rewards",
-    mintItemActionId: "mint_item",
-    itemDefId: "iron_sword"
+    redirectUri: `${defaultFrontendOrigin}/auth/callback`
   };
 
   for (const arg of args) {
@@ -263,32 +256,16 @@ function parseArgs(args: string[]) {
       config.appName = arg.slice("--app-name=".length);
       continue;
     }
-    if (arg.startsWith("--program-id=")) {
-      config.programId = arg.slice("--program-id=".length);
+    if (arg.startsWith("--api-origin=")) {
+      config.apiOrigin = arg.slice("--api-origin=".length);
       continue;
     }
     if (arg.startsWith("--hosted-auth-origin=")) {
       config.hostedAuthOrigin = arg.slice("--hosted-auth-origin=".length);
       continue;
     }
-    if (arg.startsWith("--allowed-chain-id=")) {
-      config.allowedChainId = arg.slice("--allowed-chain-id=".length);
-      continue;
-    }
-    if (arg.startsWith("--claim-rewards-action-id=")) {
-      config.claimRewardsActionId = arg.slice("--claim-rewards-action-id=".length);
-      continue;
-    }
-    if (arg.startsWith("--first-time-claim-action-id=")) {
-      config.firstTimeClaimActionId = arg.slice("--first-time-claim-action-id=".length);
-      continue;
-    }
-    if (arg.startsWith("--mint-item-action-id=")) {
-      config.mintItemActionId = arg.slice("--mint-item-action-id=".length);
-      continue;
-    }
-    if (arg.startsWith("--item-def-id=")) {
-      config.itemDefId = arg.slice("--item-def-id=".length);
+    if (arg.startsWith("--redirect-uri=")) {
+      config.redirectUri = arg.slice("--redirect-uri=".length);
     }
   }
 
@@ -302,34 +279,16 @@ function parseArgs(args: string[]) {
 export function buildRunConfig(config: {
   appId: string;
   appName: string;
-  programId: string;
+  apiOrigin: string;
   hostedAuthOrigin: string;
-  allowedChainId: string;
-  firstTimeClaimActionId: string;
-  claimRewardsActionId: string;
-  mintItemActionId: string;
-  itemDefId: string;
+  redirectUri: string;
 }) {
   return {
-    celeris: {
-      appId: config.appId,
-      appName: config.appName,
-      programId: config.programId,
-      authGateway: {
-        hostedAuthOrigin: config.hostedAuthOrigin,
-        redirectUri: "http://localhost:3002/auth/callback"
-      },
-      playerPolicy: {
-        provider: "privy",
-        allowedChainId: config.allowedChainId
-      },
-      actionIds: {
-        firstTimeClaim: config.firstTimeClaimActionId,
-        claimRewards: config.claimRewardsActionId,
-        mintItem: config.mintItemActionId
-      }
-    },
-    itemDefId: config.itemDefId
+    appId: config.appId,
+    appName: config.appName,
+    apiOrigin: config.apiOrigin,
+    hostedAuthOrigin: config.hostedAuthOrigin,
+    redirectUri: config.redirectUri
   };
 }
 
@@ -337,8 +296,8 @@ if (isMainModule) {
   createMockGameFrontendServer().listen(port, () => {
     console.log(`Mock game frontend listening on http://localhost:${port}`);
     console.log(`Proxying API requests to ${apiOrigin}`);
-    console.log(`Configured appId: ${runConfig.celeris.appId}`);
-    console.log(`Hosted auth origin: ${runConfig.celeris.authGateway.hostedAuthOrigin}`);
+    console.log(`Configured appId: ${runConfig.appId}`);
+    console.log(`Hosted auth origin: ${runConfig.hostedAuthOrigin}`);
   });
 }
 

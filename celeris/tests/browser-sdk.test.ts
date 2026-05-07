@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
 import { createBrowserClient } from "../sdk/browser-client.js";
+import { buildRunConfig } from "../../scripts/mock-game-frontend.js";
 import { createHostedPlayerSession } from "./helpers/auth.js";
 import { createDeveloperApp, configureDeveloperAction, provisionSponsorWallet, signUpDeveloper } from "./helpers/developer.js";
 
@@ -67,6 +68,7 @@ test("browser SDK composes player routes with bearer auth and rejects missing to
   });
   await client.actions.execute("mint_item", { itemDefId: "iron_sword" }, { idempotencyKey: "mint-1" });
   await client.assets.getHistory();
+  await client.transactions.list();
 
   assert.deepEqual(
     requests.map((entry) => entry.url),
@@ -76,7 +78,8 @@ test("browser SDK composes player routes with bearer auth and rejects missing to
       "/api/v1/apps/app_123/me/credits",
       "/api/v1/apps/app_123/checkout-sessions",
       "/api/v1/apps/app_123/actions/mint_item/execute",
-      "/api/v1/apps/app_123/me/asset-history"
+      "/api/v1/apps/app_123/me/asset-history",
+      "/api/v1/apps/app_123/transactions"
     ]
   );
 
@@ -108,6 +111,24 @@ test("browser SDK composes player routes with bearer auth and rejects missing to
   });
 
   await assert.rejects(() => missingTokenClient.me.get(), /player session is required/);
+});
+
+test("standalone frontend config only exposes public runtime values", () => {
+  const config = buildRunConfig({
+    appId: "app_123",
+    appName: "Hello Celeris",
+    apiOrigin: "/api",
+    hostedAuthOrigin: "http://localhost:3000",
+    redirectUri: "http://localhost:3002/auth/callback"
+  });
+
+  assert.deepEqual(config, {
+    appId: "app_123",
+    appName: "Hello Celeris",
+    apiOrigin: "/api",
+    hostedAuthOrigin: "http://localhost:3000",
+    redirectUri: "http://localhost:3002/auth/callback"
+  });
 });
 
 test("player catalog and asset history routes support the standalone browser SDK flow", async () => {
