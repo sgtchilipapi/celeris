@@ -428,6 +428,11 @@ Add in-repo program and deploy helpers, but keep the workflow manual.
   - provision the sponsor wallet
   - print the sponsor funding address
 
+Canonical helper scripts in-repo:
+
+- `scripts/provision-sponsor-wallet.ts`
+- `scripts/register-program.ts`
+
 ### Explicit non-goals
 
 Do not add:
@@ -435,6 +440,8 @@ Do not add:
 - local validator orchestration
 - a one-command full demo bootstrapper for this slice
 - localnet-only chain support
+
+The legacy `scripts/full-demo.ts` path should be treated as retired rather than canonical.
 
 ## Testing Plan
 
