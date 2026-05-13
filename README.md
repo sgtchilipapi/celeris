@@ -1,247 +1,75 @@
 # Celeris
+
 Celeris handles hosted player auth, wallet-keyed credits, and managed on-chain action execution for web3 games.
 
-### Built for indie web3 game devs
+The canonical demo flow is now the Solana devnet Hello Celeris slice:
 
-Built for server-authoritative games to strike the right balance between on-chain programs and off-chain execution.
+- hosted Celeris auth wrapping Privy
+- wallet address and credit balance
+- a paid `say_hello` managed action
+- a sponsor-wallet-backed Solana devnet transaction
+- an app-wide transaction feed with Explorer links
 
-Aimed primarily to help indie game devs monetize their games and execute on-chain actions without building wallet, payment, or transaction infrastructure from scratch.
-
-Game devs can focus on building gameplay and content.
-
-
-### TLDR;
-
-Celeris lets developers:
-
-- onboard players instantly
-- monetize through credits
-- execute on-chain actions without infra
-
-Build the game. Celeris handles money and execution.
-
-### Local services
+## Local services
 
 - API: `npm run dev`
-- Mock game frontend: `npm run dev:mock-game-frontend -- --app-id=<app-id>`
-- Full demo orchestrator: `npm run start:full-demo`
+- Standalone player frontend: `npm run dev:mock-game-frontend -- --app-id=<app-id>`
 
 For a real Stripe-hosted checkout in test mode, create a local `.env` or `.env.local` from [.env.example](.env.example) and set `STRIPE_SECRET_KEY`.
-Without it, checkout session creation stays in the local mock mode.
+Without it, checkout session creation stays in local mock mode.
 
-Hosted browser login now expects Privy runtime configuration at startup.
+Hosted browser login expects Privy runtime configuration at startup.
 Set `CELERIS_PRIVY_APP_ID`, `PRIVY_APP_SECRET`, `CELERIS_PRIVY_GOOGLE_LOGIN_ENABLED=true`, and `CELERIS_SESSION_SECRET` in local `.env` or `.env.local` before running the API outside tests.
 `PRIVY_VERIFIER_SECRET` remains accepted as a legacy alias, but the runtime now uses the Privy app secret server-side.
-Browser sign-in completes on `auth.celeris.pro`, uses Google through the Celeris-owned Privy app, returns a one-time auth code to the app frontend, and exchanges that code for a Celeris player session used on player API routes.
 
-`npm run start:full-demo` starts the API, provisions a demo developer and an app using Celeris-owned Privy auth, configures the default demo actions with execution modes, and opens the dashboard ready for manual verification.
-For the MVP demo path, the intended default chain is Solana Devnet (`solana:103`).
+## Canonical manual flow
 
-Use `-- --with-player-frontend` to boot the standalone player frontend, which now signs players in through the hosted Celeris auth flow and talks to the player API through the browser SDK.
-The hosted auth popup uses the real Privy browser SDK on `auth.celeris.pro`, signs the player in with Google, ensures the embedded wallet exists on the allowed chain, and maps the verified Privy subject to one shared Celeris user across apps before issuing the Celeris player session.
+Use this sequence for the supported devnet Hello Celeris demo:
 
-Pass `-- --no-tunnel` to skip Cloudflare tunnel startup locally.
+1. Start the API with `npm run dev`.
+2. Create a developer app through the developer API or dashboard.
+3. Provision the app sponsor wallet:
 
-Named Cloudflare tunnel setup for the full demo:
-
-- `CELERIS_HOSTED_AUTH_ORIGIN=https://auth.celeris.pro`
-- `CLOUDFLARED_AUTH_HOSTNAME=auth.celeris.pro`
-- `CLOUDFLARED_DEMO_FRONTEND_HOSTNAME=demo-frontend.celeris.pro`
-
-When `--with-player-frontend` is enabled, the demo script provisions the app to allow both:
-
-- `http://localhost:3002`
-- `https://demo-frontend.celeris.pro`
-
-
-### Overview
-
-Celeris is a backend service for game developers.
-
-It provides:
-
-- hosted player identity
-- wallet-keyed credit payments
-- action authorization
-- transaction execution
-- asset delivery tracking
-
-Developers keep full control of game logic. Celeris handles money and execution.
-
-### What it solves
-
-- players drop off due to wallet setup and funding
-- payments and credit systems are complex to build
-- on-chain execution requires relayers and gas handling
-- transaction flows can break gameplay
-
-Celeris removes these problems.
-
-### Future Direction
-
-The current MVP focuses on backend primitives and action orchestration.
-
-A possible long-term direction is for Celeris to evolve into a managed game backend platform with:
-
-- SDK-first frontend and backend integration
-- standard user-token-authenticated player APIs
-- an opinionated backend scaffold
-- baked-in database infrastructure
-- a frontend starter such as a Godot project
-- shared Celeris configuration
-- repo generation and optional hosting
-
-See [docs/sdk-pivot.md](docs/sdk-pivot.md) for the completed SDK/auth pivot and demo backend removal.
-See [docs/future-direction.md](docs/future-direction.md) for the full concept.
-See [docs/future-refactorings.md](docs/future-refactorings.md) for deferred architecture backlog items.
-
-### How it works
-
-Player starts game
-→ signs in through the Celeris-hosted auth gateway
-→ buys credits
-
-Player performs an action
-→ Celeris checks credits and reserves cost
-→ Celeris executes the configured managed action
-
-Celeris verifies and executes transaction
-→ updates credits
-→ records wallet delivery metadata
-→ returns result to game
-
-### Core concepts
-#### Wallet principal
-
-Players authenticate through the hosted Celeris auth flow.
-The resulting wallet address plus chain ID is the player reference for credits, actions, and delivery history.
-
-#### Credits
-
-Players purchase credits using card payments.
-Developers specify pricing and credit points.
-Actions consume credits.
-
-#### Actions
-
-Developers define actions, their cost, and the execution mode used by Celeris.
-
-#### PendingAction
-
-Represents a reserved and authorized action before execution.
-
-#### Execution
-
-Celeris verifies and submits managed transactions on-chain.
-
-#### Asset delivery
-
-Assets are delivered directly to player wallets, while Celeris records transaction and delivery metadata.
-
-# Why Blockchain and why Celeris
-
-Online games rely on centralized servers. This makes them vulnerable to:
-
-- server compromises  
-- exploits and cheating  
-- shutdowns that wipe entire economies  
-
-A strong community can disappear overnight if the game economy breaks.  
-Blockchain can help by adding **verifiable integrity** to parts of the system.
-
-However, using blockchain everywhere is not practical. It is:
-
-- costly  
-- slower than traditional systems  
-- difficult to integrate cleanly into gameplay  
-
----
-
-## The Blockchain Game Trilemma
-
-```
-           Security
-              ▲
-              │
-              │
-              │
-UX ◄──────────┼──────────► Decentralization
-              │
-              │
-              │
+```bash
+node --import tsx scripts/provision-sponsor-wallet.ts \
+  --app-id=<app-id> \
+  --username=<developer-username> \
+  --password=<developer-password>
 ```
 
-Most blockchain games struggle to find a balance between the three. 
+4. Fund the returned sponsor-wallet public key with devnet SOL.
+5. Deploy the in-repo Anchor program to Solana devnet.
+6. Register the deployed program:
 
-It is common for game devs to go fully decentralized sacrificing UX in the process.
-
----
-
-## Celeris approach
-
-Celeris focuses on balance, not extremes.
-
-- On-chain
-  - economy integrity  
-  - rule enforcement  
-  - validation  
-
-- Off-chain
-  - real-time gameplay  
-  - combat loops  
-  - player interactions  
-
-- Overlap
-  - summarized results  
-  - validated outcomes  
-
----
-
-## Why not fully on-chain
-
-Games are not just systems. They are experiences.
-
-Requiring a transaction for every action:
-
-- breaks immersion  
-- increases cost  
-- introduces friction  
-
-Example:
-
-A dungeon run should not require a transaction for every enemy killed.
-
----
-
-## The Celeris model
-
-Instead:
-
-```
-Play session (off-chain)
-↓
-Game server validates and summarizes results
-↓
-Summary is turned into a single transaction
-↓
-On-chain program validates against rules
-↓
-Deterministic rewards are applied
+```bash
+node --import tsx scripts/register-program.ts \
+  --app-id=<app-id> \
+  --program-id=<deployed-program-id> \
+  --username=<developer-username> \
+  --password=<developer-password>
 ```
 
-The blockchain enforces boundaries and fairness, not moment-to-moment gameplay.
+7. Configure the paid `say_hello` action with execution mode `managed`.
+8. Start the standalone frontend:
 
----
+```bash
+npm run dev:mock-game-frontend -- --app-id=<app-id>
+```
 
-## Unbreakable Play
+9. Sign in through hosted auth.
+10. Buy credits through the mock checkout path.
+11. Execute `Say Hello Celeris`.
+12. Inspect the resulting signature in Solana Explorer.
 
-Celeris introduces:
+The helper scripts also accept `--access-token=<developer-access-token>` instead of username/password auth.
 
-Unbreakable Play
+## Retired path
 
-A design principle where:
+`npm run start:full-demo` is intentionally retired for this slice.
+The repo no longer treats one-command demo orchestration as the canonical path because it conflicts with the manual devnet sponsor-wallet flow.
 
-- players start instantly  
-- gameplay is uninterrupted  
-- economies remain stable  
-- results are verifiable  
+## References
+
+- [docs/solana-devnet-hello-demo-plan.md](docs/solana-devnet-hello-demo-plan.md)
+- [docs/WORK_ORDERS/SDH-context.md](docs/WORK_ORDERS/SDH-context.md)
+- [mock-game-frontend/README.md](mock-game-frontend/README.md)

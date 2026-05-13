@@ -10,6 +10,8 @@
     "dev:mock-game-frontend": "node --watch --import tsx scripts/mock-game-frontend.ts",
     "start:mock-game-frontend": "node --import tsx scripts/mock-game-frontend.ts",
     "start:full-demo": "node --import tsx scripts/full-demo.ts",
+    "sui:move:build": "sui move build --path sui/hello-celeris",
+    "sui:move:test": "sui move test --path sui/hello-celeris",
     "test": "node --import tsx --test celeris/tests/*.test.ts",
     "test:e2e": "node --import tsx --test celeris/tests/end-to-end.test.ts",
     "test:watch": "node --watch --import tsx --test celeris/tests/*.test.ts",
@@ -22,7 +24,10 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
+    "@coral-xyz/anchor": "^0.32.1",
+    "@mysten/sui": "^2.16.2",
     "@privy-io/js-sdk-core": "^0.61.3",
-    "@privy-io/node": "^0.16.0"
+    "@privy-io/node": "^0.16.0",
+    "@solana/web3.js": "^1.98.4"
   }
 }

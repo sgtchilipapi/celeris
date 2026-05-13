@@ -70,8 +70,8 @@ export class PrivyAuthService {
   }
 
   private resolveWalletPrincipal(claims: PrivyClaims): WalletPrincipal {
-    const walletAddress = this.normalizeWalletAddress(claims.walletAddress);
     const chainId = this.normalizeChainId(claims.chainId);
+    const walletAddress = this.normalizeWalletAddress(claims.walletAddress, chainId);
 
     if (!walletAddress) {
       throw new AppError(401, "privy token missing wallet address");
@@ -86,11 +86,11 @@ export class PrivyAuthService {
     };
   }
 
-  private normalizeWalletAddress(walletAddress?: string | null): WalletAddress | null {
+  private normalizeWalletAddress(walletAddress?: string | null, chainId?: ChainId | null): WalletAddress | null {
     if (typeof walletAddress !== "string") {
       return null;
     }
-    const normalized = walletAddress.trim().toLowerCase();
+    const normalized = normalizeWalletAddressForChain(walletAddress, chainId);
     return normalized ? normalized : null;
   }
 
@@ -226,7 +226,7 @@ export function resolveHostedWalletPrincipalFromLinkedAccounts(
       }
 
       return {
-        walletAddress: account.address.trim().toLowerCase(),
+        walletAddress: normalizeWalletAddressForChain(account.address, chainId),
         chainId,
         chainFamily: account.chain_type,
         walletClientType: account.wallet_client_type
@@ -367,6 +367,17 @@ export function createPrivyTestToken(
   ).toString("base64url");
   const signature = crypto.createHmac("sha256", secret).update(`${header}.${payload}`).digest("base64url");
   return `${header}.${payload}.${signature}`;
+}
+
+function normalizeWalletAddressForChain(walletAddress: string, chainId?: ChainId | null) {
+  const trimmed = walletAddress.trim();
+  if (!trimmed) {
+    return "";
+  }
+  if (typeof chainId === "string" && chainId.startsWith("solana:")) {
+    return trimmed;
+  }
+  return trimmed.toLowerCase();
 }
 
 function toCaipChainId(chainType: string, chainId: string): ChainId | null {

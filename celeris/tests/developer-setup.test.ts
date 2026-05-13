@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { Keypair } from "@solana/web3.js";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
+import { deriveHelloCelerisStatePda } from "../solana/hello-celeris.js";
 import { createDeveloperApp, configureDeveloperAction, signUpDeveloper } from "./helpers/developer.js";
 
 test("POST /v1/developer/apps returns minimal setup data and stores player policy", async () => {
@@ -88,6 +90,148 @@ test("GET /v1/developer/apps/:appId exposes player policy, package, and action s
   assert.equal(setup.body.playerPolicy.allowedChainId, "solana:101");
   assert.equal(setup.body.creditPackages[0].credits, 500);
   assert.equal(setup.body.actions[0].executionMode, "server");
+  assert.equal(setup.body.registeredProgram, null);
+  assert.equal(setup.body.sponsorWallet, null);
+});
+
+test("developer can provision a sponsor wallet once and read its public summary without secret material", async () => {
+  const services = buildServices();
+  const api = createApi(services);
+  const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
+
+  const app = await createDeveloperApp({
+    api,
+    accessToken: developer.accessToken,
+    name: "Sponsor Wallet App",
+    priceCents: 499,
+    credits: 500,
+    allowedChainId: "solana:103"
+  });
+
+  const first = await api.handle({
+    method: "POST",
+    url: `/v1/developer/apps/${app.appId}/sponsor-wallet`,
+    headers: {
+      authorization: `Bearer ${developer.accessToken}`,
+      "idempotency-key": "sponsor-wallet-1"
+    }
+  });
+  const second = await api.handle({
+    method: "POST",
+    url: `/v1/developer/apps/${app.appId}/sponsor-wallet`,
+    headers: {
+      authorization: `Bearer ${developer.accessToken}`,
+      "idempotency-key": "sponsor-wallet-2"
+    }
+  });
+  const read = await api.handle({
+    method: "GET",
+    url: `/v1/developer/apps/${app.appId}/sponsor-wallet`,
+    headers: { authorization: `Bearer ${developer.accessToken}` }
+  });
+
+  assert.equal(first.statusCode, 201);
+  assert.equal(second.statusCode, 200);
+  assert.equal(first.body.publicKey, second.body.publicKey);
+  assert.equal(read.body.publicKey, first.body.publicKey);
+  assert.equal(first.body.chainFamily, "solana");
+  assert.equal(first.body.cluster, "devnet");
+  assert.equal("secretKey" in first.body, false);
+  assert.deepEqual(Object.keys(first.body).sort(), ["appId", "chainFamily", "cluster", "createdAt", "publicKey", "updatedAt"]);
+
+  const storedSecret = services.store.getSponsorWalletSecret(app.appId as string);
+  assert.ok(storedSecret);
+  assert.equal(Array.isArray(storedSecret?.secretKey), true);
+  assert.equal(storedSecret?.secretKey.length, 64);
+});
+
+test("developer can register a Solana devnet program and app setup includes both SDH-02 resources", async () => {
+  const services = buildServices();
+  const api = createApi(services);
+  const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
+
+  const app = await createDeveloperApp({
+    api,
+    accessToken: developer.accessToken,
+    name: "Hello Program App",
+    priceCents: 499,
+    credits: 500,
+    allowedChainId: "solana:103"
+  });
+
+  const sponsorWallet = await api.handle({
+    method: "POST",
+    url: `/v1/developer/apps/${app.appId}/sponsor-wallet`,
+    headers: {
+      authorization: `Bearer ${developer.accessToken}`,
+      "idempotency-key": "setup-sponsor-wallet"
+    }
+  });
+
+  const programId = Keypair.generate().publicKey.toBase58();
+  const registration = await api.handle({
+    method: "PUT",
+    url: `/v1/developer/apps/${app.appId}/program`,
+    headers: {
+      authorization: `Bearer ${developer.accessToken}`,
+      "idempotency-key": "program-register-1"
+    },
+    body: {
+      programId
+    }
+  });
+  const read = await api.handle({
+    method: "GET",
+    url: `/v1/developer/apps/${app.appId}/program`,
+    headers: { authorization: `Bearer ${developer.accessToken}` }
+  });
+  const setup = await api.handle({
+    method: "GET",
+    url: `/v1/developer/apps/${app.appId}`,
+    headers: { authorization: `Bearer ${developer.accessToken}` }
+  });
+
+  assert.equal(registration.statusCode, 200);
+  assert.equal(registration.body.programId, programId);
+  assert.equal(registration.body.chainFamily, "solana");
+  assert.equal(registration.body.cluster, "devnet");
+  assert.equal(
+    registration.body.statePda,
+    deriveHelloCelerisStatePda({ appId: app.appId as string, programId }).statePda.toBase58()
+  );
+  assert.deepEqual(read.body, registration.body);
+  assert.equal(setup.body.registeredProgram.programId, programId);
+  assert.equal(setup.body.sponsorWallet.publicKey, sponsorWallet.body.publicKey);
+});
+
+test("invalid Solana program IDs are rejected", async () => {
+  const services = buildServices();
+  const api = createApi(services);
+  const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
+
+  const app = await createDeveloperApp({
+    api,
+    accessToken: developer.accessToken,
+    name: "Invalid Program App",
+    priceCents: 499,
+    credits: 500,
+    allowedChainId: "solana:103"
+  });
+
+  const response = await api.handle({
+    method: "PUT",
+    url: `/v1/developer/apps/${app.appId}/program`,
+    headers: {
+      authorization: `Bearer ${developer.accessToken}`,
+      "idempotency-key": "program-register-invalid"
+    },
+    body: {
+      programId: "not-a-solana-address"
+    }
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.body.error, "invalid Solana program ID");
 });
 
 test("PUT and DELETE /v1/developer/apps/:appId/actions/:actionType update and remove configured actions", async () => {

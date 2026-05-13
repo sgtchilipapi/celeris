@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { Keypair } from "@solana/web3.js";
 import { AppError } from "./errors.js";
 import { normalizeAllowedOrigins, normalizeAllowedRedirectUris } from "./auth-gateway-service.js";
+import { deriveHelloCelerisStatePda, parseSolanaProgramId } from "../solana/hello-celeris.js";
 import type {
   AppListItem,
   AppSetupDetails,
@@ -10,8 +12,9 @@ import type {
   DeveloperCredentialsRequest,
   DeveloperSessionResponse,
   MemoryStore,
-  StoredAppSetup
-  ,
+  RegisteredProgram,
+  SponsorWallet,
+  StoredAppSetup,
   UpdateActionRequest,
   UpdateAppRequest
 } from "../types.js";
@@ -131,8 +134,114 @@ export class AppService {
       apiKey: app.apiKey,
       playerPolicy,
       creditPackages: [...this.store.creditPackages.values()].filter((pkg) => pkg.appId === appId),
-      actions: [...this.store.actionTypes.values()].filter((action) => action.appId === appId)
+      actions: [...this.store.actionTypes.values()].filter((action) => action.appId === appId),
+      registeredProgram: this.store.getRegisteredProgram(appId),
+      sponsorWallet: this.store.getSponsorWallet(appId)
     };
+  }
+
+  getProgram(appId: string): RegisteredProgram {
+    this.requireApp(appId);
+    const registeredProgram = this.store.getRegisteredProgram(appId);
+    if (!registeredProgram) {
+      throw new AppError(404, "registered program not found");
+    }
+    return registeredProgram;
+  }
+
+  registerProgram({
+    appId,
+    programId,
+    idempotencyKey
+  }: {
+    appId: string;
+    programId: string;
+    idempotencyKey: string;
+  }): RegisteredProgram {
+    const cached = this.store.getIdempotent<RegisteredProgram>(`program:${appId}`, idempotencyKey);
+    if (cached) {
+      return cached;
+    }
+
+    this.requireApp(appId);
+
+    let parsedProgramId;
+    try {
+      parsedProgramId = parseSolanaProgramId(programId);
+    } catch {
+      throw new AppError(400, "invalid Solana program ID");
+    }
+
+    const existing = this.store.getRegisteredProgram(appId);
+    const registration = this.store.saveRegisteredProgram({
+      appId,
+      chainFamily: "solana",
+      cluster: "devnet",
+      programId: parsedProgramId.toBase58(),
+      statePda: deriveHelloCelerisStatePda({
+        appId,
+        programId: parsedProgramId
+      }).statePda.toBase58(),
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+
+    this.store.setIdempotent(`program:${appId}`, idempotencyKey, registration);
+    return registration;
+  }
+
+  getSponsorWallet(appId: string): SponsorWallet {
+    this.requireApp(appId);
+    const sponsorWallet = this.store.getSponsorWallet(appId);
+    if (!sponsorWallet) {
+      throw new AppError(404, "sponsor wallet not found");
+    }
+    return sponsorWallet;
+  }
+
+  provisionSponsorWallet({
+    appId,
+    idempotencyKey
+  }: {
+    appId: string;
+    idempotencyKey: string;
+  }): { sponsorWallet: SponsorWallet; created: boolean } {
+    const cached = this.store.getIdempotent<{ sponsorWallet: SponsorWallet; created: boolean }>(
+      `sponsor-wallet:${appId}`,
+      idempotencyKey
+    );
+    if (cached) {
+      return cached;
+    }
+
+    this.requireApp(appId);
+
+    const existing = this.store.getSponsorWallet(appId);
+    if (existing) {
+      const result = { sponsorWallet: existing, created: false };
+      this.store.setIdempotent(`sponsor-wallet:${appId}`, idempotencyKey, result);
+      return result;
+    }
+
+    const now = new Date().toISOString();
+    const keypair = Keypair.generate();
+    this.store.saveSponsorWalletSecret({
+      appId,
+      secretKey: Array.from(keypair.secretKey),
+      createdAt: now,
+      updatedAt: now
+    });
+    const sponsorWallet = this.store.saveSponsorWallet({
+      appId,
+      chainFamily: "solana",
+      cluster: "devnet",
+      publicKey: keypair.publicKey.toBase58(),
+      createdAt: now,
+      updatedAt: now
+    });
+    const result = { sponsorWallet, created: true };
+    this.store.setIdempotent(`sponsor-wallet:${appId}`, idempotencyKey, result);
+    return result;
   }
 
   listApps(developerId?: string): AppListItem[] {

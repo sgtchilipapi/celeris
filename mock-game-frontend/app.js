@@ -1,86 +1,49 @@
 import { createBrowserClient } from "/sdk/browser-client.ts";
 
 const loginViewEl = document.getElementById("login-view");
-const gameViewEl = document.getElementById("game-view");
-const homeViewEl = document.getElementById("home-view");
-const charactersViewEl = document.getElementById("characters-view");
-const questsViewEl = document.getElementById("quests-view");
-const inventoryViewEl = document.getElementById("inventory-view");
-const characterDetailViewEl = document.getElementById("character-detail-view");
-
-const loginFormEl = document.getElementById("login-form");
+const appViewEl = document.getElementById("app-view");
+const heroTitleEl = document.getElementById("hero-title");
+const heroSubtitleEl = document.getElementById("hero-subtitle");
 const loginSubtitleEl = document.getElementById("login-subtitle");
-const walletChainCopyEl = document.getElementById("wallet-chain-copy");
 const loginFeedbackEl = document.getElementById("login-feedback");
-const connectWalletBtn = document.getElementById("connect-wallet-btn");
+const appFeedbackEl = document.getElementById("app-feedback");
+const signInBtn = document.getElementById("sign-in-btn");
 const signOutBtn = document.getElementById("sign-out-btn");
+const walletAddressEl = document.getElementById("wallet-address");
+const walletChainEl = document.getElementById("wallet-chain");
+const creditBalanceEl = document.getElementById("credit-balance");
+const creditPackageEl = document.getElementById("credit-package");
+const programIdEl = document.getElementById("program-id");
+const programClusterEl = document.getElementById("program-cluster");
+const actionCostEl = document.getElementById("action-cost");
+const appNameChipEl = document.getElementById("app-name-chip");
+const purchaseCreditsBtn = document.getElementById("purchase-credits-btn");
+const sayHelloFormEl = document.getElementById("say-hello-form");
+const usernameInputEl = document.getElementById("username-input");
+const sayHelloBtn = document.getElementById("say-hello-btn");
+const refreshFeedBtn = document.getElementById("refresh-feed-btn");
+const transactionsEmptyEl = document.getElementById("transactions-empty");
+const transactionsListEl = document.getElementById("transactions-list");
 
-const gameTitleEl = document.getElementById("game-title");
-const gameFeedbackEl = document.getElementById("game-feedback");
-const playerWalletEl = document.getElementById("player-wallet");
-const balanceEl = document.getElementById("balance-value");
-const openCreditsModalBtn = document.getElementById("open-credits-modal-btn");
-
-const charactersPanelBtn = document.getElementById("characters-panel-btn");
-const questsPanelBtn = document.getElementById("quests-panel-btn");
-const inventoryPanelBtn = document.getElementById("inventory-panel-btn");
-const charactersBackBtn = document.getElementById("characters-back-btn");
-const questsBackBtn = document.getElementById("quests-back-btn");
-const inventoryBackBtn = document.getElementById("inventory-back-btn");
-const charactersGridEl = document.getElementById("characters-grid");
-const questsListEl = document.getElementById("quests-list");
-const inventoryGoldTotalEl = document.getElementById("inventory-gold-total");
-const inventoryItemsTotalEl = document.getElementById("inventory-items-total");
-const inventoryListEl = document.getElementById("inventory-list");
-const mintItemBtn = document.getElementById("mint-item-btn");
-
-const detailCharacterNameEl = document.getElementById("detail-character-name");
-const characterDetailBackBtn = document.getElementById("character-detail-back-btn");
-const detailPortraitIconEl = document.getElementById("detail-portrait-icon");
-const characterStatsListEl = document.getElementById("character-stats-list");
-const characterEquipmentListEl = document.getElementById("character-equipment-list");
-const questPanelTitleEl = document.getElementById("quest-panel-title");
-const questListStateEl = document.getElementById("quest-list-state");
-const questActiveStateEl = document.getElementById("quest-active-state");
-const questCompleteStateEl = document.getElementById("quest-complete-state");
-const questEventTextEl = document.getElementById("quest-event-text");
-const questProgressTextEl = document.getElementById("quest-progress-text");
-const enemyStatsListEl = document.getElementById("enemy-stats-list");
-const questRewardsListEl = document.getElementById("quest-rewards-list");
-const fightBtn = document.getElementById("fight-btn");
-const runBtn = document.getElementById("run-btn");
-const abandonQuestBtn = document.getElementById("abandon-quest-btn");
-const questCompleteTextEl = document.getElementById("quest-complete-text");
-const questExperienceGainedEl = document.getElementById("quest-experience-gained");
-const questCompleteRewardsListEl = document.getElementById("quest-complete-rewards-list");
-const claimRewardsBtn = document.getElementById("claim-rewards-btn");
-
-const creditsModalEl = document.getElementById("credits-modal");
-const creditsFormEl = document.getElementById("credits-form");
-const closeCreditsModalBtn = document.getElementById("close-credits-modal-btn");
-const creditsAppNameEl = document.getElementById("credits-app-name");
-const creditsPackageAmountEl = document.getElementById("credits-package-amount");
-const creditsPackagePriceEl = document.getElementById("credits-package-price");
-const creditsFeedbackEl = document.getElementById("credits-feedback");
-const continueCheckoutBtn = document.getElementById("continue-checkout-btn");
-
-const characterModalEl = document.getElementById("character-modal");
-const characterFormEl = document.getElementById("character-form");
-const closeCharacterModalBtn = document.getElementById("close-character-modal-btn");
-const characterNameInputEl = document.getElementById("character-name-input");
-const characterClassSelectEl = document.getElementById("character-class-select");
-const characterPortraitIconEl = document.getElementById("character-portrait-icon");
-const characterFeedbackEl = document.getElementById("character-feedback");
-const createCharacterBtn = document.getElementById("create-character-btn");
-
-const sessionStorageKey = "mock-game-frontend-session";
 const checkoutStorageKey = "mock-game-frontend-checkout";
-const charactersStorageKey = "mock-game-frontend-characters";
+
+const state = {
+  config: null,
+  sdk: null,
+  session: null,
+  me: null,
+  catalog: null,
+  balance: null,
+  transactions: [],
+  checkout: null,
+  pendingAction: false
+};
 
 function createUuid() {
   if (globalThis.crypto?.randomUUID) {
     return globalThis.crypto.randomUUID();
   }
+
   const bytes = new Uint8Array(16);
   globalThis.crypto.getRandomValues(bytes);
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
@@ -95,1114 +58,353 @@ function createUuid() {
   ].join("-");
 }
 
-const classIcons = {
-  fighter: '<svg viewBox="0 0 24 24"><path d="M14.5 3 21 9.5l-2 2-1.5-1.5-3 3L17 15.5 8.5 24 7 22.5l2.5-2.5-3-3L5 18.5 0 13.5 8.5 5l2.5 2.5 3-3L12.5 3h2Z" /></svg>',
-  ranger: '<svg viewBox="0 0 24 24"><path d="M20.5 3A8.5 8.5 0 0 0 12 11.5v1.09L2.29 22.29l1.42 1.42L7 20.41V23h2v-4.59L12 15.41V18h2v-4.59L17 10.41V13h2V8.41A8.47 8.47 0 0 0 20.5 3Zm0 2A6.5 6.5 0 1 1 14 11.5 6.5 6.5 0 0 1 20.5 5Z" /></svg>',
-  mage: '<svg viewBox="0 0 24 24"><path d="m12 2 2.4 4.86L20 7.67l-4 3.9.94 5.52L12 14.77 7.06 17.1 8 11.57l-4-3.9 5.6-.81L12 2Zm-5 17h10v2H7v-2Z" /></svg>'
-};
-
-const classDefinitions = {
-  fighter: {
-    label: "Fighter",
-    hp: 160,
-    mana: 30,
-    stamina: 120,
-    resilience: 10,
-    manaCost: 2,
-    staminaCost: 14,
-    equipment: {
-      headgear: "Cloth Cap",
-      armor: "Leather Armor",
-      weapon: "Crude Sword"
-    }
-  },
-  ranger: {
-    label: "Ranger",
-    hp: 120,
-    mana: 55,
-    stamina: 150,
-    resilience: 7,
-    manaCost: 8,
-    staminaCost: 12,
-    equipment: {
-      headgear: "Cloth Cap",
-      armor: "Leather Armor",
-      weapon: "Crude Bow"
-    }
-  },
-  mage: {
-    label: "Mage",
-    hp: 95,
-    mana: 165,
-    stamina: 90,
-    resilience: 5,
-    manaCost: 14,
-    staminaCost: 8,
-    equipment: {
-      headgear: "Cloth Cap",
-      armor: "Leather Armor",
-      weapon: "Crude Staff"
-    }
-  }
-};
-
-const questDefinitions = {
-  "dragon-dungeon": {
-    title: "Dragon Dungeon",
-    description: "Descend into a volcanic keep where drakes, wyrms, and a wyvern guard the hoard.",
-    experience: 620,
-    rewards: [
-      "Gold: 420",
-      "Armor (1) (Unidentified)",
-      "Sword (1) (Unidentified)",
-      "Headgear (1) (Unidentified)",
-      "Dragon Scale (3)"
-    ],
-    enemies: [
-      { name: "Cinder Bat", text: "A Cinder Bat sweeps down from the cavern roof. What do you do?", hp: 42, attack: 14, magicPressure: 1, staminaPressure: 5 },
-      { name: "Ash Drakeling", text: "An Ash Drakeling snaps its jaws and rushes your flank. What do you do?", hp: 58, attack: 18, magicPressure: 2, staminaPressure: 7 },
-      { name: "Basalt Wyrmguard", text: "A Basalt Wyrmguard blocks the bridge with molten armor. What do you do?", hp: 74, attack: 22, magicPressure: 3, staminaPressure: 9 },
-      { name: "Silver Wyvern", text: "A Silver Wyvern appeared. What do you do?", hp: 92, attack: 25, magicPressure: 4, staminaPressure: 10 },
-      { name: "Ember Dragon", text: "The Ember Dragon crashes into the chamber and exhales flame. What do you do?", hp: 118, attack: 30, magicPressure: 7, staminaPressure: 13 }
-    ]
-  },
-  "monster-plains": {
-    title: "Monster Plains",
-    description: "Cross the hunting fields where roaming beasts and raiders gather in waves.",
-    experience: 430,
-    rewards: [
-      "Gold: 260",
-      "Armor (1) (Unidentified)",
-      "Sword (1) (Unidentified)",
-      "Headgear (1) (Unidentified)",
-      "Monster Claw (4)"
-    ],
-    enemies: [
-      { name: "Horned Boar", text: "A Horned Boar lowers its tusks and charges. What do you do?", hp: 38, attack: 12, magicPressure: 0, staminaPressure: 5 },
-      { name: "Dust Lynx", text: "A Dust Lynx circles through the grass with blinding speed. What do you do?", hp: 46, attack: 15, magicPressure: 1, staminaPressure: 6 },
-      { name: "Stoneback Ram", text: "A Stoneback Ram pounds the ground and closes the gap. What do you do?", hp: 64, attack: 19, magicPressure: 1, staminaPressure: 8 },
-      { name: "Plains Marauder", text: "A Plains Marauder draws steel and demands tribute. What do you do?", hp: 72, attack: 21, magicPressure: 2, staminaPressure: 9 },
-      { name: "Alpha Basilisk", text: "The Alpha Basilisk fixes you with a petrifying stare. What do you do?", hp: 98, attack: 26, magicPressure: 5, staminaPressure: 11 }
-    ]
-  },
-  "ghost-marsh": {
-    title: "Ghost Marsh",
-    description: "Push through cursed bogs where spirits and drowned revenants rise without warning.",
-    experience: 540,
-    rewards: [
-      "Gold: 340",
-      "Armor (1) (Unidentified)",
-      "Sword (1) (Unidentified)",
-      "Headgear (1) (Unidentified)",
-      "Spectral Resin (2)"
-    ],
-    enemies: [
-      { name: "Bog Wisp", text: "A Bog Wisp flickers over the water and lures you forward. What do you do?", hp: 34, attack: 11, magicPressure: 4, staminaPressure: 3 },
-      { name: "Mire Stalker", text: "A Mire Stalker slips from the reeds with poisoned claws. What do you do?", hp: 52, attack: 17, magicPressure: 2, staminaPressure: 7 },
-      { name: "Drowned Knight", text: "A Drowned Knight drags its rusted blade through the mud. What do you do?", hp: 70, attack: 20, magicPressure: 3, staminaPressure: 8 },
-      { name: "Pale Banshee", text: "A Pale Banshee wails and the marsh answers in echoes. What do you do?", hp: 78, attack: 23, magicPressure: 6, staminaPressure: 7 },
-      { name: "Grave Matron", text: "The Grave Matron rises from the black water and calls the dead to her side. What do you do?", hp: 104, attack: 28, magicPressure: 8, staminaPressure: 10 }
-    ]
-  }
-};
-
-const state = {
-  token: null,
-  walletAddress: null,
-  chainId: null,
-  allowedChainId: null,
-  sdk: null,
-  appId: null,
-  programId: null,
-  appName: "Mock Game",
-  packageId: null,
-  itemDefId: null,
-  hostedAuthOrigin: null,
-  redirectUri: null,
-  firstTimeClaimActionId: null,
-  mintItemActionId: null,
-  claimRewardsActionId: null,
-  packageCredits: null,
-  packageAmountCents: null,
-  firstTimeClaimCost: null,
-  claimRewardsCost: null,
-  pendingCheckout: null,
-  currentView: "home",
-  characters: [],
-  selectedCharacterId: null,
-  assetHistory: []
-};
-
-const changeIcon = `
-  <svg viewBox="0 0 24 24" aria-hidden="true">
-    <path d="M4 17.25V20h2.75L17.81 8.94l-2.75-2.75L4 17.25Zm14.71-9.04a1 1 0 0 0 0-1.41l-1.5-1.5a1 1 0 0 0-1.41 0l-1.09 1.09 2.75 2.75 1.25-1.18Z" />
-  </svg>
-`;
-
-function randomKey(prefix) {
-  return `${prefix}-${createUuid()}`;
-}
-
-function showFeedback(element, message) {
+function setFeedback(element, message) {
   if (!message) {
     element.hidden = true;
     element.textContent = "";
     return;
   }
+
   element.hidden = false;
   element.textContent = message;
 }
 
-function safeOrigin(url) {
-  if (!url) {
-    return null;
-  }
-  try {
-    return new URL(url).origin;
-  } catch {
-    return null;
-  }
-}
-
-function setView(name) {
-  loginViewEl.hidden = name !== "login";
-  gameViewEl.hidden = name !== "game";
-}
-
-function setGameView(name) {
-  state.currentView = name;
-  homeViewEl.hidden = name !== "home";
-  charactersViewEl.hidden = name !== "characters";
-  questsViewEl.hidden = name !== "quests";
-  inventoryViewEl.hidden = name !== "inventory";
-  characterDetailViewEl.hidden = name !== "character-detail";
-}
-
-function supportsCreditsDialog() {
-  return typeof creditsModalEl?.showModal === "function";
-}
-
-function supportsCharacterDialog() {
-  return typeof characterModalEl?.showModal === "function";
-}
-
-function formatCurrency(cents) {
-  return `$${(Number(cents) / 100).toFixed(2)}`;
+function setAuthenticatedView(isAuthenticated) {
+  loginViewEl.hidden = isAuthenticated;
+  appViewEl.hidden = !isAuthenticated;
 }
 
 function formatWallet(walletAddress) {
   if (!walletAddress) {
     return "-";
   }
-  return `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`;
+  if (walletAddress.length <= 14) {
+    return walletAddress;
+  }
+  return `${walletAddress.slice(0, 8)}...${walletAddress.slice(-6)}`;
 }
 
-function formatDate(value) {
-  return new Date(value).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit"
-  });
+function formatCurrency(amountCents) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD"
+  }).format((amountCents ?? 0) / 100);
 }
 
-async function fetchJson(path, init = {}) {
-  const response = await fetch(path, init);
+function formatTimestamp(value) {
+  if (!value) {
+    return "Pending confirmation";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(date);
+}
+
+function getConfiguredAction() {
+  return state.catalog?.actions?.find((action) => action.actionType === "say_hello") ?? null;
+}
+
+function getConfiguredPackage() {
+  return state.catalog?.creditPackages?.[0] ?? null;
+}
+
+function updateButtons() {
+  const hasSession = Boolean(state.session);
+  const action = getConfiguredAction();
+  const creditPackage = getConfiguredPackage();
+  const username = usernameInputEl.value.trim();
+
+  purchaseCreditsBtn.disabled = !hasSession || !creditPackage;
+  sayHelloBtn.disabled = !hasSession || !action || username.length === 0 || state.pendingAction;
+}
+
+function renderSummary() {
+  const action = getConfiguredAction();
+  const creditPackage = getConfiguredPackage();
+  const registeredProgram = state.catalog?.registeredProgram ?? null;
+  const balance = state.balance?.balance ?? 0;
+  const reserved = state.balance?.reserved ?? 0;
+
+  heroTitleEl.textContent = state.catalog?.name ?? state.config?.appName ?? "Hello Celeris";
+  loginSubtitleEl.textContent = `Use the Celeris-hosted auth gateway for ${state.catalog?.name ?? state.config?.appName ?? "this app"}.`;
+  appNameChipEl.textContent = `App: ${state.catalog?.name ?? state.config?.appName ?? "-"}`;
+
+  creditBalanceEl.textContent = String(balance);
+  creditPackageEl.textContent = creditPackage
+    ? `${creditPackage.credits} credits for ${formatCurrency(creditPackage.priceCents)}${reserved > 0 ? ` • ${reserved} reserved` : ""}`
+    : "No credit package configured";
+
+  actionCostEl.textContent = action ? `Action cost: ${action.cost} credits` : "Action cost: not configured";
+
+  if (registeredProgram) {
+    programIdEl.textContent = registeredProgram.programId;
+    programClusterEl.textContent = `${registeredProgram.chainFamily} ${registeredProgram.cluster} • state ${registeredProgram.statePda}`;
+  } else {
+    programIdEl.textContent = "Unregistered";
+    programClusterEl.textContent = "Solana devnet";
+  }
+
+  if (state.me) {
+    walletAddressEl.textContent = state.me.walletAddress;
+    walletChainEl.textContent = `${formatWallet(state.me.walletAddress)} • ${state.me.chainId}`;
+  } else {
+    walletAddressEl.textContent = "-";
+    walletChainEl.textContent = "-";
+  }
+
+  updateButtons();
+}
+
+function renderTransactions() {
+  const transactions = Array.isArray(state.transactions) ? state.transactions : [];
+  transactionsListEl.replaceChildren();
+  transactionsEmptyEl.hidden = transactions.length > 0;
+
+  for (const transaction of transactions) {
+    const card = document.createElement("article");
+    card.className = "transaction-card";
+
+    const header = document.createElement("header");
+
+    const message = document.createElement("p");
+    message.className = "transaction-message";
+    message.textContent = transaction.message || `${transaction.actionId} submitted`;
+
+    const status = document.createElement("span");
+    status.className = `status-badge status-${transaction.status}`;
+    status.textContent = transaction.status;
+
+    header.append(message, status);
+
+    const meta = document.createElement("div");
+    meta.className = "transaction-meta";
+
+    const wallet = document.createElement("span");
+    wallet.textContent = `${transaction.username ?? "Unknown"} • ${formatWallet(transaction.walletAddress)}`;
+
+    const timestamp = document.createElement("span");
+    timestamp.textContent = transaction.confirmedAt
+      ? `Confirmed ${formatTimestamp(transaction.confirmedAt)}`
+      : `Submitted ${formatTimestamp(transaction.submittedAt)}`;
+
+    meta.append(wallet, timestamp);
+    card.append(header, meta);
+
+    const signature = document.createElement("div");
+    signature.className = "transaction-meta";
+
+    const signatureText = document.createElement("span");
+    signatureText.textContent = `Signature: ${transaction.providerTxId}`;
+    signature.append(signatureText);
+
+    if (transaction.explorerUrl) {
+      const link = document.createElement("a");
+      link.href = transaction.explorerUrl;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      link.textContent = "Open in Explorer";
+      signature.append(link);
+    }
+
+    card.append(signature);
+    transactionsListEl.append(card);
+  }
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url);
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(payload?.error || `request failed: ${path}`);
+    throw new Error(payload?.error || `request failed for ${url}`);
   }
   return payload;
 }
 
-function persistSession() {
-  localStorage.setItem(
-    sessionStorageKey,
-    JSON.stringify({
-      token: state.token,
-      walletAddress: state.walletAddress,
-      chainId: state.chainId
-    })
-  );
-}
-
-function clearSession() {
-  state.token = null;
-  state.walletAddress = null;
-  state.chainId = null;
-  state.sdk?.auth.logout?.();
-  localStorage.removeItem(sessionStorageKey);
-}
-
-function restoreSession() {
-  const session = state.sdk?.auth.getSession?.() ?? null;
-  if (!session) {
-    return false;
-  }
-
-  state.token = session.accessToken ?? null;
-  state.walletAddress = session.player?.walletAddress ?? null;
-  state.chainId = session.player?.chainId ?? null;
-  if (!state.token || !state.walletAddress || !state.chainId) {
-    clearSession();
-    return false;
-  }
-
-  playerWalletEl.textContent = formatWallet(state.walletAddress);
-  return true;
-}
-
-function persistPendingCheckout(checkout) {
-  state.pendingCheckout = checkout;
+function persistCheckout(checkout) {
+  state.checkout = checkout;
   localStorage.setItem(checkoutStorageKey, JSON.stringify(checkout));
 }
 
-function restorePendingCheckout() {
+function clearCheckout() {
+  state.checkout = null;
+  localStorage.removeItem(checkoutStorageKey);
+}
+
+function restoreCheckout() {
   const raw = localStorage.getItem(checkoutStorageKey);
   if (!raw) {
     return;
   }
 
   try {
-    state.pendingCheckout = JSON.parse(raw);
+    state.checkout = JSON.parse(raw);
   } catch {
-    localStorage.removeItem(checkoutStorageKey);
-    state.pendingCheckout = null;
+    clearCheckout();
   }
 }
 
-function clearPendingCheckout() {
-  state.pendingCheckout = null;
-  localStorage.removeItem(checkoutStorageKey);
-}
-
-function getCharactersKey() {
-  if (!state.appId || !state.walletAddress) {
-    return null;
-  }
-  return `${charactersStorageKey}:${state.appId}:${state.walletAddress}`;
-}
-
-function normalizeCharacter(record) {
-  const classType = classDefinitions[record?.classType] ? record.classType : "fighter";
-  const definition = classDefinitions[classType];
-  const activeQuest = normalizeActiveQuest(record?.activeQuest, definition);
-  const questHistory = normalizeQuestHistory(record?.questHistory);
-
-  return {
-    id: record?.id ?? createUuid(),
-    name: record?.name ?? "Adventurer",
-    classType,
-    experience: Number(record?.experience ?? 0),
-    gold: Number(record?.gold ?? 0),
-    inventory: Array.isArray(record?.inventory) ? record.inventory : [],
-    equipment: {
-      headgear: record?.equipment?.headgear ?? definition.equipment.headgear,
-      armor: record?.equipment?.armor ?? definition.equipment.armor,
-      weapon: record?.equipment?.weapon ?? definition.equipment.weapon
-    },
-    activeQuest,
-    questHistory
-  };
-}
-
-function normalizeActiveQuest(activeQuest, definition) {
-  if (!activeQuest || !questDefinitions[activeQuest.questId]) {
-    return null;
-  }
-
-  const quest = questDefinitions[activeQuest.questId];
-  const enemyIndex = Math.min(Math.max(Number(activeQuest.enemyIndex ?? 0), 0), quest.enemies.length - 1);
-  return {
-    questId: activeQuest.questId,
-    enemyIndex,
-    currentHp: Number(activeQuest.currentHp ?? definition.hp),
-    currentMana: Number(activeQuest.currentMana ?? definition.mana),
-    currentStamina: Number(activeQuest.currentStamina ?? definition.stamina),
-    completed: Boolean(activeQuest.completed)
-  };
-}
-
-function normalizeQuestHistory(questHistory) {
-  if (!Array.isArray(questHistory)) {
-    return [];
-  }
-
-  return questHistory
-    .filter((entry) => questDefinitions[entry?.questId])
-    .map((entry) => ({
-      questId: entry.questId,
-      status: entry.status === "claimed" ? "claimed" : entry.status === "completed" ? "completed" : "active"
-    }));
-}
-
-function restoreCharacters() {
-  const key = getCharactersKey();
-  if (!key) {
-    state.characters = [];
-    return;
-  }
-
-  const raw = localStorage.getItem(key);
-  if (!raw) {
-    state.characters = [];
-    return;
-  }
-
+function resolveRedirectUri(config) {
   try {
-    const parsed = JSON.parse(raw);
-    state.characters = Array.isArray(parsed) ? parsed.map((entry) => normalizeCharacter(entry)) : [];
+    const redirectUrl = new URL(config.redirectUri);
+    if (redirectUrl.origin === window.location.origin) {
+      return redirectUrl.toString();
+    }
   } catch {
-    state.characters = [];
-  }
-}
-
-function persistCharacters() {
-  const key = getCharactersKey();
-  if (!key) {
-    return;
-  }
-  localStorage.setItem(key, JSON.stringify(state.characters));
-}
-
-function createCharacterRecord(name, classType) {
-  const definition = classDefinitions[classType];
-  return {
-    id: createUuid(),
-    name,
-    classType,
-    experience: 0,
-    gold: 0,
-    inventory: [],
-    equipment: { ...definition.equipment },
-    activeQuest: null,
-    questHistory: []
-  };
-}
-
-function getClassLabel(classType) {
-  return classDefinitions[classType]?.label ?? "Adventurer";
-}
-
-function getClassIcon(classType) {
-  return classIcons[classType] ?? classIcons.fighter;
-}
-
-function renderKeyValueList(element, items) {
-  element.innerHTML = items
-    .map(
-      (item) => `
-        <div class="detail-row">
-          <dt>${item.label}</dt>
-          <dd>${item.value}</dd>
-        </div>
-      `
-    )
-    .join("");
-}
-
-function renderRewardList(element, rewards) {
-  element.innerHTML = rewards.map((reward) => `<div class="reward-item">${reward}</div>`).join("");
-}
-
-function renderEquipmentList(element, items) {
-  element.innerHTML = items
-    .map(
-      (item) => `
-        <div class="detail-row detail-row-equipment">
-          <dt>${item.label}</dt>
-          <dd class="detail-row-action">
-            <span>${item.value}</span>
-            <button class="icon-button icon-button-mini" type="button" aria-label="Change ${item.label}">
-              ${changeIcon}
-            </button>
-          </dd>
-        </div>
-      `
-    )
-    .join("");
-}
-
-function getSelectedCharacter() {
-  return state.characters.find((character) => character.id === state.selectedCharacterId) ?? null;
-}
-
-function getQuestHistoryEntry(character, questId) {
-  return character.questHistory.find((entry) => entry.questId === questId) ?? null;
-}
-
-function hasClaimedAnyQuest(character) {
-  return character.questHistory.some((entry) => entry.status === "claimed");
-}
-
-function upsertQuestHistoryEntry(character, questId, status) {
-  const existing = getQuestHistoryEntry(character, questId);
-  if (existing) {
-    existing.status = status;
-    return existing;
+    return `${window.location.origin}/auth/callback`;
   }
 
-  const created = { questId, status };
-  character.questHistory.push(created);
-  return created;
-}
-
-function getQuestLogEntries() {
-  return state.characters.flatMap((character) =>
-    character.questHistory.map((entry) => ({
-      characterId: character.id,
-      characterName: character.name,
-      questId: entry.questId,
-      questTitle: questDefinitions[entry.questId].title,
-      status: entry.status
-    }))
-  );
-}
-
-function getClaimedInventoryEntries() {
-  return state.characters.flatMap((character) =>
-    character.inventory.map((item, index) => ({
-      key: `${character.id}:${index}:${item}`,
-      characterName: character.name,
-      item
-    }))
-  );
-}
-
-function getDisplayedStats(character) {
-  const definition = classDefinitions[character.classType];
-  if (!character.activeQuest) {
-    return {
-      hp: definition.hp,
-      mana: definition.mana,
-      stamina: definition.stamina
-    };
-  }
-
-  return {
-    hp: character.activeQuest.currentHp,
-    mana: character.activeQuest.currentMana,
-    stamina: character.activeQuest.currentStamina
-  };
-}
-
-function renderCharacters() {
-  charactersGridEl.innerHTML = "";
-
-  for (const character of state.characters) {
-    const card = document.createElement("button");
-    card.type = "button";
-    card.className = "card character-tile";
-    card.innerHTML = `
-      <div class="character-portrait">
-        <span class="portrait-icon" aria-hidden="true">${getClassIcon(character.classType)}</span>
-      </div>
-      <div class="character-copy">
-        <strong>${character.name}</strong>
-        <small>${getClassLabel(character.classType)}</small>
-      </div>
-    `;
-    card.addEventListener("click", () => {
-      openCharacterDetail(character.id);
-    });
-    charactersGridEl.appendChild(card);
-  }
-
-  const createCard = document.createElement("button");
-  createCard.type = "button";
-  createCard.className = "card character-tile create-character-tile";
-  createCard.innerHTML = `
-    <div class="character-portrait">
-      <span class="portrait-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24"><path d="M11 5h2v14h-2V5Zm-6 6h14v2H5v-2Z" /></svg>
-      </span>
-    </div>
-    <div class="character-copy">
-      <strong>Create character</strong>
-      <small>Add a new hero to your roster.</small>
-    </div>
-  `;
-  createCard.addEventListener("click", () => {
-    openCharacterModal();
-  });
-  charactersGridEl.appendChild(createCard);
-}
-
-function renderQuestsView() {
-  const entries = getQuestLogEntries();
-  if (entries.length === 0) {
-    questsListEl.innerHTML = `
-      <article class="card empty-state-card">
-        <strong>No quest activity yet</strong>
-        <small>Start a quest from a character page to see it here.</small>
-      </article>
-    `;
-    return;
-  }
-
-  questsListEl.innerHTML = entries
-    .map(
-      (entry) => `
-        <article class="card quest-log-card">
-          <div class="quest-log-copy">
-            <strong>${entry.questTitle}</strong>
-            <small>${entry.characterName}</small>
-            <small>Status: ${entry.status === "completed" ? "Completed" : entry.status === "claimed" ? "Claimed" : "Active"}</small>
-          </div>
-          <div class="quest-log-actions">
-            <button class="button button-secondary" type="button" data-view-quest="${entry.characterId}">View</button>
-            ${
-              entry.status === "completed"
-                ? `<button class="button button-primary" type="button" data-claim-quest="${entry.characterId}:${entry.questId}">Claim Rewards</button>`
-                : ""
-            }
-          </div>
-        </article>
-      `
-    )
-    .join("");
-
-  for (const button of questsListEl.querySelectorAll("[data-view-quest]")) {
-    button.addEventListener("click", () => {
-      openCharacterDetail(button.getAttribute("data-view-quest"));
-    });
-  }
-
-  for (const button of questsListEl.querySelectorAll("[data-claim-quest]")) {
-    button.addEventListener("click", async () => {
-      const [characterId, questId] = button.getAttribute("data-claim-quest").split(":");
-      try {
-        await claimQuestRewards(characterId, questId);
-      } catch (error) {
-        showFeedback(gameFeedbackEl, error.message);
-      }
-    });
-  }
-}
-
-function renderInventoryView() {
-  const claimedRewards = getClaimedInventoryEntries();
-  const totalGold = state.characters.reduce((sum, character) => sum + character.gold, 0);
-  inventoryGoldTotalEl.textContent = `Gold: ${totalGold}`;
-  inventoryItemsTotalEl.textContent = `${state.assetHistory.length} delivered assets`;
-
-  const rewardSection =
-    claimedRewards.length === 0
-      ? `
-        <article class="card empty-state-card">
-          <strong>No claimed quest loot yet</strong>
-          <small>Claim quest rewards to populate the local inventory journal.</small>
-        </article>
-      `
-      : claimedRewards
-          .map(
-            (entry) => `
-              <article class="card inventory-item-card">
-                <strong>${entry.item}</strong>
-                <small>Claimed by ${entry.characterName}</small>
-              </article>
-            `
-          )
-          .join("");
-
-  const deliverySection =
-    state.assetHistory.length === 0
-      ? `
-        <article class="card empty-state-card">
-          <strong>No wallet deliveries yet</strong>
-          <small>Mint the featured item to create a direct-to-wallet delivery record.</small>
-        </article>
-      `
-      : state.assetHistory
-          .map(
-            (delivery) => `
-              <article class="card inventory-item-card">
-                <strong>${delivery.itemDefId}</strong>
-                <small>Status: ${delivery.status}</small>
-                <small>Delivered to ${formatWallet(delivery.destinationWalletAddress)}</small>
-                <small>${formatDate(delivery.createdAt)}</small>
-              </article>
-            `
-          )
-          .join("");
-
-  inventoryListEl.innerHTML = `
-    <article class="card inventory-item-card">
-      <strong>Quest inventory</strong>
-      <small>Local character rewards tracked in the standalone frontend.</small>
-    </article>
-    ${rewardSection}
-    <article class="card inventory-item-card">
-      <strong>Wallet delivery history</strong>
-      <small>On-chain delivery records returned by the Celeris player API.</small>
-    </article>
-    ${deliverySection}
-  `;
-}
-
-function renderQuestList(character) {
-  questListStateEl.hidden = false;
-  questActiveStateEl.hidden = true;
-  questCompleteStateEl.hidden = true;
-  questPanelTitleEl.textContent = "Quests";
-
-  questListStateEl.innerHTML = Object.entries(questDefinitions)
-    .map(
-      ([questId, quest]) => `
-        <button class="quest-list-item" type="button" data-quest-id="${questId}">
-          <strong>${quest.title}</strong>
-          <small>${quest.description}</small>
-        </button>
-      `
-    )
-    .join("");
-
-  for (const button of questListStateEl.querySelectorAll("[data-quest-id]")) {
-    button.addEventListener("click", () => {
-      startQuest(character.id, button.getAttribute("data-quest-id"));
-    });
-  }
-}
-
-function renderActiveQuest(character, quest) {
-  const activeQuest = character.activeQuest;
-  const enemy = quest.enemies[activeQuest.enemyIndex];
-
-  questListStateEl.hidden = true;
-  questActiveStateEl.hidden = false;
-  questCompleteStateEl.hidden = true;
-  questPanelTitleEl.textContent = quest.title;
-  questEventTextEl.textContent = enemy.text;
-  questProgressTextEl.textContent = `Enemy ${activeQuest.enemyIndex + 1} of ${quest.enemies.length}: ${enemy.name}`;
-
-  renderKeyValueList(enemyStatsListEl, [
-    { label: "Name", value: enemy.name },
-    { label: "HP", value: String(enemy.hp) },
-    { label: "Attack", value: String(enemy.attack) },
-    { label: "Magic Pressure", value: String(enemy.magicPressure) },
-    { label: "Stamina Pressure", value: String(enemy.staminaPressure) }
-  ]);
-
-  renderRewardList(questRewardsListEl, quest.rewards);
-}
-
-function renderCompletedQuest(quest) {
-  questListStateEl.hidden = true;
-  questActiveStateEl.hidden = true;
-  questCompleteStateEl.hidden = false;
-  questPanelTitleEl.textContent = quest.title;
-  questCompleteTextEl.textContent = `${quest.title} is complete. The route is secure and the reward chest is yours to claim.`;
-  questExperienceGainedEl.textContent = `${quest.experience} XP`;
-  renderRewardList(questCompleteRewardsListEl, quest.rewards);
-}
-
-function renderCharacterDetail() {
-  const character = getSelectedCharacter();
-  if (!character) {
-    setGameView("characters");
-    return;
-  }
-
-  const stats = getDisplayedStats(character);
-  const definition = classDefinitions[character.classType];
-
-  detailCharacterNameEl.textContent = character.name;
-  detailPortraitIconEl.innerHTML = getClassIcon(character.classType);
-
-  renderKeyValueList(characterStatsListEl, [
-    { label: "Name", value: character.name },
-    { label: "Class", value: definition.label },
-    { label: "HP", value: String(stats.hp) },
-    { label: "Mana", value: String(stats.mana) },
-    { label: "Stamina", value: String(stats.stamina) }
-  ]);
-
-  renderEquipmentList(characterEquipmentListEl, [
-    { label: "Headgear", value: character.equipment.headgear },
-    { label: "Armor", value: character.equipment.armor },
-    { label: "Weapon", value: character.equipment.weapon }
-  ]);
-
-  if (!character.activeQuest) {
-    renderQuestList(character);
-  } else {
-    const quest = questDefinitions[character.activeQuest.questId];
-    if (character.activeQuest.completed) {
-      renderCompletedQuest(quest);
-    } else {
-      renderActiveQuest(character, quest);
-    }
-  }
-}
-
-function openCharacterDetail(characterId) {
-  state.selectedCharacterId = characterId;
-  renderCharacterDetail();
-  setGameView("character-detail");
-}
-
-function updateCharacterPortrait() {
-  characterPortraitIconEl.innerHTML = getClassIcon(characterClassSelectEl.value);
-}
-
-function openCharacterModal() {
-  showFeedback(characterFeedbackEl, "");
-  characterFormEl.reset();
-  characterClassSelectEl.value = "fighter";
-  updateCharacterPortrait();
-  if (supportsCharacterDialog()) {
-    characterModalEl.showModal();
-    return;
-  }
-  showFeedback(gameFeedbackEl, "This browser does not support the character modal.");
-}
-
-function closeCharacterModal() {
-  showFeedback(characterFeedbackEl, "");
-  if (supportsCharacterDialog() && characterModalEl.open) {
-    characterModalEl.close();
-  }
-}
-
-function createCharacter() {
-  const name = characterNameInputEl.value.trim();
-  const classType = characterClassSelectEl.value;
-  if (!name) {
-    throw new Error("Character name is required.");
-  }
-
-  state.characters.push(createCharacterRecord(name, classType));
-  persistCharacters();
-  renderCharacters();
-  closeCharacterModal();
-  showFeedback(gameFeedbackEl, `${name} created.`);
-  setGameView("characters");
-}
-
-function startQuest(characterId, questId) {
-  const character = state.characters.find((entry) => entry.id === characterId);
-  const definition = classDefinitions[character.classType];
-  character.activeQuest = {
-    questId,
-    enemyIndex: 0,
-    currentHp: definition.hp,
-    currentMana: definition.mana,
-    currentStamina: definition.stamina,
-    completed: false
-  };
-  upsertQuestHistoryEntry(character, questId, "active");
-  persistCharacters();
-  renderCharacterDetail();
-  renderQuestsView();
-  showFeedback(gameFeedbackEl, `${questDefinitions[questId].title} started.`);
-}
-
-function fightQuest() {
-  const character = getSelectedCharacter();
-  if (!character?.activeQuest || character.activeQuest.completed) {
-    return;
-  }
-
-  const definition = classDefinitions[character.classType];
-  const quest = questDefinitions[character.activeQuest.questId];
-  const enemy = quest.enemies[character.activeQuest.enemyIndex];
-
-  const hpLoss = Math.max(6, enemy.attack - definition.resilience);
-  const manaLoss = Math.min(character.activeQuest.currentMana, definition.manaCost + enemy.magicPressure);
-  const staminaLoss = Math.min(character.activeQuest.currentStamina, definition.staminaCost + enemy.staminaPressure);
-
-  character.activeQuest.currentHp = Math.max(0, character.activeQuest.currentHp - hpLoss);
-  character.activeQuest.currentMana = Math.max(0, character.activeQuest.currentMana - manaLoss);
-  character.activeQuest.currentStamina = Math.max(0, character.activeQuest.currentStamina - staminaLoss);
-
-  if (character.activeQuest.currentHp === 0) {
-    upsertQuestHistoryEntry(character, character.activeQuest.questId, "active");
-    character.activeQuest = null;
-    persistCharacters();
-    renderCharacterDetail();
-    renderQuestsView();
-    showFeedback(gameFeedbackEl, `${character.name} was overwhelmed by ${enemy.name} and withdrew from the quest.`);
-    return;
-  }
-
-  character.activeQuest.enemyIndex += 1;
-  if (character.activeQuest.enemyIndex >= quest.enemies.length) {
-    character.activeQuest.enemyIndex = quest.enemies.length - 1;
-    character.activeQuest.completed = true;
-    upsertQuestHistoryEntry(character, character.activeQuest.questId, "completed");
-    persistCharacters();
-    renderCharacterDetail();
-    renderQuestsView();
-    showFeedback(gameFeedbackEl, `${character.name} cleared ${quest.title}. Rewards are ready to claim.`);
-    return;
-  }
-
-  upsertQuestHistoryEntry(character, character.activeQuest.questId, "active");
-  persistCharacters();
-  renderCharacterDetail();
-  renderQuestsView();
-  showFeedback(gameFeedbackEl, `${character.name} defeated ${enemy.name}.`);
-}
-
-function runQuest() {
-  const character = getSelectedCharacter();
-  if (!character?.activeQuest || character.activeQuest.completed) {
-    return;
-  }
-
-  character.activeQuest.currentStamina = Math.max(0, character.activeQuest.currentStamina - 8);
-  persistCharacters();
-  renderCharacterDetail();
-  renderQuestsView();
-
-  const quest = questDefinitions[character.activeQuest.questId];
-  const enemy = quest.enemies[character.activeQuest.enemyIndex];
-  showFeedback(gameFeedbackEl, `${character.name} falls back from ${enemy.name}, but the encounter is still active.`);
-}
-
-function abandonQuest() {
-  const character = getSelectedCharacter();
-  if (!character?.activeQuest) {
-    return;
-  }
-
-  const questTitle = questDefinitions[character.activeQuest.questId].title;
-  upsertQuestHistoryEntry(character, character.activeQuest.questId, "active");
-  character.activeQuest = null;
-  persistCharacters();
-  renderCharacterDetail();
-  renderQuestsView();
-  showFeedback(gameFeedbackEl, `${questTitle} abandoned.`);
-}
-
-async function claimQuestRewards(characterId = state.selectedCharacterId, questId = null) {
-  const character = state.characters.find((entry) => entry.id === characterId);
-  if (!character) {
-    return;
-  }
-
-  const resolvedQuestId = questId ?? character.activeQuest?.questId;
-  const historyEntry = resolvedQuestId ? getQuestHistoryEntry(character, resolvedQuestId) : null;
-  if (!resolvedQuestId || historyEntry?.status !== "completed") {
-    return;
-  }
-
-  if (!state.sdk) {
-    throw new Error("Connect wallet first.");
-  }
-  const isFirstClaim = !hasClaimedAnyQuest(character);
-  const actionId = isFirstClaim ? state.firstTimeClaimActionId : state.claimRewardsActionId;
-  const actionCost = isFirstClaim ? state.firstTimeClaimCost : state.claimRewardsCost;
-  if (!actionId || actionCost == null) {
-    throw new Error(isFirstClaim ? "First time claim action is not configured for this app." : "Claim rewards action is not configured for this app.");
-  }
-
-  try {
-    await state.sdk.actions.execute(actionId, undefined, {
-      idempotencyKey: randomKey("claim-rewards")
-    });
-  } catch (error) {
-    if (error.message === "insufficient credits") {
-      showFeedback(
-        gameFeedbackEl,
-        isFirstClaim
-          ? "Not enough credits for first time claim. Add credits to continue."
-          : "Not enough credits to claim rewards. Add credits to continue."
-      );
-      openCreditsModal();
-      return;
-    }
-    throw error;
-  }
-
-  const quest = questDefinitions[resolvedQuestId];
-  character.experience += quest.experience;
-  character.gold += Number(quest.rewards[0].replace(/[^\d]/g, "")) || 0;
-  character.inventory.push(...quest.rewards.slice(1));
-  historyEntry.status = "claimed";
-  if (character.activeQuest?.questId === resolvedQuestId) {
-    character.activeQuest = null;
-  }
-  persistCharacters();
-  renderCharacterDetail();
-  renderQuestsView();
-  renderInventoryView();
-  await refreshBalance();
-  showFeedback(gameFeedbackEl, `${quest.title} rewards claimed.`);
+  return `${window.location.origin}/auth/callback`;
 }
 
 async function loadConfig() {
   const config = await fetchJson("/config.json");
-  if (!config?.celeris?.appId) {
+  if (!config?.appId) {
     throw new Error("Mock game frontend is missing an appId configuration.");
   }
 
-  state.appId = config.celeris.appId;
-  state.appName = config.celeris.appName || "Configured Game";
-  state.programId = config.celeris.programId || "core_gameplay";
-  state.allowedChainId = config.celeris.playerPolicy?.allowedChainId || "solana:103";
-  state.hostedAuthOrigin = config.celeris.authGateway?.hostedAuthOrigin || window.location.origin;
-  state.redirectUri =
-    safeOrigin(config.celeris.authGateway?.redirectUri) === window.location.origin
-      ? config.celeris.authGateway.redirectUri
-      : `${window.location.origin}/auth/callback`;
-  state.firstTimeClaimActionId = config.celeris.actionIds?.firstTimeClaim || "first_time_claim";
-  state.claimRewardsActionId = config.celeris.actionIds?.claimRewards || "claim_rewards";
-  state.mintItemActionId = config.celeris.actionIds?.mintItem || "mint_item";
-  state.itemDefId = config.itemDefId || "iron_sword";
+  state.config = {
+    appId: config.appId,
+    appName: config.appName ?? "Hello Celeris",
+    apiOrigin: config.apiOrigin ?? "/api",
+    hostedAuthOrigin: config.hostedAuthOrigin ?? window.location.origin,
+    redirectUri: resolveRedirectUri(config)
+  };
+
   state.sdk = createBrowserClient({
-    apiBaseUrl: "/api",
-    appId: state.appId,
+    apiBaseUrl: state.config.apiOrigin,
+    appId: state.config.appId,
     auth: {
-      hostedAuthOrigin: state.hostedAuthOrigin,
-      redirectUri: state.redirectUri
+      hostedAuthOrigin: state.config.hostedAuthOrigin,
+      redirectUri: state.config.redirectUri
     }
   });
 
-  loginSubtitleEl.textContent = `Sign in through the Celeris-hosted auth gateway for ${state.appName}.`;
-  walletChainCopyEl.textContent = `Allowed chain: ${state.allowedChainId}`;
-  gameTitleEl.textContent = state.appName;
-  creditsAppNameEl.textContent = state.appName;
+  heroTitleEl.textContent = state.config.appName;
+  heroSubtitleEl.textContent = "Sign in, buy credits, and submit a real sponsored `say_hello` transaction.";
+  loginSubtitleEl.textContent = `Use the Celeris-hosted auth gateway for ${state.config.appName}.`;
 }
 
-async function loadCatalog() {
-  if (!state.sdk) {
-    return;
-  }
-  const catalog = await state.sdk.catalog.get();
-  const selectedPackage = catalog.creditPackages[0] ?? null;
-  const firstTimeClaimAction = catalog.actions.find((action) => action.actionType === state.firstTimeClaimActionId) ?? null;
-  const claimRewardsAction = catalog.actions.find((action) => action.actionType === state.claimRewardsActionId) ?? null;
-
-  state.appName = catalog.name ?? state.appName;
-  state.packageId = selectedPackage?.packageId ?? null;
-  state.packageCredits = selectedPackage?.credits ?? null;
-  state.packageAmountCents = selectedPackage?.priceCents ?? null;
-  state.firstTimeClaimCost = firstTimeClaimAction?.cost ?? null;
-  state.claimRewardsCost = claimRewardsAction?.cost ?? null;
-
-  loginSubtitleEl.textContent = `Sign in through the Celeris-hosted auth gateway for ${state.appName}.`;
-  gameTitleEl.textContent = state.appName;
-  creditsAppNameEl.textContent = state.appName;
-  creditsPackageAmountEl.textContent = `${state.packageCredits ?? 0} credits`;
-  creditsPackagePriceEl.textContent = formatCurrency(state.packageAmountCents ?? 0);
-}
-
-async function refreshBalance() {
-  if (!state.sdk) {
-    balanceEl.textContent = "0";
-    return;
-  }
-
-  const balance = await state.sdk.credits.getBalance();
-  balanceEl.textContent = String(balance.balance ?? 0);
-}
-
-async function refreshAssetHistory() {
-  if (!state.sdk) {
-    state.assetHistory = [];
-    return;
-  }
-
-  const history = await state.sdk.assets.getHistory();
-  state.assetHistory = Array.isArray(history.deliveries) ? history.deliveries : [];
-}
-
-async function hydrateAuthenticatedState() {
-  if (!state.sdk || !state.token) {
+async function refreshAuthenticatedState() {
+  if (!state.sdk || !state.session) {
     throw new Error("player session is required");
   }
 
-  const me = await state.sdk.me.get();
-  state.walletAddress = me.walletAddress;
-  state.chainId = me.chainId;
-  playerWalletEl.textContent = formatWallet(state.walletAddress);
-  persistSession();
-  await loadCatalog();
-  restoreCharacters();
-  renderCharacters();
-  renderQuestsView();
-  await refreshAssetHistory();
-  renderInventoryView();
-  await refreshBalance();
-  setView("game");
-  setGameView("home");
+  const [me, catalog, balance, transactions] = await Promise.all([
+    state.sdk.me.get(),
+    state.sdk.catalog.get(),
+    state.sdk.credits.getBalance(),
+    state.sdk.transactions.list()
+  ]);
+
+  state.me = me;
+  state.catalog = catalog;
+  state.balance = balance;
+  state.transactions = transactions;
+  renderSummary();
+  renderTransactions();
+  setAuthenticatedView(true);
 }
 
-async function connectWallet() {
-  connectWalletBtn.disabled = true;
+function resetAppState() {
+  state.session = null;
+  state.me = null;
+  state.catalog = null;
+  state.balance = null;
+  state.transactions = [];
+  state.pendingAction = false;
+  usernameInputEl.value = "";
+  setFeedback(loginFeedbackEl, "");
+  setFeedback(appFeedbackEl, "");
+  renderSummary();
+  renderTransactions();
+  setAuthenticatedView(false);
+}
+
+async function connect() {
+  signInBtn.disabled = true;
+  setFeedback(loginFeedbackEl, "");
+
   try {
     const session = await state.sdk.auth.login();
-    state.token = session.accessToken;
-    state.walletAddress = session.player.walletAddress;
-    state.chainId = session.player.chainId;
-    await hydrateAuthenticatedState();
+    state.session = session;
+    await refreshAuthenticatedState();
   } finally {
-    connectWalletBtn.disabled = false;
+    signInBtn.disabled = false;
+    updateButtons();
   }
 }
 
 function signOut() {
-  clearSession();
-  clearPendingCheckout();
-  state.characters = [];
-  state.assetHistory = [];
-  state.selectedCharacterId = null;
-  playerWalletEl.textContent = "-";
-  balanceEl.textContent = "0";
-  showFeedback(loginFeedbackEl, "");
-  showFeedback(gameFeedbackEl, "");
-  showFeedback(creditsFeedbackEl, "");
-  showFeedback(characterFeedbackEl, "");
-  if (supportsCreditsDialog() && creditsModalEl.open) {
-    creditsModalEl.close();
-  }
-  if (supportsCharacterDialog() && characterModalEl.open) {
-    characterModalEl.close();
-  }
-  setView("login");
-  setGameView("home");
+  state.sdk?.auth.logout();
+  clearCheckout();
+  resetAppState();
 }
 
-function openCreditsModal() {
-  if (!state.token) {
-    showFeedback(gameFeedbackEl, "Connect wallet first.");
-    return;
-  }
-  showFeedback(creditsFeedbackEl, "");
-  if (supportsCreditsDialog()) {
-    creditsModalEl.showModal();
-    return;
-  }
-  showFeedback(gameFeedbackEl, "This browser does not support the credits modal.");
-}
-
-function closeCreditsModal() {
-  showFeedback(creditsFeedbackEl, "");
-  if (supportsCreditsDialog() && creditsModalEl.open) {
-    creditsModalEl.close();
-  }
-}
-
-async function buyCredits() {
-  if (!state.sdk || !state.packageId) {
+async function purchaseCredits() {
+  const creditPackage = getConfiguredPackage();
+  if (!state.sdk || !creditPackage) {
     throw new Error("Checkout is not configured for this app.");
   }
 
-  continueCheckoutBtn.disabled = true;
+  purchaseCreditsBtn.disabled = true;
+  setFeedback(appFeedbackEl, "");
+
   try {
     const checkout = await state.sdk.payments.createCheckoutSession({
-      packageId: state.packageId,
+      packageId: creditPackage.packageId,
       successUrl: `${window.location.origin}/?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
       cancelUrl: `${window.location.origin}/?checkout=cancel`,
-      idempotencyKey: randomKey("frontend-checkout")
+      idempotencyKey: `frontend-checkout-${createUuid()}`
     });
 
-    persistPendingCheckout(checkout);
-    closeCreditsModal();
+    persistCheckout(checkout);
     window.location.assign(checkout.checkoutUrl);
   } finally {
-    continueCheckoutBtn.disabled = false;
+    purchaseCreditsBtn.disabled = false;
+    updateButtons();
+  }
+}
+
+async function submitSayHello() {
+  const action = getConfiguredAction();
+  if (!state.sdk || !action) {
+    throw new Error("say_hello is not configured for this app.");
+  }
+
+  const username = usernameInputEl.value.trim();
+  if (!username) {
+    throw new Error("Username is required.");
+  }
+
+  state.pendingAction = true;
+  updateButtons();
+  setFeedback(appFeedbackEl, "");
+
+  try {
+    const result = await state.sdk.actions.execute(
+      "say_hello",
+      { username },
+      { idempotencyKey: `say-hello-${createUuid()}` }
+    );
+
+    await refreshAuthenticatedState();
+    usernameInputEl.value = "";
+    setFeedback(
+      appFeedbackEl,
+      result?.explorerUrl
+        ? `Greeting submitted. Explorer: ${result.explorerUrl}`
+        : "Greeting submitted."
+    );
+  } finally {
+    state.pendingAction = false;
+    updateButtons();
   }
 }
 
@@ -1214,20 +416,20 @@ async function handleCheckoutReturn() {
   }
 
   if (checkoutStatus === "cancel") {
-    clearPendingCheckout();
-    showFeedback(gameFeedbackEl, "Checkout cancelled.");
+    clearCheckout();
+    setFeedback(appFeedbackEl, "Checkout cancelled.");
     window.history.replaceState({}, "", window.location.pathname);
     return;
   }
 
-  if (checkoutStatus !== "success") {
-    return;
+  if (checkoutStatus === "success") {
+    clearCheckout();
+    if (state.session) {
+      await refreshAuthenticatedState();
+    }
+    setFeedback(appFeedbackEl, "Credits added successfully.");
+    window.history.replaceState({}, "", window.location.pathname);
   }
-
-  clearPendingCheckout();
-  await refreshBalance();
-  showFeedback(gameFeedbackEl, "Credits added successfully.");
-  window.history.replaceState({}, "", window.location.pathname);
 }
 
 async function handleAuthCallback() {
@@ -1240,43 +442,25 @@ async function handleAuthCallback() {
     return false;
   }
 
-  state.token = session.accessToken;
-  state.walletAddress = session.player.walletAddress;
-  state.chainId = session.player.chainId;
+  state.session = session;
+  await refreshAuthenticatedState();
   return true;
 }
 
-async function mintFeaturedItem() {
-  if (!state.sdk || !state.mintItemActionId || !state.itemDefId) {
-    throw new Error("Mint item action is not configured for this app.");
+async function restoreSession() {
+  const session = state.sdk?.auth.getSession() ?? null;
+  if (!session) {
+    return false;
   }
 
-  try {
-    await state.sdk.actions.execute(
-      state.mintItemActionId,
-      { itemDefId: state.itemDefId },
-      { idempotencyKey: randomKey("mint-item") }
-    );
-  } catch (error) {
-    if (error.message === "insufficient credits") {
-      showFeedback(gameFeedbackEl, "Not enough credits to mint the featured item. Add credits to continue.");
-      openCreditsModal();
-      return;
-    }
-    throw error;
-  }
-
-  await refreshAssetHistory();
-  await refreshBalance();
-  renderInventoryView();
-  showFeedback(gameFeedbackEl, `${state.itemDefId} delivered to ${formatWallet(state.walletAddress)}.`);
+  state.session = session;
+  await refreshAuthenticatedState();
+  return true;
 }
 
-loginFormEl.addEventListener("submit", (event) => {
-  event.preventDefault();
-  showFeedback(loginFeedbackEl, "");
-  connectWallet().catch((error) => {
-    showFeedback(loginFeedbackEl, error.message);
+signInBtn.addEventListener("click", () => {
+  connect().catch((error) => {
+    setFeedback(loginFeedbackEl, error.message);
   });
 });
 
@@ -1284,138 +468,67 @@ signOutBtn.addEventListener("click", () => {
   signOut();
 });
 
-charactersPanelBtn.addEventListener("click", () => {
-  showFeedback(gameFeedbackEl, "");
-  renderCharacters();
-  setGameView("characters");
-});
-
-questsPanelBtn.addEventListener("click", () => {
-  showFeedback(gameFeedbackEl, "");
-  renderQuestsView();
-  setGameView("quests");
-});
-
-inventoryPanelBtn.addEventListener("click", () => {
-  showFeedback(gameFeedbackEl, "");
-  renderInventoryView();
-  setGameView("inventory");
-});
-
-charactersBackBtn.addEventListener("click", () => {
-  showFeedback(gameFeedbackEl, "");
-  setGameView("home");
-});
-
-questsBackBtn.addEventListener("click", () => {
-  showFeedback(gameFeedbackEl, "");
-  setGameView("home");
-});
-
-inventoryBackBtn.addEventListener("click", () => {
-  showFeedback(gameFeedbackEl, "");
-  setGameView("home");
-});
-
-characterDetailBackBtn.addEventListener("click", () => {
-  showFeedback(gameFeedbackEl, "");
-  setGameView("characters");
-});
-
-fightBtn.addEventListener("click", () => {
-  fightQuest();
-});
-
-runBtn.addEventListener("click", () => {
-  runQuest();
-});
-
-abandonQuestBtn.addEventListener("click", () => {
-  abandonQuest();
-});
-
-claimRewardsBtn.addEventListener("click", async () => {
-  try {
-    await claimQuestRewards();
-  } catch (error) {
-    showFeedback(gameFeedbackEl, error.message);
-  }
-});
-
-openCreditsModalBtn.addEventListener("click", () => {
-  showFeedback(gameFeedbackEl, "");
-  openCreditsModal();
-});
-
-mintItemBtn.addEventListener("click", () => {
-  showFeedback(gameFeedbackEl, "");
-  mintFeaturedItem().catch((error) => {
-    showFeedback(gameFeedbackEl, error.message);
+purchaseCreditsBtn.addEventListener("click", () => {
+  purchaseCredits().catch((error) => {
+    setFeedback(appFeedbackEl, error.message);
   });
 });
 
-closeCreditsModalBtn.addEventListener("click", () => {
-  closeCreditsModal();
-});
-
-closeCharacterModalBtn.addEventListener("click", () => {
-  closeCharacterModal();
-});
-
-characterClassSelectEl.addEventListener("change", () => {
-  updateCharacterPortrait();
-});
-
-creditsFormEl.addEventListener("submit", (event) => {
+sayHelloFormEl.addEventListener("submit", (event) => {
   event.preventDefault();
-  showFeedback(creditsFeedbackEl, "");
-  buyCredits().catch((error) => {
-    showFeedback(creditsFeedbackEl, error.message);
+  submitSayHello().catch((error) => {
+    if (error.message === "insufficient credits") {
+      setFeedback(appFeedbackEl, "Not enough credits for say_hello. Purchase credits to continue.");
+      return;
+    }
+    setFeedback(appFeedbackEl, error.message);
   });
 });
 
-characterFormEl.addEventListener("submit", (event) => {
-  event.preventDefault();
-  showFeedback(characterFeedbackEl, "");
-  createCharacterBtn.disabled = true;
-  try {
-    createCharacter();
-  } catch (error) {
-    showFeedback(characterFeedbackEl, error.message);
-  } finally {
-    createCharacterBtn.disabled = false;
+usernameInputEl.addEventListener("input", () => {
+  updateButtons();
+});
+
+refreshFeedBtn.addEventListener("click", () => {
+  if (!state.session) {
+    return;
   }
+
+  refreshFeedBtn.disabled = true;
+  Promise.all([state.sdk.transactions.list(), state.sdk.credits.getBalance()])
+    .then(([transactions, balance]) => {
+      state.transactions = transactions;
+      state.balance = balance;
+      renderSummary();
+      renderTransactions();
+    })
+    .catch((error) => {
+      setFeedback(appFeedbackEl, error.message);
+    })
+    .finally(() => {
+      refreshFeedBtn.disabled = false;
+    });
 });
 
 async function boot() {
-  setView("login");
-  setGameView("home");
-  restorePendingCheckout();
+  restoreCheckout();
+  resetAppState();
   await loadConfig();
+
   try {
     const handledCallback = await handleAuthCallback();
-    if (handledCallback) {
-      await hydrateAuthenticatedState();
-      await handleCheckoutReturn();
-      return;
+    if (!handledCallback) {
+      await restoreSession().catch(() => {
+        signOut();
+      });
     }
+    await handleCheckoutReturn();
   } catch (error) {
     signOut();
-    showFeedback(loginFeedbackEl, error.message);
-    return;
+    setFeedback(loginFeedbackEl, error.message);
   }
-  const hasSession = restoreSession();
-  if (hasSession) {
-    try {
-      await hydrateAuthenticatedState();
-    } catch {
-      signOut();
-    }
-  }
-  await handleCheckoutReturn();
 }
 
 boot().catch((error) => {
-  showFeedback(loginFeedbackEl, error.message);
-  showFeedback(gameFeedbackEl, error.message);
+  setFeedback(loginFeedbackEl, error.message);
 });

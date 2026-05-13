@@ -2,9 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
-import type { RelayerNetworkClient, TransactionStatus, WalletPrincipal } from "../types.js";
+import type { WalletPrincipal } from "../types.js";
 import { createHostedPlayerSession } from "./helpers/auth.js";
-import { createDeveloperApp, configureDeveloperAction, signUpDeveloper } from "./helpers/developer.js";
+import { createDeveloperApp, configureDeveloperAction, provisionSponsorWallet, signUpDeveloper } from "./helpers/developer.js";
+import { MockRelayerNetwork } from "../services/mock-relayer-network.js";
 
 function buildCompletedCheckoutEvent({
   eventId,
@@ -39,7 +40,7 @@ function buildCompletedCheckoutEvent({
   };
 }
 
-async function setupAssetFlow(relayerNetworkClient: RelayerNetworkClient) {
+async function setupAssetFlow(relayerNetworkClient: MockRelayerNetwork) {
   const services = buildServices({ relayerNetworkClient });
   const api = createApi(services);
   const walletPrincipal = {
@@ -73,6 +74,11 @@ async function setupAssetFlow(relayerNetworkClient: RelayerNetworkClient) {
     cost: 50,
     executionMode: "managed"
   });
+  await provisionSponsorWallet({
+    api,
+    accessToken: developer.accessToken,
+    appId
+  });
 
   const checkout = await api.handle({
     method: "POST",
@@ -104,14 +110,10 @@ async function setupAssetFlow(relayerNetworkClient: RelayerNetworkClient) {
 }
 
 test("successful mint captures credits and records confirmed wallet delivery metadata", async () => {
-  const networkClient: RelayerNetworkClient = {
-    async sendTransaction() {
-      return { txHash: "mock_chain_asset_success" };
-    },
-    async getTransactionStatus(): Promise<Exclude<TransactionStatus, "submitted">> {
-      return "success";
-    }
-  };
+  const networkClient = new MockRelayerNetwork({
+    sendTransaction: async () => ({ txHash: "mock_chain_asset_success" }),
+    confirmTransaction: async () => "success"
+  });
 
   const { services, api, appId, token, walletPrincipal } = await setupAssetFlow(networkClient);
   const mint = await api.handle({
@@ -139,14 +141,10 @@ test("successful mint captures credits and records confirmed wallet delivery met
 });
 
 test("failed transaction does not create a delivery record and releases credits", async () => {
-  const networkClient: RelayerNetworkClient = {
-    async sendTransaction() {
-      return { txHash: "mock_chain_asset_failed" };
-    },
-    async getTransactionStatus(): Promise<Exclude<TransactionStatus, "submitted">> {
-      return "failed";
-    }
-  };
+  const networkClient = new MockRelayerNetwork({
+    sendTransaction: async () => ({ txHash: "mock_chain_asset_failed" }),
+    confirmTransaction: async () => "failed"
+  });
 
   const { services, api, appId, token, walletPrincipal } = await setupAssetFlow(networkClient);
   const mint = await api.handle({

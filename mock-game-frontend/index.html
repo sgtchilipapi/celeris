@@ -3,326 +3,113 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Mock Game Frontend</title>
+    <title>Hello Celeris</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <main class="shell">
-      <section id="login-view" class="view view-login">
-        <form id="login-form" class="card auth-card">
-          <div class="card-copy">
-            <p class="eyebrow">Mock Game</p>
-            <h1>Celeris hosted sign-in</h1>
-            <p id="login-subtitle">Sign in through the Celeris-hosted auth gateway for this app.</p>
-          </div>
-
-          <p id="wallet-chain-copy" class="helper-copy">Allowed chain: -</p>
-
-          <p id="login-feedback" class="feedback" hidden></p>
-
-          <div class="auth-actions">
-            <button id="connect-wallet-btn" class="button button-primary" type="submit">Sign in with Celeris</button>
-          </div>
-        </form>
+      <section class="hero">
+        <p class="eyebrow">Solana Devnet Demo</p>
+        <h1 id="hero-title">Hello Celeris</h1>
+        <p id="hero-subtitle" class="hero-copy">Sign in, buy credits, and submit a real sponsored `say_hello` transaction.</p>
       </section>
 
-      <section id="game-view" class="view view-game" hidden>
-        <header class="game-header card">
-          <div class="game-brand">
-            <p class="eyebrow">Mock Game</p>
-            <h1 id="game-title">Game Home</h1>
-          </div>
+      <section id="login-view" class="auth-panel panel">
+        <div class="panel-copy">
+          <p class="eyebrow">Hosted Auth</p>
+          <h2>Player sign-in</h2>
+          <p id="login-subtitle" class="muted">Use the Celeris-hosted auth gateway for this app.</p>
+        </div>
 
-          <div class="game-actions">
-            <div class="credits-pill">
-              <span class="credits-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="m12 2 2.76 5.59 6.17.9-4.46 4.35 1.05 6.14L12 16.08 6.48 18.98l1.05-6.14L3.07 8.49l6.17-.9L12 2Z" />
-                </svg>
-              </span>
-              <strong id="balance-value">0</strong>
-              <span class="credits-label">credits</span>
-              <button id="open-credits-modal-btn" class="icon-button icon-button-accent" type="button" aria-label="Add credits">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M11 5h2v14h-2V5Zm-6 6h14v2H5v-2Z" />
-                </svg>
-              </button>
-            </div>
+        <p id="login-feedback" class="feedback" hidden></p>
 
-            <div class="session-pill">
-              <strong id="player-wallet">-</strong>
-            </div>
+        <button id="sign-in-btn" class="button button-primary" type="button">Sign in with Celeris</button>
+      </section>
 
-            <button id="sign-out-btn" class="button button-secondary" type="button">Disconnect</button>
-          </div>
+      <section id="app-view" class="app-layout" hidden>
+        <header class="summary-grid">
+          <article class="panel stat-card">
+            <p class="eyebrow">Wallet</p>
+            <strong id="wallet-address" class="stat-value mono">-</strong>
+            <span id="wallet-chain" class="muted">-</span>
+          </article>
+
+          <article class="panel stat-card">
+            <p class="eyebrow">Credits</p>
+            <strong id="credit-balance" class="stat-value">0</strong>
+            <span id="credit-package" class="muted">No package configured</span>
+          </article>
+
+          <article class="panel stat-card">
+            <p class="eyebrow">Program</p>
+            <strong id="program-id" class="stat-value mono">Unregistered</strong>
+            <span id="program-cluster" class="muted">Solana devnet</span>
+          </article>
         </header>
 
-        <p id="game-feedback" class="feedback" hidden></p>
+        <p id="app-feedback" class="feedback" hidden></p>
 
-        <section id="home-view" class="game-content">
-          <section class="panel-grid">
-            <button id="characters-panel-btn" class="card panel-card" type="button">
-              <span class="panel-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M12 3a6 6 0 1 1 0 12 6 6 0 0 1 0-12Zm0 14c4.42 0 8 1.79 8 4v1H4v-1c0-2.21 3.58-4 8-4Z" />
-                </svg>
-              </span>
-              <strong>Characters</strong>
-              <small>Create and manage your roster.</small>
-            </button>
+        <section class="workspace">
+          <article class="panel action-panel">
+            <div class="panel-copy">
+              <p class="eyebrow">Managed Action</p>
+              <h2>Say Hello Celeris</h2>
+              <p class="muted">Celeris builds the transaction, the app sponsor wallet pays fees, and the player identity comes from the active session.</p>
+            </div>
 
-            <button id="quests-panel-btn" class="card panel-card" type="button">
-              <span class="panel-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M5 4h11l3 3v13H5V4Zm2 2v12h10V8h-3V5H7Zm2 4h6v2H9v-2Zm0 4h6v2H9v-2Z" />
-                </svg>
-              </span>
-              <strong>Quests</strong>
-              <small>Track objectives and rewards.</small>
-            </button>
+            <form id="say-hello-form" class="stack">
+              <label class="field" for="username-input">
+                <span>Username</span>
+                <input id="username-input" name="username" type="text" maxlength="32" autocomplete="off" placeholder="Enter a username" />
+              </label>
 
-            <button id="inventory-panel-btn" class="card panel-card" type="button">
-              <span class="panel-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M4 6h7v7H4V6Zm9 0h7v7h-7V6ZM4 15h7v5H4v-5Zm9 0h7v5h-7v-5Z" />
-                </svg>
-              </span>
-              <strong>Inventory</strong>
-              <small>View items, gear, and materials.</small>
-            </button>
+              <div class="action-meta">
+                <span id="action-cost" class="chip">Action cost: not configured</span>
+                <span id="app-name-chip" class="chip">App: -</span>
+              </div>
 
-            <button class="card panel-card" type="button">
-              <span class="panel-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="m12 3 7 4v5c0 4.39-3.13 8.27-7 9-3.87-.73-7-4.61-7-9V7l7-4Zm0 4.18L8 9.47v2.45c0 3.12 1.95 5.98 4 6.74 2.05-.76 4-3.62 4-6.74V9.47l-4-2.29Z" />
-                </svg>
-              </span>
-              <strong>Arena</strong>
-              <small>Prepare for ranked combat.</small>
-            </button>
-          </section>
+              <div class="button-row">
+                <button id="purchase-credits-btn" class="button button-secondary" type="button">Purchase Credits</button>
+                <button id="say-hello-btn" class="button button-primary" type="submit">Say Hello Celeris</button>
+              </div>
+            </form>
+          </article>
+
+          <aside class="panel status-panel">
+            <p class="eyebrow">Runtime</p>
+            <dl class="status-list">
+              <div>
+                <dt>Explorer</dt>
+                <dd>Successful or submitted actions link straight to Solana Explorer on devnet.</dd>
+              </div>
+              <div>
+                <dt>Feed scope</dt>
+                <dd>All app transactions submitted by Celeris appear here, newest first.</dd>
+              </div>
+              <div>
+                <dt>Session source</dt>
+                <dd>The browser never provides the wallet as source of truth for actions.</dd>
+              </div>
+            </dl>
+
+            <button id="sign-out-btn" class="button ghost-button" type="button">Sign out</button>
+          </aside>
         </section>
 
-        <section id="characters-view" class="game-content" hidden>
-          <div class="section-header card">
-            <div class="section-copy">
-              <p class="eyebrow">Roster</p>
-              <h2>Characters</h2>
+        <section class="panel feed-panel">
+          <div class="feed-header">
+            <div>
+              <p class="eyebrow">App Transactions</p>
+              <h2>Recent activity</h2>
             </div>
-            <button id="characters-back-btn" class="button button-secondary" type="button">Back</button>
+            <button id="refresh-feed-btn" class="button button-secondary" type="button">Refresh feed</button>
           </div>
 
-          <section id="characters-grid" class="characters-grid"></section>
-        </section>
-
-        <section id="quests-view" class="game-content" hidden>
-          <div class="section-header card">
-            <div class="section-copy">
-              <p class="eyebrow">Adventure Log</p>
-              <h2>Quests</h2>
-            </div>
-            <button id="quests-back-btn" class="button button-secondary" type="button">Back</button>
-          </div>
-
-          <section id="quests-list" class="quest-log-list"></section>
-        </section>
-
-        <section id="inventory-view" class="game-content" hidden>
-          <div class="section-header card">
-            <div class="section-copy">
-              <p class="eyebrow">Loot</p>
-              <h2>Inventory</h2>
-            </div>
-            <button id="inventory-back-btn" class="button button-secondary" type="button">Back</button>
-          </div>
-
-          <section class="inventory-layout">
-            <article class="card inventory-summary-card">
-              <p class="eyebrow">Summary</p>
-              <strong id="inventory-gold-total" class="inventory-gold-total">Gold: 0</strong>
-              <small id="inventory-items-total">0 delivered assets</small>
-              <div class="inventory-actions">
-                <button id="mint-item-btn" class="button button-primary" type="button">Mint featured item</button>
-              </div>
-            </article>
-
-            <section id="inventory-list" class="inventory-list"></section>
-          </section>
-        </section>
-
-        <section id="character-detail-view" class="game-content" hidden>
-          <div class="section-header card">
-            <div class="section-copy">
-              <p class="eyebrow">Character</p>
-              <h2 id="detail-character-name">Adventurer</h2>
-            </div>
-            <button id="character-detail-back-btn" class="button button-secondary" type="button">Back to characters</button>
-          </div>
-
-          <div class="detail-layout">
-            <section class="card detail-sidebar">
-              <div class="detail-portrait-box">
-                <span id="detail-portrait-icon" class="portrait-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24">
-                    <path d="M12 3a6 6 0 1 1 0 12 6 6 0 0 1 0-12Zm0 14c4.42 0 8 1.79 8 4v1H4v-1c0-2.21 3.58-4 8-4Z" />
-                  </svg>
-                </span>
-              </div>
-
-              <div class="detail-block">
-                <p class="eyebrow">Stats</p>
-                <dl id="character-stats-list" class="detail-list"></dl>
-              </div>
-
-              <div class="detail-block">
-                <p class="eyebrow">Equipment</p>
-                <dl id="character-equipment-list" class="detail-list"></dl>
-              </div>
-            </section>
-
-            <section class="card quest-panel">
-              <div class="section-copy">
-                <p class="eyebrow">Adventure</p>
-                <h2 id="quest-panel-title">Quests</h2>
-              </div>
-
-              <div id="quest-list-state" class="quest-list"></div>
-
-              <div id="quest-active-state" class="quest-state stack" hidden>
-                <div class="detail-block">
-                  <p class="eyebrow">What is happening</p>
-                  <p id="quest-event-text" class="quest-event-text"></p>
-                  <p id="quest-progress-text" class="quest-progress-text"></p>
-                </div>
-
-                <div class="quest-panel-grid">
-                  <section class="detail-block">
-                    <p class="eyebrow">Enemy</p>
-                    <dl id="enemy-stats-list" class="detail-list"></dl>
-                  </section>
-
-                  <section class="detail-block">
-                    <p class="eyebrow">Actions</p>
-                    <div class="quest-actions">
-                      <button id="fight-btn" class="button button-primary" type="button">Fight</button>
-                      <button id="run-btn" class="button button-secondary" type="button">Run</button>
-                      <button id="abandon-quest-btn" class="button button-secondary" type="button">Abandon Quest</button>
-                    </div>
-                  </section>
-                </div>
-
-                <section class="detail-block">
-                  <p class="eyebrow">Rewards</p>
-                  <div id="quest-rewards-list" class="reward-list"></div>
-                </section>
-              </div>
-
-              <div id="quest-complete-state" class="quest-state stack" hidden>
-                <div class="detail-block">
-                  <p class="eyebrow">Quest complete</p>
-                  <p id="quest-complete-text" class="quest-event-text"></p>
-                </div>
-
-                <div class="quest-panel-grid">
-                  <section class="detail-block">
-                    <p class="eyebrow">Experience gained</p>
-                    <strong id="quest-experience-gained" class="quest-reward-value">0 XP</strong>
-                  </section>
-
-                  <section class="detail-block">
-                    <p class="eyebrow">Rewards gained</p>
-                    <div id="quest-complete-rewards-list" class="reward-list"></div>
-                  </section>
-                </div>
-
-                <div class="modal-actions">
-                  <button id="claim-rewards-btn" class="button button-primary" type="button">Claim rewards</button>
-                </div>
-              </div>
-            </section>
-          </div>
+          <div id="transactions-empty" class="empty-state">No app transactions yet.</div>
+          <div id="transactions-list" class="transactions-list"></div>
         </section>
       </section>
     </main>
-
-    <dialog id="credits-modal" class="credits-modal">
-      <form id="credits-form" class="card credits-card">
-        <div class="modal-header">
-          <div>
-            <p class="eyebrow">Add Credits</p>
-            <h2>Top up account</h2>
-          </div>
-          <button id="close-credits-modal-btn" class="button button-secondary" type="button">Close</button>
-        </div>
-
-        <div class="credits-summary">
-          <div class="summary-row">
-            <span>Game</span>
-            <strong id="credits-app-name">-</strong>
-          </div>
-          <div class="summary-row">
-            <span>Credits</span>
-            <strong id="credits-package-amount">-</strong>
-          </div>
-          <div class="summary-row">
-            <span>Total</span>
-            <strong id="credits-package-price">$0.00</strong>
-          </div>
-        </div>
-
-        <p id="credits-feedback" class="feedback" hidden></p>
-
-        <div class="modal-actions">
-          <button id="continue-checkout-btn" class="button button-primary" type="submit">Continue to checkout</button>
-        </div>
-      </form>
-    </dialog>
-
-    <dialog id="character-modal" class="character-modal">
-      <form id="character-form" class="card character-card-modal">
-        <div class="modal-header">
-          <div>
-            <p class="eyebrow">Characters</p>
-            <h2>Create character</h2>
-          </div>
-          <button id="close-character-modal-btn" class="button button-secondary" type="button">Close</button>
-        </div>
-
-        <div class="character-modal-layout">
-          <div class="portrait-panel">
-            <div class="portrait-box">
-              <span id="character-portrait-icon" class="portrait-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M12 3a6 6 0 1 1 0 12 6 6 0 0 1 0-12Zm0 14c4.42 0 8 1.79 8 4v1H4v-1c0-2.21 3.58-4 8-4Z" />
-                </svg>
-              </span>
-            </div>
-          </div>
-
-          <div class="character-form-panel">
-            <label class="field">
-              <span>Name</span>
-              <input id="character-name-input" type="text" maxlength="32" />
-            </label>
-
-            <label class="field">
-              <span>Class</span>
-              <select id="character-class-select" class="select-input">
-                <option value="fighter">Fighter</option>
-                <option value="ranger">Ranger</option>
-                <option value="mage">Mage</option>
-              </select>
-            </label>
-
-            <p id="character-feedback" class="feedback" hidden></p>
-
-            <div class="modal-actions">
-              <button id="create-character-btn" class="button button-primary" type="submit">Create character</button>
-            </div>
-          </div>
-        </div>
-      </form>
-    </dialog>
 
     <script type="module" src="/app.js"></script>
   </body>

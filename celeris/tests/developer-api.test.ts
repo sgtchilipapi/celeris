@@ -1,10 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { Keypair } from "@solana/web3.js";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
 import { createServerClient } from "../sdk/server-client.js";
 import { createHostedPlayerSession } from "./helpers/auth.js";
 import { createDeveloperApp, configureDeveloperAction, signUpDeveloper } from "./helpers/developer.js";
+import { deriveHelloCelerisStatePda } from "../solana/hello-celeris.js";
 
 function createFetchBridge(api: ReturnType<typeof createApi>): typeof fetch {
   return async (input: URL | RequestInfo, init?: RequestInit) => {
@@ -119,6 +121,14 @@ test("server SDK composes developer routes and can act on behalf of a player ses
     executionMode: "managed",
     idempotencyKey: "sdk-action-create"
   });
+  const sponsorWallet = await client.apps.createSponsorWallet(app.appId, {
+    idempotencyKey: "sdk-sponsor-wallet"
+  });
+  const programId = Keypair.generate().publicKey.toBase58();
+  const registeredProgram = await client.apps.registerProgram(app.appId, {
+    programId,
+    idempotencyKey: "sdk-program-register"
+  });
 
   const walletAddress = "0xsdk123";
   const playerSession = await createHostedPlayerSession({
@@ -132,6 +142,8 @@ test("server SDK composes developer routes and can act on behalf of a player ses
   const catalog = await playerView.catalog.get(app.appId);
   const apps = await client.apps.list();
   const appDetails = await client.apps.get(app.appId);
+  const fetchedSponsorWallet = await client.apps.getSponsorWallet(app.appId);
+  const fetchedProgram = await client.apps.getProgram(app.appId);
   const players = await client.players.list(app.appId);
   const metrics = await client.metrics.getAppMetrics(app.appId);
   const transactions = await client.transactions.list(app.appId);
@@ -140,6 +152,14 @@ test("server SDK composes developer routes and can act on behalf of a player ses
   assert.equal(catalog.appId, app.appId);
   assert.equal(apps.length, 1);
   assert.equal(appDetails.appId, app.appId);
+  assert.equal(appDetails.sponsorWallet.publicKey, sponsorWallet.publicKey);
+  assert.equal(appDetails.registeredProgram.programId, programId);
+  assert.equal(fetchedSponsorWallet.publicKey, sponsorWallet.publicKey);
+  assert.equal(fetchedProgram.programId, programId);
+  assert.equal(
+    registeredProgram.statePda,
+    deriveHelloCelerisStatePda({ appId: app.appId, programId }).statePda.toBase58()
+  );
   assert.equal(players.length, 0);
   assert.equal(metrics.appId, app.appId);
   assert.deepEqual(transactions, []);

@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuildBuild } from "esbuild";
 import { AppError } from "../services/errors.js";
-import type { AppMetrics, MemoryStore, PlatformPrivyConfig } from "../types.js";
+import type { AppMetrics, MemoryStore, PlatformPrivyConfig, PlayerTransactionFeedItem, TransactionRecord } from "../types.js";
 import type { AppService } from "../services/app-service.js";
 import type { PaymentService } from "../services/payment-service.js";
 import type { MintItemService } from "../services/mint-item-service.js";
@@ -15,6 +15,7 @@ import type { ManagedActionService } from "../services/managed-action-service.js
 import type { AuthGatewayService } from "../services/auth-gateway-service.js";
 import type { PlayerSessionService } from "../services/player-session-service.js";
 import type { DeveloperSessionService } from "../services/developer-session-service.js";
+import type { SayHelloService } from "../services/say-hello-service.js";
 
 function json(statusCode: number, body: any) {
   return { statusCode, headers: { "content-type": "application/json" }, body };
@@ -55,6 +56,7 @@ type Services = {
   mintItemService: MintItemService;
   metricsService: MetricsService;
   managedActionService: ManagedActionService;
+  sayHelloService: SayHelloService;
 };
 
 type RouteContext = {
@@ -214,9 +216,20 @@ export function createApi(services: Services) {
         appId: app.appId,
         name: app.name,
         playerPolicy,
+        registeredProgram: services.store.getRegisteredProgram(params.appId),
         creditPackages: [...services.store.creditPackages.values()].filter((pkg) => pkg.appId === params.appId),
         actions: [...services.store.actionTypes.values()].filter((action) => action.appId === params.appId)
       }
+    };
+  });
+
+  addRoute("GET", "/v1/apps/:appId/transactions", ({ params, headers, body }) => {
+    requireAuthenticatedPlayer(services, headers, body, params.appId);
+    return {
+      body: [...services.store.transactions.values()]
+        .filter((tx) => tx.appId === params.appId)
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+        .map(projectPlayerTransactionFeedItem)
     };
   });
 
@@ -286,6 +299,47 @@ export function createApi(services: Services) {
     services.appService.requireDeveloperOwnsApp(developer.developerId, params.appId);
     return {
       body: services.appService.getAppSetupDetails(params.appId)
+    };
+  });
+
+  addRoute("PUT", "/v1/developer/apps/:appId/program", ({ params, headers, body }) => {
+    const developer = requireAuthenticatedDeveloper(services, headers);
+    services.appService.requireDeveloperOwnsApp(developer.developerId, params.appId);
+    return {
+      body: services.appService.registerProgram({
+        appId: params.appId,
+        programId: body.programId as string,
+        idempotencyKey: requireIdempotency(headers, body)
+      })
+    };
+  });
+
+  addRoute("GET", "/v1/developer/apps/:appId/program", ({ params, headers }) => {
+    const developer = requireAuthenticatedDeveloper(services, headers);
+    services.appService.requireDeveloperOwnsApp(developer.developerId, params.appId);
+    return {
+      body: services.appService.getProgram(params.appId)
+    };
+  });
+
+  addRoute("POST", "/v1/developer/apps/:appId/sponsor-wallet", ({ params, headers, body }) => {
+    const developer = requireAuthenticatedDeveloper(services, headers);
+    services.appService.requireDeveloperOwnsApp(developer.developerId, params.appId);
+    const result = services.appService.provisionSponsorWallet({
+      appId: params.appId,
+      idempotencyKey: requireIdempotency(headers, body)
+    });
+    return {
+      statusCode: result.created ? 201 : 200,
+      body: result.sponsorWallet
+    };
+  });
+
+  addRoute("GET", "/v1/developer/apps/:appId/sponsor-wallet", ({ params, headers }) => {
+    const developer = requireAuthenticatedDeveloper(services, headers);
+    services.appService.requireDeveloperOwnsApp(developer.developerId, params.appId);
+    return {
+      body: services.appService.getSponsorWallet(params.appId)
     };
   });
 
@@ -411,6 +465,17 @@ export function createApi(services: Services) {
       };
     }
 
+    if (params.actionId === "say_hello") {
+      return {
+        body: await services.sayHelloService.execute({
+          appId: params.appId,
+          walletPrincipal: authenticated.walletPrincipal,
+          payload: (body.payload as Record<string, unknown> | undefined) ?? {},
+          idempotencyKey
+        })
+      };
+    }
+
     throw new AppError(404, "action not supported");
   });
 
@@ -484,6 +549,21 @@ export function createApi(services: Services) {
   }
 
   return { handle, createNodeServer };
+}
+
+function projectPlayerTransactionFeedItem(record: TransactionRecord): PlayerTransactionFeedItem {
+  return {
+    transactionId: record.txId,
+    actionId: record.summary.actionType,
+    providerTxId: record.providerTxId,
+    explorerUrl: record.explorerUrl ?? null,
+    walletAddress: record.walletAddress,
+    username: record.summary.actionType === "say_hello" ? record.summary.username : null,
+    message: record.summary.actionType === "say_hello" ? record.summary.message : null,
+    status: record.status,
+    submittedAt: record.createdAt,
+    confirmedAt: record.confirmedAt ?? null
+  };
 }
 
 function requireIdempotency(headers: http.IncomingHttpHeaders, body: Record<string, unknown>) {

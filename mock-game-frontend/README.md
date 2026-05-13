@@ -1,6 +1,6 @@
 # Mock Game Frontend
 
-Standalone player-facing frontend for the local Celeris MVP flow.
+Standalone player-facing frontend for the Solana devnet Hello Celeris slice.
 
 It is served separately from the API and proxies `/api/*` requests back to the Celeris API server.
 The frontend uses the browser SDK and the hosted Celeris auth gateway flow for player sign-in.
@@ -23,38 +23,27 @@ Supported arguments:
 
 - `--app-id=<app-id>` required
 - `--app-name=<app-name>` optional, defaults to `Mock Game`
-- `--program-id=<program-id>` optional, defaults to `core_gameplay`
-- `--allowed-chain-id=<chain-id>` optional, defaults to `solana:103`
-- `--first-time-claim-action-id=<action-id>` optional, defaults to `first_time_claim`
-- `--claim-rewards-action-id=<action-id>` optional, defaults to `claim_rewards`
-- `--mint-item-action-id=<action-id>` optional, defaults to `mint_item`
-- `--item-def-id=<item-def-id>` optional, defaults to `iron_sword`
+- `--api-origin=<origin-or-path>` optional, defaults to `/api`
+- `--hosted-auth-origin=<origin>` optional, defaults to `CELERIS_HOSTED_AUTH_ORIGIN` or `CELERIS_API_ORIGIN`
+- `--redirect-uri=<uri>` optional, defaults to `http://localhost:3002/auth/callback`
 
 The frontend config served from `/config.json` is shaped like:
 
 ```json
 {
-  "celeris": {
-    "appId": "app-id",
-    "appName": "Mock Game",
-    "programId": "core_gameplay",
-    "authGateway": {
-      "hostedAuthOrigin": "http://localhost:3000",
-      "redirectUri": "http://localhost:3002/auth/callback"
-    },
-    "playerPolicy": {
-      "provider": "privy",
-      "allowedChainId": "solana:103"
-    },
-    "actionIds": {
-      "firstTimeClaim": "first_time_claim",
-      "claimRewards": "claim_rewards",
-      "mintItem": "mint_item"
-    }
-  },
-  "itemDefId": "iron_sword"
+  "appId": "app-id",
+  "appName": "Hello Celeris",
+  "apiOrigin": "/api",
+  "hostedAuthOrigin": "http://localhost:3000",
+  "redirectUri": "http://localhost:3002/auth/callback"
 }
 ```
+
+Runtime behavior:
+
+- public config no longer carries action IDs, placeholder program IDs, or local RPG demo state
+- app metadata, action cost, program registration, and transaction feed are loaded from the player API after sign-in
+- the player flow is limited to wallet display, credits, username input, `Purchase Credits`, `Say Hello Celeris`, and the app-wide transaction feed
 
 Stripe test mode:
 

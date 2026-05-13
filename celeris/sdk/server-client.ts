@@ -32,6 +32,11 @@ type ConfigureActionInput = {
   idempotencyKey?: string;
 };
 
+type RegisterProgramInput = {
+  programId: string;
+  idempotencyKey?: string;
+};
+
 function normalizeBaseUrl(apiBaseUrl: string) {
   return String(apiBaseUrl ?? "").replace(/\/+$/, "");
 }
@@ -130,6 +135,31 @@ export function createServerClient({ apiBaseUrl, accessToken = null, fetchImpl =
       get(appId: string) {
         return requestJson(`/v1/developer/apps/${encodeURIComponent(appId)}`);
       },
+      getProgram(appId: string) {
+        return requestJson(`/v1/developer/apps/${encodeURIComponent(appId)}/program`);
+      },
+      registerProgram(appId: string, { idempotencyKey, ...input }: RegisterProgramInput) {
+        return requestJson(`/v1/developer/apps/${encodeURIComponent(appId)}/program`, {
+          method: "PUT",
+          body: {
+            ...input,
+            idempotencyKey
+          },
+          idempotencyKey
+        });
+      },
+      getSponsorWallet(appId: string) {
+        return requestJson(`/v1/developer/apps/${encodeURIComponent(appId)}/sponsor-wallet`);
+      },
+      createSponsorWallet(appId: string, { idempotencyKey }: { idempotencyKey?: string } = {}) {
+        return requestJson(`/v1/developer/apps/${encodeURIComponent(appId)}/sponsor-wallet`, {
+          method: "POST",
+          body: {
+            idempotencyKey
+          },
+          idempotencyKey
+        });
+      },
       update(appId: string, { idempotencyKey, ...input }: UpdateAppInput) {
         return requestJson(`/v1/developer/apps/${encodeURIComponent(appId)}`, {
           method: "PUT",
@@ -214,6 +244,11 @@ export function createServerClient({ apiBaseUrl, accessToken = null, fetchImpl =
         assets: {
           getHistory(appId: string) {
             return requestJson(`/v1/apps/${encodeURIComponent(appId)}/me/asset-history`, { playerAccessToken });
+          }
+        },
+        transactions: {
+          list(appId: string) {
+            return requestJson(`/v1/apps/${encodeURIComponent(appId)}/transactions`, { playerAccessToken });
           }
         },
         payments: {

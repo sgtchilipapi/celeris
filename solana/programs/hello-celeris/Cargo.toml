@@ -1,0 +1,25 @@
+[package]
+name = "hello-celeris"
+version = "0.1.0"
+description = "Hello Celeris Anchor program"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "hello_celeris"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+idl-build = ["anchor-lang/idl-build"]
+default = []
+
+[dependencies]
+anchor-lang = "0.32.1"
+
+[dev-dependencies]
+solana-program-test = "2.2.1"
+solana-sdk = "2.2.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
