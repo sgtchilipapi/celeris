@@ -1,3 +1,5 @@
+import { buildCanonicalHelloCelerisSayHelloTransaction } from "../sui/hello-celeris.js";
+
 type FetchLike = typeof fetch;
 
 type ServerClientOptions = {
@@ -37,6 +39,12 @@ type RegisterProgramInput = {
   appStateObjectId: string;
   authorityCapObjectId: string;
   idempotencyKey?: string;
+};
+
+type RegisteredProgramMetadata = {
+  packageId: string;
+  appStateObjectId: string;
+  authorityCapObjectId: string;
 };
 
 function normalizeBaseUrl(apiBaseUrl: string) {
@@ -226,6 +234,23 @@ export function createServerClient({ apiBaseUrl, accessToken = null, fetchImpl =
         return requestJson(`/v1/developer/apps/${encodeURIComponent(appId)}/transactions`);
       }
     },
+    sui: {
+      buildSayHelloTransaction({
+        registeredProgram,
+        playerWalletAddress,
+        username
+      }: {
+        registeredProgram: RegisteredProgramMetadata;
+        playerWalletAddress: string;
+        username: string;
+      }) {
+        return buildCanonicalHelloCelerisSayHelloTransaction({
+          registeredProgram,
+          playerWalletAddress,
+          username
+        });
+      }
+    },
     asUser(playerAccessToken: string) {
       return {
         me: {
@@ -267,9 +292,20 @@ export function createServerClient({ apiBaseUrl, accessToken = null, fetchImpl =
           execute(
             appId: string,
             actionId: string,
-            body: { payload?: Record<string, unknown>; idempotencyKey?: string } = {}
+            body: Record<string, unknown> & { payload?: Record<string, unknown>; idempotencyKey?: string } = {}
           ) {
             return requestJson(`/v1/apps/${encodeURIComponent(appId)}/actions/${encodeURIComponent(actionId)}/execute`, {
+              method: "POST",
+              body,
+              playerAccessToken,
+              idempotencyKey: body.idempotencyKey
+            });
+          },
+          completeSayHello(
+            appId: string,
+            body: { reservationId: string; outcome: "submitted" | "failed"; digest?: string; idempotencyKey?: string }
+          ) {
+            return requestJson(`/v1/apps/${encodeURIComponent(appId)}/actions/say_hello/complete`, {
               method: "POST",
               body,
               playerAccessToken,

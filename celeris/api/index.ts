@@ -20,7 +20,13 @@ import { SayHelloService } from "../services/say-hello-service.js";
 import { MockRelayerNetwork } from "../services/mock-relayer-network.js";
 import { SolanaRelayerNetwork } from "../services/solana-relayer-network.js";
 import { StripeTestCheckoutGateway } from "../services/stripe-test-checkout-gateway.js";
-import type { GoogleIdentityTokenVerifier, HostedAuthConfig, PlatformZkLoginConfig, RelayerNetworkClient } from "../types.js";
+import type {
+  GoogleIdentityTokenVerifier,
+  HostedAuthConfig,
+  PlatformZkLoginConfig,
+  RelayerNetworkClient,
+  SuiGateway
+} from "../types.js";
 import { AuthGatewayService } from "../services/auth-gateway-service.js";
 import {
   LocalGoogleIdentityTokenVerifier,
@@ -28,6 +34,8 @@ import {
   ZkLoginAuthService,
   resolvePlatformZkLoginConfigFromEnv
 } from "../services/zklogin-auth-service.js";
+import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
+import { SuiGatewayService } from "../services/sui-gateway-service.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -42,6 +50,8 @@ export function buildServices({
   platformZkLoginConfig = resolvePlatformZkLoginConfigFromEnv(process.env, { allowDevelopmentDefaults: true }),
   hostedAuthConfig = resolveHostedAuthConfigFromEnv(process.env, { allowDevelopmentDefaults: true }),
   solanaRpcOrigin = resolveSolanaRpcOriginFromEnv(process.env),
+  suiRpcOrigin = resolveSuiRpcOriginFromEnv(process.env),
+  suiGateway,
   googleIdentityTokenVerifier
 }: {
   relayerNetworkClient?: RelayerNetworkClient;
@@ -49,6 +59,8 @@ export function buildServices({
   platformZkLoginConfig?: PlatformZkLoginConfig;
   hostedAuthConfig?: HostedAuthConfig;
   solanaRpcOrigin?: string;
+  suiRpcOrigin?: string;
+  suiGateway?: SuiGateway;
   googleIdentityTokenVerifier?: GoogleIdentityTokenVerifier;
 } = {}) {
   const store = new MemoryStore();
@@ -63,6 +75,14 @@ export function buildServices({
   const relayerService = new RelayerService({ networkClient: resolvedRelayerNetworkClient, store });
   const assetDeliveryService = new AssetDeliveryService({ store });
   const resolvedManagedActionService = managedActionService ?? new ManagedActionService();
+  const resolvedSuiGateway =
+    suiGateway ??
+    new SuiGatewayService({
+      client: new SuiJsonRpcClient({
+        network: "testnet",
+        url: suiRpcOrigin
+      })
+    });
   const resolvedGoogleIdentityTokenVerifier =
     googleIdentityTokenVerifier ??
     new LocalGoogleIdentityTokenVerifier({
@@ -84,6 +104,7 @@ export function buildServices({
     platformZkLoginConfig,
     hostedAuthConfig,
     solanaRpcOrigin,
+    suiRpcOrigin,
     zkLoginAuthService,
     playerSessionService,
     developerSessionService,
@@ -108,8 +129,8 @@ export function buildServices({
       store,
       ledgerService,
       managedActionService: resolvedManagedActionService,
-      relayerService,
-      pendingActionService
+      pendingActionService,
+      suiGateway: resolvedSuiGateway
     }),
     metricsService: new MetricsService({ store }),
     stripeGateway,
@@ -117,7 +138,8 @@ export function buildServices({
     pendingActionService,
     relayerService,
     assetDeliveryService,
-    managedActionService: resolvedManagedActionService
+    managedActionService: resolvedManagedActionService,
+    suiGateway: resolvedSuiGateway
   };
   return { ...services, defaultDeveloper };
 }
@@ -219,4 +241,8 @@ export function resolveHostedAuthConfigFromEnv(
 
 export function resolveSolanaRpcOriginFromEnv(env: NodeJS.ProcessEnv = process.env) {
   return String(env.SOLANA_RPC_ORIGIN ?? "https://api.devnet.solana.com").trim() || "https://api.devnet.solana.com";
+}
+
+export function resolveSuiRpcOriginFromEnv(env: NodeJS.ProcessEnv = process.env) {
+  return String(env.SUI_RPC_ORIGIN ?? "https://fullnode.testnet.sui.io:443").trim() || "https://fullnode.testnet.sui.io:443";
 }

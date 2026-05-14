@@ -251,7 +251,13 @@ export function createApi(services: Services) {
     return {
       body: [...services.store.transactions.values()]
         .filter((tx) => tx.appId === params.appId)
-        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+        .sort((left, right) => {
+          const leftTime =
+            left.summary.actionType === "say_hello" ? left.summary.submittedAt : left.createdAt;
+          const rightTime =
+            right.summary.actionType === "say_hello" ? right.summary.submittedAt : right.createdAt;
+          return rightTime.localeCompare(leftTime);
+        })
         .map(projectPlayerTransactionFeedItem)
     };
   });
@@ -491,17 +497,35 @@ export function createApi(services: Services) {
     }
 
     if (params.actionId === "say_hello") {
+      const sayHelloPayload =
+        typeof body.payload === "object" && body.payload && !Array.isArray(body.payload)
+          ? (body.payload as Record<string, unknown>)
+          : body;
       return {
         body: await services.sayHelloService.execute({
           appId: params.appId,
           walletPrincipal: authenticated.walletPrincipal,
-          payload: (body.payload as Record<string, unknown> | undefined) ?? {},
+          payload: sayHelloPayload,
           idempotencyKey
         })
       };
     }
 
     throw new AppError(404, "action not supported");
+  });
+
+  addRoute("POST", "/v1/apps/:appId/actions/say_hello/complete", async ({ params, headers, body }) => {
+    const authenticated = requireAuthenticatedPlayer(services, headers, body, params.appId);
+    return {
+      body: await services.sayHelloService.complete({
+        appId: params.appId,
+        walletPrincipal: authenticated.walletPrincipal,
+        reservationId: body.reservationId as string,
+        outcome: body.outcome as "submitted" | "failed",
+        digest: body.digest as string | undefined,
+        idempotencyKey: requireIdempotency(headers, body)
+      })
+    };
   });
 
   addRoute("GET", "/v1/developer/apps/:appId/metrics", ({ params, headers }) => {
@@ -580,13 +604,14 @@ function projectPlayerTransactionFeedItem(record: TransactionRecord): PlayerTran
   return {
     transactionId: record.txId,
     actionId: record.summary.actionType,
-    providerTxId: record.providerTxId,
+    digest: record.summary.actionType === "say_hello" ? record.summary.digest : record.providerTxId,
+    providerTxId: record.providerTxId || null,
     explorerUrl: record.explorerUrl ?? null,
     walletAddress: record.walletAddress,
     username: record.summary.actionType === "say_hello" ? record.summary.username : null,
     message: record.summary.actionType === "say_hello" ? record.summary.message : null,
     status: record.status,
-    submittedAt: record.createdAt,
+    submittedAt: record.summary.actionType === "say_hello" ? record.summary.submittedAt : record.createdAt,
     confirmedAt: record.confirmedAt ?? null
   };
 }

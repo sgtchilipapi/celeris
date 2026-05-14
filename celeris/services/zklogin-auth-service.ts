@@ -206,9 +206,16 @@ export class LocalZkLoginProver implements ZkLoginProver {
     maxEpoch: number;
     addressSeed: string;
   }): ZkLoginProof {
+    const proofDigest = createDigest(JSON.stringify(input));
     return {
-      proofDigest: createDigest(JSON.stringify(input)),
-      proverOrigin: this.proverOrigin
+      proofDigest,
+      proverOrigin: this.proverOrigin,
+      proofPoints: deriveMockProofPoints(proofDigest),
+      issBase64Details: {
+        value: Buffer.from(input.issuer, "utf8").toString("base64"),
+        indexMod4: 0
+      },
+      headerBase64: Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" }), "utf8").toString("base64")
     };
   }
 }
@@ -323,6 +330,21 @@ function deriveAddressSeed({
   salt: string;
 }) {
   return createDigest(`${issuer}:${audience}:${subject}:${salt}`);
+}
+
+function deriveMockProofPoints(seed: string) {
+  const chunks = seed.match(/.{1,16}/g) ?? [seed];
+  const values = Array.from({ length: 8 }, (_, index) => chunks[index] ?? chunks[chunks.length - 1] ?? "0");
+  const toField = (value: string) => BigInt(`0x${value.padEnd(16, "0")}`).toString();
+
+  return {
+    a: [toField(values[0]), toField(values[1])] as [string, string],
+    b: [
+      [toField(values[2]), toField(values[3])],
+      [toField(values[4]), toField(values[5])]
+    ] as [[string, string], [string, string]],
+    c: [toField(values[6]), toField(values[7])] as [string, string]
+  };
 }
 
 function deriveZkLoginWalletAddress(addressSeed: string) {

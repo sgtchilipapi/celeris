@@ -1,3 +1,9 @@
+import { fromBase64 } from "@mysten/bcs";
+import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
+import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
+import { getZkLoginSignature } from "@mysten/sui/zklogin";
+import { buildCanonicalHelloCelerisSayHelloTransaction, renderHelloCelerisMessage } from "../sui/hello-celeris.js";
+
 type FetchLike = typeof fetch;
 
 type StorageLike = {
@@ -49,6 +55,10 @@ type BrowserClientOptions = {
   appId: string;
   tokenProvider?: () => Promise<string | null | undefined> | string | null | undefined;
   fetchImpl?: FetchLike;
+  sui?: {
+    rpcUrl?: string;
+    rpcClient?: BrowserSuiRpcClientLike;
+  };
   auth?: {
     projectId?: string;
     redirectUri?: string;
@@ -72,6 +82,14 @@ type CheckoutSessionInput = {
 
 type ExecuteActionOptions = {
   idempotencyKey?: string;
+};
+
+type BrowserSuiRpcClientLike = {
+  executeTransactionBlock(input: {
+    transactionBlock: string;
+    signature: string | string[];
+    options?: Record<string, unknown>;
+  }): Promise<unknown>;
 };
 
 type LoginRequestResponse = {
@@ -102,6 +120,16 @@ type PlayerSession = {
     proof: {
       proofDigest: string;
       proverOrigin: string;
+      proofPoints: {
+        a: [string, string];
+        b: [[string, string], [string, string]];
+        c: [string, string];
+      };
+      issBase64Details: {
+        value: string;
+        indexMod4: number;
+      };
+      headerBase64: string;
     };
   };
 };
@@ -120,7 +148,53 @@ type ZkLoginEphemeralSession = {
   proof?: {
     proofDigest: string;
     proverOrigin: string;
+    proofPoints: {
+      a: [string, string];
+      b: [[string, string], [string, string]];
+      c: [string, string];
+    };
+    issBase64Details: {
+      value: string;
+      indexMod4: number;
+    };
+    headerBase64: string;
   };
+};
+
+type ActiveZkLoginSessionMaterial = ZkLoginEphemeralSession & {
+  nonce: string;
+  userSalt: string;
+  issuer: string;
+  audience: string;
+  subject: string;
+  addressSeed: string;
+  proof: NonNullable<ZkLoginEphemeralSession["proof"]>;
+};
+
+type BrowserCatalogResponse = {
+  registeredProgram?: {
+    packageId: string;
+    appStateObjectId: string;
+    authorityCapObjectId: string;
+  } | null;
+};
+
+type PreparedSayHelloResponse = {
+  reservationId: string;
+  transactionBytes: string;
+  sponsorSignature: string;
+  sponsorAddress: string;
+  expiresAt: string;
+  username: string;
+  message: string;
+};
+
+type SayHelloCompletionResponse = {
+  reservationId: string;
+  transactionId: string | null;
+  digest: string | null;
+  explorerUrl: string | null;
+  status: string;
 };
 
 type PopupCompletionResult =
@@ -196,6 +270,15 @@ async function parseJson(response: Response, fallbackMessage: string) {
   return payload;
 }
 
+function isExpiredTimestamp(timestamp: string | undefined | null) {
+  if (!timestamp) {
+    return true;
+  }
+
+  const parsed = Date.parse(timestamp);
+  return Number.isNaN(parsed) || parsed <= Date.now();
+}
+
 function safeJsonParse(raw: string | null) {
   if (!raw) {
     return null;
@@ -262,13 +345,10 @@ function createRandomState() {
 }
 
 async function createZkLoginEphemeralSession(maxEpoch: number) {
-  const runtimeCrypto = requireCrypto();
-  const privateKeyBytes = new Uint8Array(32);
-  runtimeCrypto.getRandomValues(privateKeyBytes);
-  const digest = await runtimeCrypto.subtle.digest("SHA-256", privateKeyBytes);
+  const keypair = Ed25519Keypair.generate();
   return {
-    ephemeralPrivateKey: base64UrlEncode(privateKeyBytes),
-    ephemeralPublicKey: base64UrlEncode(new Uint8Array(digest)),
+    ephemeralPrivateKey: keypair.getSecretKey(),
+    ephemeralPublicKey: keypair.getPublicKey().toBase64(),
     maxEpoch,
     createdAt: new Date().toISOString()
   } satisfies ZkLoginEphemeralSession;
@@ -279,6 +359,7 @@ export function createBrowserClient({
   appId,
   tokenProvider,
   fetchImpl = globalThis.fetch,
+  sui,
   auth
 }: BrowserClientOptions) {
   if (!appId) {
@@ -292,6 +373,14 @@ export function createBrowserClient({
   }
 
   const baseUrl = normalizeBaseUrl(apiBaseUrl);
+  const rpcClient =
+    sui?.rpcClient ??
+    (sui?.rpcUrl
+      ? new SuiJsonRpcClient({
+          url: sui.rpcUrl,
+          network: "testnet"
+        })
+      : null);
   const projectId = auth?.projectId ?? appId;
   const runtimeWindow = getWindow(auth?.window);
   const storage = getStorage(auth?.storage, runtimeWindow);
@@ -403,6 +492,170 @@ export function createBrowserClient({
       body: JSON.stringify(body)
     });
     return parseJson(response, fallbackMessage);
+  }
+
+  function requireActivePlayerSession() {
+    const session = currentSession ?? readPersistedSession();
+    if (!session) {
+      throw new Error("player session is required");
+    }
+    if (isExpiredTimestamp(session.expiresAt)) {
+      throw new Error("player session is expired");
+    }
+    return session;
+  }
+
+  function requireActiveZkLoginSessionMaterial() {
+    const session = requireActivePlayerSession();
+    const ephemeralSession = readZkLoginEphemeralSession();
+    const zkLoginCandidate = ephemeralSession?.nonce ? { ...session.zkLogin, ...ephemeralSession } : null;
+
+    if (
+      !zkLoginCandidate?.ephemeralPrivateKey ||
+      !zkLoginCandidate.nonce ||
+      !zkLoginCandidate.addressSeed ||
+      !zkLoginCandidate.issuer ||
+      !zkLoginCandidate.audience ||
+      !zkLoginCandidate.subject ||
+      !zkLoginCandidate.userSalt ||
+      !zkLoginCandidate.proof
+    ) {
+      throw new Error("zkLogin session material is missing or expired");
+    }
+
+    if (
+      zkLoginCandidate.ephemeralPublicKey !== session.zkLogin?.ephemeralPublicKey &&
+      zkLoginCandidate.ephemeralPublicKey !== ephemeralSession?.ephemeralPublicKey
+    ) {
+      throw new Error("zkLogin session material does not match the authenticated player session");
+    }
+
+    return {
+      session,
+      zkLogin: zkLoginCandidate as ActiveZkLoginSessionMaterial
+    };
+  }
+
+  function requireRpcClient() {
+    if (!rpcClient) {
+      throw new Error("Sui RPC configuration is required for say_hello execution");
+    }
+    return rpcClient;
+  }
+
+  async function buildSayHelloTransaction(username: string) {
+    const session = requireActivePlayerSession();
+    const catalog = (await getJson(
+      `/v1/apps/${encodeURIComponent(appId)}/catalog`,
+      "failed to load app catalog"
+    )) as BrowserCatalogResponse;
+    if (!catalog.registeredProgram) {
+      throw new Error("registered Sui program is not available for this app");
+    }
+
+    return buildCanonicalHelloCelerisSayHelloTransaction({
+      registeredProgram: catalog.registeredProgram,
+      playerWalletAddress: session.player.walletAddress,
+      username
+    });
+  }
+
+  async function signSponsoredSayHelloTransaction(transactionBytes: string) {
+    const { zkLogin } = requireActiveZkLoginSessionMaterial();
+    const ephemeralKeypair = Ed25519Keypair.fromSecretKey(zkLogin.ephemeralPrivateKey);
+    const userSignature = await ephemeralKeypair.signTransaction(fromBase64(transactionBytes));
+
+    return getZkLoginSignature({
+      inputs: {
+        proofPoints: zkLogin.proof.proofPoints,
+        issBase64Details: zkLogin.proof.issBase64Details,
+        headerBase64: zkLogin.proof.headerBase64,
+        addressSeed: zkLogin.addressSeed
+      },
+      maxEpoch: zkLogin.maxEpoch,
+      userSignature: userSignature.signature
+    });
+  }
+
+  function extractSubmittedDigest(result: unknown) {
+    const parsed = (result ?? {}) as Record<string, unknown>;
+    const digest =
+      (typeof parsed.digest === "string" && parsed.digest) ||
+      (typeof parsed.transactionDigest === "string" && parsed.transactionDigest) ||
+      (((parsed.effects as Record<string, unknown> | undefined)?.transactionDigest as string | undefined) ?? null);
+
+    if (!digest) {
+      throw new Error("Sui RPC response did not include a transaction digest");
+    }
+
+    return digest;
+  }
+
+  async function completeSayHello(
+    reservationId: string,
+    body: { outcome: "submitted"; digest: string } | { outcome: "failed" },
+    idempotencyKey?: string
+  ) {
+    return (await postJson(
+      `/v1/apps/${encodeURIComponent(appId)}/actions/say_hello/complete`,
+      {
+        reservationId,
+        ...body,
+        ...(idempotencyKey ? { idempotencyKey: `${idempotencyKey}:complete` } : {})
+      },
+      "failed to reconcile say_hello transaction"
+    )) as SayHelloCompletionResponse;
+  }
+
+  async function executeSayHello(username: string, { idempotencyKey }: ExecuteActionOptions = {}) {
+    const built = await buildSayHelloTransaction(username);
+    const prepared = (await postJson(
+      `/v1/apps/${encodeURIComponent(appId)}/actions/say_hello/execute`,
+      {
+        payload: {
+          username: built.normalizedUsername,
+          transactionKind: built.transactionKind
+        },
+        ...(idempotencyKey ? { idempotencyKey } : {})
+      },
+      "failed to prepare sponsored say_hello transaction"
+    )) as PreparedSayHelloResponse;
+
+    if (prepared.username !== built.normalizedUsername) {
+      throw new Error("prepared say_hello username does not match the canonical browser builder");
+    }
+    if (prepared.message !== renderHelloCelerisMessage(built.normalizedUsername)) {
+      throw new Error("prepared say_hello message does not match the canonical browser builder");
+    }
+    if (!prepared.sponsorAddress) {
+      throw new Error("prepared say_hello response is missing sponsor metadata");
+    }
+    if (isExpiredTimestamp(prepared.expiresAt)) {
+      throw new Error("prepared say_hello transaction is already expired");
+    }
+
+    try {
+      const zkLoginSignature = await signSponsoredSayHelloTransaction(prepared.transactionBytes);
+      const submitted = await requireRpcClient().executeTransactionBlock({
+        transactionBlock: prepared.transactionBytes,
+        signature: [zkLoginSignature, prepared.sponsorSignature],
+        options: {
+          showEffects: true
+        }
+      });
+      const digest = extractSubmittedDigest(submitted);
+      const completion = await completeSayHello(prepared.reservationId, { outcome: "submitted", digest }, idempotencyKey);
+
+      return {
+        reservationId: prepared.reservationId,
+        digest,
+        rpc: submitted,
+        completion
+      };
+    } catch (error) {
+      await completeSayHello(prepared.reservationId, { outcome: "failed" }, idempotencyKey).catch(() => undefined);
+      throw error;
+    }
   }
 
   async function exchangeAuthorizationCode(code: string, codeVerifier: string) {
@@ -694,7 +947,22 @@ export function createBrowserClient({
             audience: ephemeralSession?.audience ?? session.zkLogin?.audience ?? "",
             subject: ephemeralSession?.subject ?? session.zkLogin?.subject ?? "",
             addressSeed: ephemeralSession?.addressSeed ?? session.zkLogin?.addressSeed ?? "",
-            proof: ephemeralSession?.proof ?? session.zkLogin?.proof ?? { proofDigest: "", proverOrigin: "" }
+            proof:
+              ephemeralSession?.proof ??
+              session.zkLogin?.proof ?? {
+                proofDigest: "",
+                proverOrigin: "",
+                proofPoints: {
+                  a: ["", ""],
+                  b: [["", ""], ["", ""]],
+                  c: ["", ""]
+                },
+                issBase64Details: {
+                  value: "",
+                  indexMod4: 0
+                },
+                headerBase64: ""
+              }
           }
         };
       }
@@ -729,7 +997,17 @@ export function createBrowserClient({
       }
     },
     actions: {
+      async buildSayHelloTransaction(username: string) {
+        return buildSayHelloTransaction(username);
+      },
       execute(actionId: string, payload: Record<string, unknown> | undefined = undefined, { idempotencyKey }: ExecuteActionOptions = {}) {
+        if (actionId === "say_hello") {
+          if (!payload || typeof payload.username !== "string") {
+            throw new Error("say_hello requires a username payload");
+          }
+          return executeSayHello(payload.username, { idempotencyKey });
+        }
+
         return postJson(
           `/v1/apps/${encodeURIComponent(appId)}/actions/${encodeURIComponent(actionId)}/execute`,
           {

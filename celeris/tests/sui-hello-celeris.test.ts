@@ -4,6 +4,7 @@ import {
   HELLO_CELERIS_CLOCK_OBJECT_ID,
   HELLO_CELERIS_MAX_USERNAME_UTF8_BYTES,
   assertHelloCelerisSayHelloTransactionKindMatches,
+  buildCanonicalHelloCelerisSayHelloTransaction,
   buildHelloCelerisSayHelloTransaction,
   normalizeHelloCelerisUsername,
   parseSuiObjectId,
@@ -123,4 +124,23 @@ test("TransactionKind validator rejects mismatched payload and object references
       }),
     /does not exactly match/
   );
+});
+
+test("canonical shared builder accepts registered program metadata and player wallet context", () => {
+  const built = buildCanonicalHelloCelerisSayHelloTransaction({
+    registeredProgram: {
+      packageId: PACKAGE_ID,
+      authorityCapObjectId: APP_AUTHORITY_CAP_OBJECT_ID,
+      appStateObjectId: APP_STATE_OBJECT_ID
+    },
+    playerWalletAddress: "0xabc",
+    username: "  Sam  "
+  });
+
+  assert.equal(
+    built.playerWalletAddress,
+    "0x0000000000000000000000000000000000000000000000000000000000000abc"
+  );
+  assert.equal(built.normalizedUsername, "Sam");
+  assert.equal(built.message, "Sam says Hello Celeris!");
 });

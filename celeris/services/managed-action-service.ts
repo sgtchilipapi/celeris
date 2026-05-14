@@ -10,9 +10,10 @@ import type {
 } from "../types.js";
 import { AppError } from "./errors.js";
 import {
-  createHelloCelerisSayHelloInstruction,
+  assertHelloCelerisSayHelloTransactionKindMatches,
+  buildHelloCelerisSayHelloTransaction,
   normalizeHelloCelerisUsername
-} from "../solana/hello-celeris.js";
+} from "../sui/hello-celeris.js";
 
 export class ManagedActionService {
   buildMintItemTransaction({
@@ -67,56 +68,51 @@ export class ManagedActionService {
   }
 
   buildSayHelloTransaction({
-    appId,
-    walletPrincipal,
-    cost,
     payload,
-    registeredProgram,
-    sponsorWallet
+    registeredProgram
   }: ManagedSayHelloRequest): ManagedSayHelloResult {
     const normalizedPayload = this.validateAndNormalizeSayHelloPayload(payload);
-    const programId = registeredProgram.programId;
-    const statePda = registeredProgram.statePda;
-    const sponsorWalletPublicKey = sponsorWallet.publicKey;
-
-    if (!programId || !statePda || !sponsorWalletPublicKey) {
-      throw new AppError(422, "legacy Solana say_hello execution is unavailable for Sui app registration");
-    }
-
-    const { instruction, message, username } = createHelloCelerisSayHelloInstruction({
-      appId,
-      programId,
-      sponsorWalletPublicKey,
-      playerWallet: walletPrincipal.walletAddress,
+    const { transactionKind, message, normalizedUsername } = buildHelloCelerisSayHelloTransaction({
+      packageId: registeredProgram.packageId,
+      appAuthorityCapObjectId: registeredProgram.authorityCapObjectId,
+      appStateObjectId: registeredProgram.appStateObjectId,
       username: normalizedPayload.username
     });
 
     return {
-      preparedTransaction: {
-        appId,
-        sponsorWalletPublicKey,
-        transaction: new Transaction().add(instruction),
-        debugMetadata: {
-          programId,
-          statePda,
-          playerWalletAddress: walletPrincipal.walletAddress,
+      canonicalTransaction: transactionKind,
+      message,
+      normalizedUsername
+    };
+  }
+
+  assertCanonicalSayHelloTransactionKind({
+    providedTransactionKind,
+    registeredProgram,
+    username
+  }: {
+    providedTransactionKind: unknown;
+    registeredProgram: ManagedSayHelloRequest["registeredProgram"];
+    username: string;
+  }) {
+    try {
+      assertHelloCelerisSayHelloTransactionKindMatches(
+        {
+          getData: () => providedTransactionKind
+        } as { getData(): unknown } as never,
+        {
+          packageId: registeredProgram.packageId,
+          appAuthorityCapObjectId: registeredProgram.authorityCapObjectId,
+          appStateObjectId: registeredProgram.appStateObjectId,
           username
         }
-      },
-      summary: {
-        actionType: "say_hello",
-        debit: cost,
-        username,
-        message,
-        sponsorWalletPublicKey,
-        playerWalletAddress: walletPrincipal.walletAddress,
-        providerTxId: "",
-        explorerUrl: "",
-        status: "submitted",
-        submittedAt: "",
-        confirmedAt: null
-      }
-    };
+      );
+    } catch (error) {
+      throw new AppError(
+        422,
+        error instanceof Error ? error.message : "provided TransactionKind does not match canonical say_hello shape"
+      );
+    }
   }
 
   validateAndNormalizeSayHelloPayload(payload: unknown): SayHelloPayload {
@@ -126,14 +122,15 @@ export class ManagedActionService {
 
     const parsedPayload = payload as Record<string, unknown>;
     const keys = Object.keys(parsedPayload);
-    if (keys.length !== 1 || keys[0] !== "username") {
+    const allowedKeys = new Set(["username", "transactionKind"]);
+    if (keys.some((key) => !allowedKeys.has(key)) || !("username" in parsedPayload)) {
       if ("walletAddress" in parsedPayload || "playerWallet" in parsedPayload) {
         throw new AppError(400, "caller-supplied wallet identity is not allowed");
       }
       if ("message" in parsedPayload) {
         throw new AppError(400, "caller-supplied message text is not allowed");
       }
-      throw new AppError(400, "payload must only contain username");
+      throw new AppError(400, "payload must only contain username and transactionKind");
     }
 
     if (typeof parsedPayload.username !== "string") {

@@ -18,6 +18,7 @@ import type {
   PlayerSession,
   ProjectUser,
   RegisteredProgram,
+  SponsorGasReservation,
   SponsorWallet,
   SponsorWalletSecret,
   TransactionRecord,
@@ -48,6 +49,7 @@ export class MemoryStore implements MemoryStoreContract {
   creditLedger: CreditLedgerEntry[] = [];
   actionTypes = new Map<string, ActionType>();
   pendingActions = new Map<UUID, PendingAction>();
+  sponsorGasReservations = new Map<UUID, SponsorGasReservation>();
   transactions = new Map<UUID, TransactionRecord>();
   assetDeliveries = new Map<UUID, AssetDeliveryRecord>();
   payments = new Map<UUID, Payment>();
@@ -336,6 +338,11 @@ export class MemoryStore implements MemoryStoreContract {
         this.pendingActions.delete(id);
       }
     }
+    for (const [id, reservation] of this.sponsorGasReservations.entries()) {
+      if (reservation.appId === appId) {
+        this.sponsorGasReservations.delete(id);
+      }
+    }
     for (const [id, tx] of this.transactions.entries()) {
       if (tx.appId === appId) {
         this.transactions.delete(id);
@@ -432,6 +439,19 @@ export class MemoryStore implements MemoryStoreContract {
     record.updatedAt = new Date().toISOString();
     this.pendingActions.set(record.id, record);
     return record;
+  }
+
+  saveSponsorGasReservation(record: SponsorGasReservation): SponsorGasReservation {
+    const next: SponsorGasReservation = {
+      ...record,
+      updatedAt: new Date().toISOString()
+    };
+    this.sponsorGasReservations.set(record.reservationId, next);
+    return next;
+  }
+
+  getSponsorGasReservation(id: UUID): SponsorGasReservation | null {
+    return this.sponsorGasReservations.get(id) ?? null;
   }
 
   createTransaction(record: TransactionRecord): TransactionRecord {

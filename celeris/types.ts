@@ -18,6 +18,7 @@ export type TransactionStatus = "submitted" | "success" | "failed";
 export type PaymentStatus = "pending" | "paid";
 export type ActionExecutionMode = "managed" | "server" | "webhook";
 export type AssetDeliveryStatus = "submitted" | "confirmed" | "failed";
+export type SponsorGasReservationStatus = "reserved" | "submitted" | "released";
 
 export interface WalletPrincipal {
   walletAddress: WalletAddress;
@@ -141,6 +142,16 @@ export interface LoginRequest {
 export interface ZkLoginProof {
   proofDigest: string;
   proverOrigin: string;
+  proofPoints: {
+    a: [string, string];
+    b: [[string, string], [string, string]];
+    c: [string, string];
+  };
+  issBase64Details: {
+    value: string;
+    indexMod4: number;
+  };
+  headerBase64: string;
 }
 
 export interface ZkLoginSessionMaterial {
@@ -243,6 +254,28 @@ export interface PendingAction {
   updatedAt: string;
 }
 
+export interface SponsorGasReservation {
+  reservationId: UUID;
+  appId: UUID;
+  pendingActionId: UUID;
+  walletAddress: WalletAddress;
+  chainId: ChainId;
+  debit: number;
+  username: string;
+  message: string;
+  sponsorAddress: string;
+  gasObjectId: string;
+  gasObjectVersion: string;
+  gasObjectDigest: string;
+  transactionBytes: string;
+  sponsorSignature: string;
+  status: SponsorGasReservationStatus;
+  expiresAt: string;
+  submittedDigest: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CreatePendingActionRequest {
   walletPrincipal: WalletPrincipal;
   appId: UUID;
@@ -263,10 +296,11 @@ export interface SayHelloTransactionSummary {
   debit: number;
   username: string;
   message: string;
-  sponsorWalletPublicKey: string;
+  sponsorAddress: string;
   playerWalletAddress: string;
-  providerTxId: string;
+  digest: string | null;
   explorerUrl: string;
+  reservationId: string;
   status: TransactionStatus;
   submittedAt: string;
   confirmedAt: string | null;
@@ -516,7 +550,20 @@ export interface ExecuteMintItemRequest {
 export interface ExecuteSayHelloRequest {
   appId: UUID;
   walletPrincipal: WalletPrincipal;
-  payload: Record<string, unknown>;
+  payload: {
+    username?: unknown;
+    transactionKind?: unknown;
+    [key: string]: unknown;
+  };
+  idempotencyKey: string;
+}
+
+export interface CompleteSayHelloRequest {
+  appId: UUID;
+  walletPrincipal: WalletPrincipal;
+  reservationId: UUID;
+  outcome: "submitted" | "failed";
+  digest?: string;
   idempotencyKey: string;
 }
 
@@ -541,18 +588,15 @@ export interface ManagedMintItemResult {
 }
 
 export interface ManagedSayHelloRequest {
-  pendingActionId: UUID;
   appId: UUID;
-  walletPrincipal: WalletPrincipal;
-  cost: number;
   payload: SayHelloPayload;
   registeredProgram: RegisteredProgram;
-  sponsorWallet: SponsorWallet;
 }
 
 export interface ManagedSayHelloResult {
-  preparedTransaction: PreparedSolanaTransaction;
-  summary: SayHelloTransactionSummary;
+  canonicalTransaction: unknown;
+  message: string;
+  normalizedUsername: string;
 }
 
 export interface MintItemExecutionResult {
@@ -563,12 +607,20 @@ export interface MintItemExecutionResult {
 }
 
 export interface SayHelloExecutionResult {
-  pendingActionId: UUID;
-  transactionId: UUID;
-  providerTxId: string;
-  explorerUrl: string;
+  reservationId: UUID;
+  transactionBytes: string;
+  sponsorSignature: string;
+  sponsorAddress: string;
+  expiresAt: string;
   username: string;
   message: string;
+}
+
+export interface SayHelloCompletionResult {
+  reservationId: UUID;
+  transactionId: UUID | null;
+  digest: string | null;
+  explorerUrl: string | null;
   status: TransactionStatus;
 }
 
@@ -617,6 +669,72 @@ export interface RelayerNetworkClient {
   }): Promise<Exclude<TransactionStatus, "submitted">>;
 }
 
+export interface SuiMoveFunctionParameter {
+  body: unknown;
+  reference?: "immutable" | "mutable" | null;
+}
+
+export interface SuiBuildClient {
+  core: {
+    getMoveFunction(input: {
+      packageId: string;
+      moduleName: string;
+      name: string;
+    }): Promise<{ function: { parameters: SuiMoveFunctionParameter[] } }>;
+    getObjects(input: {
+      objectIds: string[];
+    }): Promise<{
+      objects: Array<
+        | {
+            objectId: string;
+            digest: string;
+            version: string;
+            owner:
+              | { $kind: "Shared"; Shared: { initialSharedVersion: string } }
+              | { $kind: "ConsensusAddressOwner"; ConsensusAddressOwner: { startVersion: string } }
+              | { $kind: string; [key: string]: unknown }
+              | null;
+          }
+        | Error
+      >;
+    }>;
+  };
+}
+
+export interface SuiGasCoin {
+  objectId: string;
+  digest: string;
+  version: string;
+}
+
+export interface SuiObjectReference {
+  objectId: string;
+  digest: string;
+  version: string;
+  initialSharedVersion?: string | null;
+}
+
+export interface VerifiedSuiDigest {
+  digest: string;
+  status: TransactionStatus;
+  explorerUrl: string;
+  confirmedAt: string | null;
+}
+
+export interface SuiGateway {
+  getBuildClient(): SuiBuildClient;
+  getCurrentEpoch(): Promise<string>;
+  getReferenceGasPrice(): Promise<string>;
+  getChainIdentifier(): Promise<string>;
+  listSponsorGasCoins(owner: string): Promise<SuiGasCoin[]>;
+  getObjectReference(objectId: string): Promise<SuiObjectReference>;
+  verifySubmittedDigest(input: {
+    digest: string;
+    expectedSender: string;
+    expectedSponsorAddress: string;
+  }): Promise<VerifiedSuiDigest>;
+}
+
 export interface AppMetricsUser {
   walletAddress: WalletAddress;
   chainId: ChainId;
@@ -645,7 +763,8 @@ export interface AppMetrics {
 export interface PlayerTransactionFeedItem {
   transactionId: UUID;
   actionId: string;
-  providerTxId: string;
+  digest: string | null;
+  providerTxId: string | null;
   explorerUrl: string | null;
   walletAddress: WalletAddress;
   username: string | null;
@@ -675,6 +794,7 @@ export interface MemoryStore {
   creditLedger: CreditLedgerEntry[];
   actionTypes: Map<string, ActionType>;
   pendingActions: Map<UUID, PendingAction>;
+  sponsorGasReservations: Map<UUID, SponsorGasReservation>;
   transactions: Map<UUID, TransactionRecord>;
   assetDeliveries: Map<UUID, AssetDeliveryRecord>;
   payments: Map<UUID, Payment>;
@@ -729,6 +849,8 @@ export interface MemoryStore {
   createPendingAction(record: PendingAction): PendingAction;
   getPendingAction(id: UUID): PendingAction | null;
   savePendingAction(record: PendingAction): PendingAction;
+  saveSponsorGasReservation(record: SponsorGasReservation): SponsorGasReservation;
+  getSponsorGasReservation(id: UUID): SponsorGasReservation | null;
   createTransaction(record: TransactionRecord): TransactionRecord;
   saveTransaction(record: TransactionRecord): TransactionRecord;
   createAssetDelivery(record: AssetDeliveryRecord): AssetDeliveryRecord;

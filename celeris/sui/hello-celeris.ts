@@ -23,6 +23,19 @@ export interface HelloCelerisSayHelloTransactionParams {
   clockObjectId?: string;
 }
 
+export interface HelloCelerisRegisteredProgramLike {
+  packageId: string;
+  authorityCapObjectId: string;
+  appStateObjectId: string;
+}
+
+export interface CanonicalHelloCelerisSayHelloTransactionParams {
+  registeredProgram: HelloCelerisRegisteredProgramLike;
+  playerWalletAddress: string;
+  username: string;
+  clockObjectId?: string;
+}
+
 interface TransactionKindComparableShape {
   version: unknown;
   inputs: unknown;
@@ -54,11 +67,13 @@ export function parseSuiPackageId(packageId: string) {
 }
 
 export function assertValidHelloCelerisUsername(username: string) {
-  if (Buffer.byteLength(username, "utf8") === 0) {
+  const utf8Length = new TextEncoder().encode(username).length;
+
+  if (utf8Length === 0) {
     throw new Error("username must not be empty");
   }
 
-  if (Buffer.byteLength(username, "utf8") > HELLO_CELERIS_MAX_USERNAME_UTF8_BYTES) {
+  if (utf8Length > HELLO_CELERIS_MAX_USERNAME_UTF8_BYTES) {
     throw new Error(`username must be at most ${HELLO_CELERIS_MAX_USERNAME_UTF8_BYTES} UTF-8 bytes`);
   }
 }
@@ -110,6 +125,22 @@ export function buildHelloCelerisSayHelloTransaction(params: HelloCelerisSayHell
     message: renderHelloCelerisMessage(normalizedUsername),
     transaction,
     transactionKind: transaction.getData()
+  };
+}
+
+export function buildCanonicalHelloCelerisSayHelloTransaction(params: CanonicalHelloCelerisSayHelloTransactionParams) {
+  const playerWalletAddress = parseSuiAddress(params.playerWalletAddress);
+  const built = buildHelloCelerisSayHelloTransaction({
+    packageId: params.registeredProgram.packageId,
+    appAuthorityCapObjectId: params.registeredProgram.authorityCapObjectId,
+    appStateObjectId: params.registeredProgram.appStateObjectId,
+    username: params.username,
+    clockObjectId: params.clockObjectId
+  });
+
+  return {
+    ...built,
+    playerWalletAddress
   };
 }
 

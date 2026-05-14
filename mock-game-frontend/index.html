@@ -9,9 +9,9 @@
   <body>
     <main class="shell">
       <section class="hero">
-        <p class="eyebrow">Solana Devnet Demo</p>
+        <p class="eyebrow">Sui Testnet Demo</p>
         <h1 id="hero-title">Hello Celeris</h1>
-        <p id="hero-subtitle" class="hero-copy">Sign in, buy credits, and submit a real sponsored `say_hello` transaction.</p>
+        <p id="hero-subtitle" class="hero-copy">Sign in with hosted zkLogin, buy credits, and submit a sponsored say_hello transaction on Sui testnet.</p>
       </section>
 
       <section id="login-view" class="auth-panel panel">
@@ -41,9 +41,9 @@
           </article>
 
           <article class="panel stat-card">
-            <p class="eyebrow">Program</p>
-            <strong id="program-id" class="stat-value mono">Unregistered</strong>
-            <span id="program-cluster" class="muted">Solana devnet</span>
+            <p class="eyebrow">Sui Package</p>
+            <strong id="package-id" class="stat-value mono">Unregistered</strong>
+            <span id="package-summary" class="muted">Sui testnet package is not registered</span>
           </article>
         </header>
 
@@ -54,7 +54,7 @@
             <div class="panel-copy">
               <p class="eyebrow">Managed Action</p>
               <h2>Say Hello Celeris</h2>
-              <p class="muted">Celeris builds the transaction, the app sponsor wallet pays fees, and the player identity comes from the active session.</p>
+              <p class="muted">The browser SDK builds the canonical transaction, Celeris sponsor-signs it, and zkLogin submits it silently to Sui.</p>
             </div>
 
             <form id="say-hello-form" class="stack">
@@ -80,15 +80,15 @@
             <dl class="status-list">
               <div>
                 <dt>Explorer</dt>
-                <dd>Successful or submitted actions link straight to Solana Explorer on devnet.</dd>
+                <dd>Successful or submitted actions link straight to Sui Explorer on testnet.</dd>
               </div>
               <div>
                 <dt>Feed scope</dt>
                 <dd>All app transactions submitted by Celeris appear here, newest first.</dd>
               </div>
               <div>
-                <dt>Session source</dt>
-                <dd>The browser never provides the wallet as source of truth for actions.</dd>
+                <dt>Wallet popup</dt>
+                <dd>The canonical player flow uses hosted auth and silent zkLogin submission instead of an external wallet prompt.</dd>
               </div>
             </dl>
 

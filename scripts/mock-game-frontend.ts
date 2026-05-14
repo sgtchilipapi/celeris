@@ -15,13 +15,15 @@ const browserSdkPath = path.join(projectRoot, "celeris/sdk/browser-client.ts");
 const port = Number(process.env.MOCK_GAME_FRONTEND_PORT ?? 3002);
 const apiOrigin = process.env.CELERIS_API_ORIGIN ?? "http://localhost:3000";
 const hostedAuthOrigin = process.env.CELERIS_HOSTED_AUTH_ORIGIN ?? apiOrigin;
+const suiRpcOrigin = process.env.CELERIS_SUI_RPC_ORIGIN ?? "https://fullnode.testnet.sui.io:443";
 const defaultFrontendOrigin = `http://localhost:${port}`;
 const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
 const defaultRunConfig = buildRunConfig({
   appId: "",
-  appName: "Mock Game",
+  appName: "Hello Celeris",
   apiOrigin: "/api",
   hostedAuthOrigin,
+  suiRpcOrigin,
   redirectUri: `${defaultFrontendOrigin}/auth/callback`
 });
 const runConfig = isMainModule ? parseArgs(process.argv.slice(2)) : defaultRunConfig;
@@ -241,9 +243,10 @@ async function readBody(req: http.IncomingMessage) {
 function parseArgs(args: string[]) {
   const config = {
     appId: "",
-    appName: "Mock Game",
+    appName: "Hello Celeris",
     apiOrigin: "/api",
     hostedAuthOrigin,
+    suiRpcOrigin,
     redirectUri: `${defaultFrontendOrigin}/auth/callback`
   };
 
@@ -264,6 +267,10 @@ function parseArgs(args: string[]) {
       config.hostedAuthOrigin = arg.slice("--hosted-auth-origin=".length);
       continue;
     }
+    if (arg.startsWith("--sui-rpc-origin=")) {
+      config.suiRpcOrigin = arg.slice("--sui-rpc-origin=".length);
+      continue;
+    }
     if (arg.startsWith("--redirect-uri=")) {
       config.redirectUri = arg.slice("--redirect-uri=".length);
     }
@@ -281,6 +288,7 @@ export function buildRunConfig(config: {
   appName: string;
   apiOrigin: string;
   hostedAuthOrigin: string;
+  suiRpcOrigin: string;
   redirectUri: string;
 }) {
   return {
@@ -288,6 +296,7 @@ export function buildRunConfig(config: {
     appName: config.appName,
     apiOrigin: config.apiOrigin,
     hostedAuthOrigin: config.hostedAuthOrigin,
+    suiRpcOrigin: config.suiRpcOrigin,
     redirectUri: config.redirectUri
   };
 }

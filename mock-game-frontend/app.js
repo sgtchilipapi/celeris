@@ -1,4 +1,5 @@
 import { createBrowserClient } from "/sdk/browser-client.ts";
+import { DEFAULT_SUI_RPC_ORIGIN, getTransactionDisplayModel, isSayHelloSubmissionReady } from "/view-model.js";
 
 const loginViewEl = document.getElementById("login-view");
 const appViewEl = document.getElementById("app-view");
@@ -13,8 +14,8 @@ const walletAddressEl = document.getElementById("wallet-address");
 const walletChainEl = document.getElementById("wallet-chain");
 const creditBalanceEl = document.getElementById("credit-balance");
 const creditPackageEl = document.getElementById("credit-package");
-const programIdEl = document.getElementById("program-id");
-const programClusterEl = document.getElementById("program-cluster");
+const packageIdEl = document.getElementById("package-id");
+const packageSummaryEl = document.getElementById("package-summary");
 const actionCostEl = document.getElementById("action-cost");
 const appNameChipEl = document.getElementById("app-name-chip");
 const purchaseCreditsBtn = document.getElementById("purchase-credits-btn");
@@ -122,7 +123,12 @@ function updateButtons() {
   const username = usernameInputEl.value.trim();
 
   purchaseCreditsBtn.disabled = !hasSession || !creditPackage;
-  sayHelloBtn.disabled = !hasSession || !action || username.length === 0 || state.pendingAction;
+  sayHelloBtn.disabled = !isSayHelloSubmissionReady({
+    hasSession,
+    hasAction: Boolean(action),
+    username,
+    pendingAction: state.pendingAction
+  });
 }
 
 function renderSummary() {
@@ -144,11 +150,11 @@ function renderSummary() {
   actionCostEl.textContent = action ? `Action cost: ${action.cost} credits` : "Action cost: not configured";
 
   if (registeredProgram) {
-    programIdEl.textContent = registeredProgram.programId;
-    programClusterEl.textContent = `${registeredProgram.chainFamily} ${registeredProgram.cluster} • state ${registeredProgram.statePda}`;
+    packageIdEl.textContent = registeredProgram.packageId;
+    packageSummaryEl.textContent = `Sui testnet • state ${registeredProgram.appStateObjectId}`;
   } else {
-    programIdEl.textContent = "Unregistered";
-    programClusterEl.textContent = "Solana devnet";
+    packageIdEl.textContent = "Unregistered";
+    packageSummaryEl.textContent = "Sui testnet package is not registered";
   }
 
   if (state.me) {
@@ -173,13 +179,15 @@ function renderTransactions() {
 
     const header = document.createElement("header");
 
+    const display = getTransactionDisplayModel(transaction, formatTimestamp);
+
     const message = document.createElement("p");
     message.className = "transaction-message";
-    message.textContent = transaction.message || `${transaction.actionId} submitted`;
+    message.textContent = display.message;
 
     const status = document.createElement("span");
     status.className = `status-badge status-${transaction.status}`;
-    status.textContent = transaction.status;
+    status.textContent = display.status;
 
     header.append(message, status);
 
@@ -187,33 +195,33 @@ function renderTransactions() {
     meta.className = "transaction-meta";
 
     const wallet = document.createElement("span");
-    wallet.textContent = `${transaction.username ?? "Unknown"} • ${formatWallet(transaction.walletAddress)}`;
+    wallet.className = "mono";
+    wallet.textContent = `${display.username} • ${display.walletAddress}`;
 
     const timestamp = document.createElement("span");
-    timestamp.textContent = transaction.confirmedAt
-      ? `Confirmed ${formatTimestamp(transaction.confirmedAt)}`
-      : `Submitted ${formatTimestamp(transaction.submittedAt)}`;
+    timestamp.textContent = display.timestamp;
 
     meta.append(wallet, timestamp);
     card.append(header, meta);
 
-    const signature = document.createElement("div");
-    signature.className = "transaction-meta";
+    const digestRow = document.createElement("div");
+    digestRow.className = "transaction-meta";
 
-    const signatureText = document.createElement("span");
-    signatureText.textContent = `Signature: ${transaction.providerTxId}`;
-    signature.append(signatureText);
+    const digestText = document.createElement("span");
+    digestText.className = "mono";
+    digestText.textContent = display.digestLabel;
+    digestRow.append(digestText);
 
-    if (transaction.explorerUrl) {
+    if (display.explorerUrl) {
       const link = document.createElement("a");
-      link.href = transaction.explorerUrl;
+      link.href = display.explorerUrl;
       link.target = "_blank";
       link.rel = "noreferrer";
-      link.textContent = "Open in Explorer";
-      signature.append(link);
+      link.textContent = "View on Sui Explorer";
+      digestRow.append(link);
     }
 
-    card.append(signature);
+    card.append(digestRow);
     transactionsListEl.append(card);
   }
 }
@@ -274,12 +282,16 @@ async function loadConfig() {
     appName: config.appName ?? "Hello Celeris",
     apiOrigin: config.apiOrigin ?? "/api",
     hostedAuthOrigin: config.hostedAuthOrigin ?? window.location.origin,
-    redirectUri: resolveRedirectUri(config)
+    redirectUri: resolveRedirectUri(config),
+    suiRpcOrigin: config.suiRpcOrigin ?? DEFAULT_SUI_RPC_ORIGIN
   };
 
   state.sdk = createBrowserClient({
     apiBaseUrl: state.config.apiOrigin,
     appId: state.config.appId,
+    sui: {
+      rpcUrl: state.config.suiRpcOrigin
+    },
     auth: {
       hostedAuthOrigin: state.config.hostedAuthOrigin,
       redirectUri: state.config.redirectUri
@@ -287,7 +299,7 @@ async function loadConfig() {
   });
 
   heroTitleEl.textContent = state.config.appName;
-  heroSubtitleEl.textContent = "Sign in, buy credits, and submit a real sponsored `say_hello` transaction.";
+  heroSubtitleEl.textContent = "Sign in with hosted zkLogin, buy credits, and submit a sponsored say_hello transaction on Sui testnet.";
   loginSubtitleEl.textContent = `Use the Celeris-hosted auth gateway for ${state.config.appName}.`;
 }
 
