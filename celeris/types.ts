@@ -71,7 +71,7 @@ export interface App {
 
 export interface AppPlayerPolicy {
   appId: UUID;
-  authProvider: "privy";
+  authProvider: "zklogin";
   allowedChainId: ChainId;
   allowedFrontendOrigins: string[];
   allowedRedirectUris: string[];
@@ -105,12 +105,14 @@ export interface SponsorWalletSecret {
   updatedAt: string;
 }
 
-export interface PlatformPrivyConfig {
-  authProvider: "privy";
-  privyAppId: string;
-  appSecret: string;
-  googleOAuthEnabled: boolean;
-  clientId?: string;
+export interface PlatformZkLoginConfig {
+  authProvider: "zklogin";
+  googleClientId: string;
+  googleIssuer: string;
+  googleVerifierSecret: string;
+  zkLoginSaltSeed: string;
+  zkLoginMaxEpoch: number;
+  zkLoginProverOrigin: string;
 }
 
 export interface HostedAuthConfig {
@@ -124,9 +126,29 @@ export interface LoginRequest {
   origin: string;
   redirectUri: string;
   codeChallenge: string;
+  zkLoginNonce: string;
+  zkLoginEphemeralPublicKey: string;
+  zkLoginMaxEpoch: number;
   expiresAt: string;
   consumedAt: string | null;
   createdAt: string;
+}
+
+export interface ZkLoginProof {
+  proofDigest: string;
+  proverOrigin: string;
+}
+
+export interface ZkLoginSessionMaterial {
+  nonce: string;
+  ephemeralPublicKey: string;
+  maxEpoch: number;
+  userSalt: string;
+  issuer: string;
+  audience: string;
+  subject: string;
+  addressSeed: string;
+  proof: ZkLoginProof;
 }
 
 export interface AuthCode {
@@ -138,6 +160,7 @@ export interface AuthCode {
   walletAddress: WalletAddress;
   chainId: ChainId;
   codeChallenge: string;
+  zkLogin: ZkLoginSessionMaterial;
   expiresAt: string;
   consumedAt: string | null;
   createdAt: string;
@@ -153,6 +176,13 @@ export interface PlayerSession {
   expiresAt: string;
   revokedAt: string | null;
   createdAt: string;
+}
+
+export interface ZkLoginUserSalt {
+  externalSubject: string;
+  salt: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CreditPackage {
@@ -295,21 +325,26 @@ export interface UsageEvent {
   createdAt: string;
 }
 
-export interface PrivyClaims {
+export interface GoogleIdentityClaims {
   sub: string;
-  walletAddress?: WalletAddress;
-  chainId?: ChainId;
+  email?: string | null;
+  nonce: string;
+  aud: string;
+  iss: string;
   iat?: number;
   exp?: number;
 }
 
-export interface CompleteHostedLoginWithPrivyTokenRequest {
+export interface CompleteHostedLoginWithGoogleIdTokenRequest {
   loginRequestId: UUID;
-  privyAccessToken: string;
+  googleIdToken: string;
 }
 
-export interface PrivyTokenVerifier {
-  verifyToken(token: string, options?: { allowedChainId?: ChainId }): PrivyClaims | Promise<PrivyClaims>;
+export interface GoogleIdentityTokenVerifier {
+  verifyToken(
+    token: string,
+    options: { expectedNonce: string; expectedAudience: string }
+  ): GoogleIdentityClaims | Promise<GoogleIdentityClaims>;
 }
 
 export interface CreateAppRequest {
@@ -380,6 +415,7 @@ export interface AppSetupDetails {
 export interface AuthLoginRequestResponse {
   loginRequestId: UUID;
   hostedLoginUrl: string;
+  zkLoginNonce: string;
   expiresAt: string;
 }
 
@@ -390,6 +426,7 @@ export interface AuthCodeExchangeResponse {
   projectId: UUID;
   celerisUserId: UUID;
   projectUserId: UUID;
+  zkLogin: ZkLoginSessionMaterial;
 }
 
 export interface ConfigureActionRequest {
@@ -628,6 +665,7 @@ export interface MemoryStore {
   loginRequests: Map<UUID, LoginRequest>;
   authCodes: Map<UUID, AuthCode>;
   playerSessions: Map<UUID, PlayerSession>;
+  zkLoginUserSalts: Map<string, ZkLoginUserSalt>;
   creditPackages: Map<UUID, CreditPackage>;
   creditBalances: Map<string, CreditBalance>;
   creditLedger: CreditLedgerEntry[];
@@ -644,6 +682,8 @@ export interface MemoryStore {
   createUser(input: { userId?: UUID; externalSubject?: string | null; email?: string | null }): User;
   findUserByExternalSubject(externalSubject: string): User | null;
   findUserByEmail(email: string): User | null;
+  getZkLoginUserSalt(externalSubject: string): ZkLoginUserSalt | null;
+  saveZkLoginUserSalt(record: ZkLoginUserSalt): ZkLoginUserSalt;
   upsertCelerisUser(input: { externalSubject: string; walletAddress: WalletAddress; chainId: ChainId }): CelerisUser;
   getCelerisUserByExternalSubject(externalSubject: string): CelerisUser | null;
   upsertProjectUser(input: {

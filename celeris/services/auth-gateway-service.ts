@@ -3,12 +3,12 @@ import { AppError } from "./errors.js";
 import type {
   AuthCodeExchangeResponse,
   AuthLoginRequestResponse,
-  CompleteHostedLoginWithPrivyTokenRequest,
+  CompleteHostedLoginWithGoogleIdTokenRequest,
   HostedAuthConfig,
   MemoryStore,
   WalletPrincipal
 } from "../types.js";
-import type { PrivyAuthService } from "./privy-auth-service.js";
+import type { ZkLoginAuthService } from "./zklogin-auth-service.js";
 import type { PlayerSessionService } from "./player-session-service.js";
 
 function nowIso() {
@@ -33,23 +33,23 @@ function normalizeRedirectUri(redirectUri: string) {
 
 export class AuthGatewayService {
   readonly store: MemoryStore;
-  readonly privyAuthService: PrivyAuthService;
+  readonly zkLoginAuthService: ZkLoginAuthService;
   readonly playerSessionService: PlayerSessionService;
   readonly config: HostedAuthConfig;
 
   constructor({
     store,
-    privyAuthService,
+    zkLoginAuthService,
     playerSessionService,
     config
   }: {
     store: MemoryStore;
-    privyAuthService: PrivyAuthService;
+    zkLoginAuthService: ZkLoginAuthService;
     playerSessionService: PlayerSessionService;
     config: HostedAuthConfig;
   }) {
     this.store = store;
-    this.privyAuthService = privyAuthService;
+    this.zkLoginAuthService = zkLoginAuthService;
     this.playerSessionService = playerSessionService;
     this.config = config;
   }
@@ -58,12 +58,17 @@ export class AuthGatewayService {
     projectId,
     origin,
     redirectUri,
-    codeChallenge
+    codeChallenge,
+    zkLogin
   }: {
     projectId: string;
     origin: string;
     redirectUri: string;
     codeChallenge: string;
+    zkLogin: {
+      ephemeralPublicKey: string;
+      maxEpoch: number;
+    };
   }): AuthLoginRequestResponse {
     const app = this.store.apps.get(projectId);
     if (!app) {
@@ -84,13 +89,24 @@ export class AuthGatewayService {
     if (!playerPolicy.allowedRedirectUris.includes(normalizedRedirectUri)) {
       throw new AppError(403, "redirectUri not allowed");
     }
+    const normalizedEphemeralPublicKey = normalizeEphemeralPublicKey(zkLogin.ephemeralPublicKey);
+    const normalizedMaxEpoch = normalizeMaxEpoch(zkLogin.maxEpoch);
+
+    const loginRequestId = randomUUID();
 
     const loginRequest = this.store.createLoginRequest({
-      loginRequestId: randomUUID(),
+      loginRequestId,
       projectId,
       origin: normalizedOrigin,
       redirectUri: normalizedRedirectUri,
       codeChallenge: normalizedCodeChallenge,
+      zkLoginNonce: this.zkLoginAuthService.resolveLoginNonce({
+        loginRequestId,
+        ephemeralPublicKey: normalizedEphemeralPublicKey,
+        maxEpoch: normalizedMaxEpoch
+      }),
+      zkLoginEphemeralPublicKey: normalizedEphemeralPublicKey,
+      zkLoginMaxEpoch: normalizedMaxEpoch,
       expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
       consumedAt: null,
       createdAt: nowIso()
@@ -99,6 +115,7 @@ export class AuthGatewayService {
     return {
       loginRequestId: loginRequest.loginRequestId,
       hostedLoginUrl: `${this.config.hostedAuthOrigin}/auth/login?loginRequestId=${encodeURIComponent(loginRequest.loginRequestId)}`,
+      zkLoginNonce: loginRequest.zkLoginNonce,
       expiresAt: loginRequest.expiresAt
     };
   }
@@ -111,10 +128,10 @@ export class AuthGatewayService {
     return loginRequest;
   }
 
-  async completeHostedLoginWithPrivyToken({
+  async completeHostedLoginWithGoogleIdToken({
     loginRequestId,
-    privyAccessToken
-  }: CompleteHostedLoginWithPrivyTokenRequest): Promise<{
+    googleIdToken
+  }: CompleteHostedLoginWithGoogleIdTokenRequest): Promise<{
     code: string;
     origin: string;
     redirectUri: string;
@@ -134,8 +151,12 @@ export class AuthGatewayService {
       throw new AppError(404, "app player policy not found");
     }
 
-    const verifiedIdentity = await this.privyAuthService.resolveVerifiedToken(privyAccessToken, {
-      allowedChainId: playerPolicy.allowedChainId
+    const verifiedIdentity = await this.zkLoginAuthService.resolveVerifiedIdentity({
+      googleIdToken,
+      allowedChainId: playerPolicy.allowedChainId,
+      nonce: loginRequest.zkLoginNonce,
+      ephemeralPublicKey: loginRequest.zkLoginEphemeralPublicKey,
+      maxEpoch: loginRequest.zkLoginMaxEpoch
     });
 
     const celerisUser = this.store.upsertCelerisUser({
@@ -162,6 +183,7 @@ export class AuthGatewayService {
       walletAddress: verifiedIdentity.walletPrincipal.walletAddress,
       chainId: verifiedIdentity.walletPrincipal.chainId,
       codeChallenge: loginRequest.codeChallenge,
+      zkLogin: verifiedIdentity.zkLogin,
       expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
       consumedAt: null,
       createdAt: nowIso()
@@ -213,7 +235,8 @@ export class AuthGatewayService {
       },
       projectId: authCode.projectId,
       celerisUserId: authCode.celerisUserId,
-      projectUserId: authCode.projectUserId
+      projectUserId: authCode.projectUserId,
+      zkLogin: authCode.zkLogin
     };
   }
 }
@@ -236,6 +259,21 @@ function verifyCodeChallenge(codeVerifier: string, expectedCodeChallenge: string
   }
   const computedChallenge = crypto.createHash("sha256").update(normalizedVerifier).digest("base64url");
   return computedChallenge === expectedCodeChallenge;
+}
+
+function normalizeEphemeralPublicKey(ephemeralPublicKey: string) {
+  const normalized = String(ephemeralPublicKey ?? "").trim();
+  if (!/^[A-Za-z0-9_-]{32,256}$/.test(normalized)) {
+    throw new AppError(400, "invalid zkLogin ephemeral public key");
+  }
+  return normalized;
+}
+
+function normalizeMaxEpoch(maxEpoch: number) {
+  if (!Number.isInteger(maxEpoch) || maxEpoch <= 0) {
+    throw new AppError(400, "invalid zkLogin max epoch");
+  }
+  return maxEpoch;
 }
 
 export function normalizeAllowedOrigins(origins: string[] | undefined, fallbackOrigin: string) {

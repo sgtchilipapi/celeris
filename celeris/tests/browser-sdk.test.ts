@@ -221,10 +221,10 @@ test("player catalog and asset history routes support the standalone browser SDK
   assert.equal(catalog.body.actions[0].actionType, "mint_item");
 
   assert.equal(assetHistory.statusCode, 200);
-  assert.equal(assetHistory.body.walletAddress, walletAddress);
+  assert.equal(assetHistory.body.walletAddress, session.player.walletAddress);
   assert.equal(assetHistory.body.chainId, chainId);
   assert.equal(assetHistory.body.deliveries.length, 1);
-  assert.equal(assetHistory.body.deliveries[0].destinationWalletAddress, walletAddress);
+  assert.equal(assetHistory.body.deliveries[0].destinationWalletAddress, session.player.walletAddress);
 });
 
 test("legacy API-served demo frontend routes and demo checkout completion helper are removed", async () => {

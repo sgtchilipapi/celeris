@@ -1,16 +1,16 @@
 import crypto from "node:crypto";
-import { createPrivyTestToken } from "../../services/privy-auth-service.js";
+import { createGoogleTestIdToken } from "../../services/zklogin-auth-service.js";
 
 function resolveTestVerifierSecret() {
-  return process.env.PRIVY_APP_SECRET ?? process.env.PRIVY_VERIFIER_SECRET ?? "privy-dev-secret";
+  return process.env.CELERIS_GOOGLE_VERIFIER_SECRET ?? "google-dev-secret";
 }
 
 export async function createHostedPlayerSession({
   api,
   appId,
   walletAddress,
-  chainId = "eip155:1",
-  subject = `did:privy:test-user:${walletAddress.toLowerCase()}`,
+  chainId = "sui:testnet",
+  subject = `google-test-user:${walletAddress.toLowerCase()}`,
   origin = "http://localhost:3002",
   redirectUri = "http://localhost:3002/auth/callback"
 }: {
@@ -40,7 +40,11 @@ export async function createHostedPlayerSession({
     body: {
       projectId: appId,
       redirectUri,
-      codeChallenge
+      codeChallenge,
+      zkLogin: {
+        ephemeralPublicKey: crypto.randomBytes(32).toString("base64url"),
+        maxEpoch: 30
+      }
     }
   });
 
@@ -52,12 +56,16 @@ export async function createHostedPlayerSession({
     method: "POST",
     url: "/v1/auth/token",
     body: {
-      grantType: "privy_access_token",
+      grantType: "google_identity_token",
       loginRequestId: loginRequest.body.loginRequestId,
-      privyAccessToken: createPrivyTestToken({
+      googleIdToken: createGoogleTestIdToken({
         subject,
-        walletAddress,
-        chainId
+        nonce:
+          loginRequest.body.zkLoginNonce ??
+          (() => {
+            throw new Error("login request response missing zkLoginNonce");
+          })(),
+        audience: "google-client-dev"
       }, {
         secret: resolveTestVerifierSecret()
       })

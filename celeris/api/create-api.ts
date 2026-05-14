@@ -4,18 +4,19 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuildBuild } from "esbuild";
 import { AppError } from "../services/errors.js";
-import type { AppMetrics, MemoryStore, PlatformPrivyConfig, PlayerTransactionFeedItem, TransactionRecord } from "../types.js";
+import type { AppMetrics, MemoryStore, PlatformZkLoginConfig, PlayerTransactionFeedItem, TransactionRecord } from "../types.js";
 import type { AppService } from "../services/app-service.js";
 import type { PaymentService } from "../services/payment-service.js";
 import type { MintItemService } from "../services/mint-item-service.js";
 import type { MetricsService } from "../services/metrics-service.js";
 import type { ClaimRewardsService } from "../services/claim-rewards-service.js";
-import type { PrivyAuthService } from "../services/privy-auth-service.js";
 import type { ManagedActionService } from "../services/managed-action-service.js";
 import type { AuthGatewayService } from "../services/auth-gateway-service.js";
 import type { PlayerSessionService } from "../services/player-session-service.js";
 import type { DeveloperSessionService } from "../services/developer-session-service.js";
 import type { SayHelloService } from "../services/say-hello-service.js";
+import type { ZkLoginAuthService } from "../services/zklogin-auth-service.js";
+import { createGoogleTestIdToken } from "../services/zklogin-auth-service.js";
 
 function json(statusCode: number, body: any) {
   return { statusCode, headers: { "content-type": "application/json" }, body };
@@ -44,9 +45,9 @@ function parsePath(pattern: string, path: string): Record<string, string> | null
 
 type Services = {
   store: MemoryStore;
-  platformPrivyConfig: PlatformPrivyConfig;
+  platformZkLoginConfig: PlatformZkLoginConfig;
   hostedAuthConfig: { hostedAuthOrigin: string };
-  privyAuthService: PrivyAuthService;
+  zkLoginAuthService: ZkLoginAuthService;
   authGatewayService: AuthGatewayService;
   playerSessionService: PlayerSessionService;
   developerSessionService: DeveloperSessionService;
@@ -143,7 +144,11 @@ export function createApi(services: Services) {
       projectId: body.projectId as string,
       origin: requireOrigin(headers),
       redirectUri: body.redirectUri as string,
-      codeChallenge: body.codeChallenge as string
+      codeChallenge: body.codeChallenge as string,
+      zkLogin: {
+        ephemeralPublicKey: (body.zkLogin as Record<string, unknown> | undefined)?.ephemeralPublicKey as string,
+        maxEpoch: (body.zkLogin as Record<string, unknown> | undefined)?.maxEpoch as number
+      }
     })
   }));
 
@@ -154,14 +159,32 @@ export function createApi(services: Services) {
       };
     }
 
-    if (body.grantType === "privy_access_token") {
-      return services.authGatewayService.completeHostedLoginWithPrivyToken({
+    if (body.grantType === "google_identity_token") {
+      return services.authGatewayService.completeHostedLoginWithGoogleIdToken({
         loginRequestId: body.loginRequestId as string,
-        privyAccessToken: body.privyAccessToken as string
+        googleIdToken: body.googleIdToken as string
       });
     }
 
     throw new AppError(400, "unsupported grantType");
+  });
+
+  addRoute("POST", "/v1/auth/google/dev-token", ({ body }) => {
+    const loginRequest = services.authGatewayService.getLoginRequest(body.loginRequestId as string);
+    return {
+      body: {
+        googleIdToken: createGoogleTestIdToken(
+          {
+            subject: (body.subject as string | undefined) ?? "google-dev-user",
+            email: (body.email as string | undefined) ?? "player@example.com",
+            nonce: loginRequest.zkLoginNonce,
+            audience: services.platformZkLoginConfig.googleClientId,
+            issuer: services.platformZkLoginConfig.googleIssuer
+          },
+          { secret: services.platformZkLoginConfig.googleVerifierSecret }
+        )
+      }
+    };
   });
 
   addRoute("GET", "/v1/apps/:appId/me/credits", ({ params, headers, body }) => {
@@ -667,9 +690,6 @@ function serveHostedLoginPage(services: Services, loginRequestId: string) {
   if (!loginRequestId) {
     return json(400, { error: "loginRequestId is required" });
   }
-  if (!services.platformPrivyConfig.googleOAuthEnabled) {
-    return json(503, { error: "hosted Google login is not enabled" });
-  }
 
   const loginRequest = services.authGatewayService.getLoginRequest(loginRequestId);
   const playerPolicy = services.store.appPlayerPolicies.get(loginRequest.projectId);
@@ -699,17 +719,18 @@ function serveHostedLoginPage(services: Services, loginRequestId: string) {
     <main>
       <span class="eyebrow">Celeris Hosted Auth</span>
       <h1>Celeris Hosted Login</h1>
-      <p>Sign up or sign in with Google through the Celeris-owned Privy app. The game receives only a Celeris auth code and player session, never your raw Google or Privy credentials.</p>
-      <p class="helper">Privy creates or recovers the embedded wallet for the allowed chain before Celeris issues the player session.</p>
+      <p>Sign up or sign in with Google on the Celeris auth origin. Celeris verifies the Google identity token, derives the zkLogin Sui wallet address, and returns only a Celeris auth code and player session.</p>
+      <p class="helper">The browser keeps zkLogin ephemeral secret material in session-scoped storage only and never sends raw Google credentials to player routes.</p>
       <button id="login-button" type="button">Continue with Google</button>
       <p id="feedback" class="feedback"></p>
     </main>
     <script>
       window.CELERIS_HOSTED_AUTH_CONFIG = ${JSON.stringify({
         loginRequestId,
-        privyAppId: services.platformPrivyConfig.privyAppId,
-        privyClientId: services.platformPrivyConfig.clientId ?? null,
-        googleOAuthEnabled: services.platformPrivyConfig.googleOAuthEnabled,
+        googleClientId: services.platformZkLoginConfig.googleClientId,
+        googleIssuer: services.platformZkLoginConfig.googleIssuer,
+        zkLoginNonce: loginRequest.zkLoginNonce,
+        zkLoginMaxEpoch: loginRequest.zkLoginMaxEpoch,
         hostedAuthOrigin: services.hostedAuthConfig.hostedAuthOrigin,
         authApiBaseUrl: services.hostedAuthConfig.hostedAuthOrigin,
         allowedChainId: playerPolicy.allowedChainId

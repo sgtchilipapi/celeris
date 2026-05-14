@@ -20,14 +20,14 @@ import { SayHelloService } from "../services/say-hello-service.js";
 import { MockRelayerNetwork } from "../services/mock-relayer-network.js";
 import { SolanaRelayerNetwork } from "../services/solana-relayer-network.js";
 import { StripeTestCheckoutGateway } from "../services/stripe-test-checkout-gateway.js";
-import type { HostedAuthConfig, PlatformPrivyConfig, PrivyTokenVerifier, RelayerNetworkClient } from "../types.js";
+import type { GoogleIdentityTokenVerifier, HostedAuthConfig, PlatformZkLoginConfig, RelayerNetworkClient } from "../types.js";
 import { AuthGatewayService } from "../services/auth-gateway-service.js";
 import {
-  HostedPrivyTokenVerifier,
-  LocalPrivyTokenVerifier,
-  PrivyAuthService,
-  resolvePlatformPrivyConfigFromEnv
-} from "../services/privy-auth-service.js";
+  LocalGoogleIdentityTokenVerifier,
+  LocalZkLoginProver,
+  ZkLoginAuthService,
+  resolvePlatformZkLoginConfigFromEnv
+} from "../services/zklogin-auth-service.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -39,17 +39,17 @@ const enableStripeCheckout = Boolean(process.env.STRIPE_SECRET_KEY) && !isTestRu
 export function buildServices({
   relayerNetworkClient,
   managedActionService,
-  platformPrivyConfig = resolvePlatformPrivyConfigFromEnv(process.env, { allowDevelopmentDefaults: true }),
+  platformZkLoginConfig = resolvePlatformZkLoginConfigFromEnv(process.env, { allowDevelopmentDefaults: true }),
   hostedAuthConfig = resolveHostedAuthConfigFromEnv(process.env, { allowDevelopmentDefaults: true }),
   solanaRpcOrigin = resolveSolanaRpcOriginFromEnv(process.env),
-  privyVerifier
+  googleIdentityTokenVerifier
 }: {
   relayerNetworkClient?: RelayerNetworkClient;
   managedActionService?: ManagedActionService;
-  platformPrivyConfig?: PlatformPrivyConfig;
+  platformZkLoginConfig?: PlatformZkLoginConfig;
   hostedAuthConfig?: HostedAuthConfig;
   solanaRpcOrigin?: string;
-  privyVerifier?: PrivyTokenVerifier;
+  googleIdentityTokenVerifier?: GoogleIdentityTokenVerifier;
 } = {}) {
   const store = new MemoryStore();
   const defaultDeveloper = store.createDeveloper({ email: "dev@celeris.local" });
@@ -63,25 +63,33 @@ export function buildServices({
   const relayerService = new RelayerService({ networkClient: resolvedRelayerNetworkClient, store });
   const assetDeliveryService = new AssetDeliveryService({ store });
   const resolvedManagedActionService = managedActionService ?? new ManagedActionService();
-  const resolvedPrivyVerifier =
-    privyVerifier ??
-    new LocalPrivyTokenVerifier({
-      secret: platformPrivyConfig.appSecret
+  const resolvedGoogleIdentityTokenVerifier =
+    googleIdentityTokenVerifier ??
+    new LocalGoogleIdentityTokenVerifier({
+      secret: platformZkLoginConfig.googleVerifierSecret,
+      issuer: platformZkLoginConfig.googleIssuer
     });
-  const privyAuthService = new PrivyAuthService({ store, verifier: resolvedPrivyVerifier });
+  const zkLoginAuthService = new ZkLoginAuthService({
+    store,
+    config: platformZkLoginConfig,
+    googleIdentityTokenVerifier: resolvedGoogleIdentityTokenVerifier,
+    prover: new LocalZkLoginProver({
+      proverOrigin: platformZkLoginConfig.zkLoginProverOrigin
+    })
+  });
   const playerSessionService = new PlayerSessionService({ store, config: hostedAuthConfig });
   const developerSessionService = new DeveloperSessionService({ store, config: hostedAuthConfig });
   const services = {
     store,
-    platformPrivyConfig,
+    platformZkLoginConfig,
     hostedAuthConfig,
     solanaRpcOrigin,
-    privyAuthService,
+    zkLoginAuthService,
     playerSessionService,
     developerSessionService,
     authGatewayService: new AuthGatewayService({
       store,
-      privyAuthService,
+      zkLoginAuthService,
       playerSessionService,
       config: hostedAuthConfig
     }),
@@ -105,7 +113,7 @@ export function buildServices({
     }),
     metricsService: new MetricsService({ store }),
     stripeGateway,
-    privyVerifier: resolvedPrivyVerifier,
+    googleIdentityTokenVerifier: resolvedGoogleIdentityTokenVerifier,
     pendingActionService,
     relayerService,
     assetDeliveryService,
@@ -117,17 +125,13 @@ export function buildServices({
 const isMainModule = process.argv[1] === fileURLToPath(import.meta.url);
 
 if (isMainModule) {
-  const platformPrivyConfig = resolveRuntimePlatformPrivyConfig();
+  const platformZkLoginConfig = resolveRuntimePlatformZkLoginConfig();
   const services = buildServices({
     relayerNetworkClient: new SolanaRelayerNetwork({
       rpcOrigin: resolveSolanaRpcOriginFromEnv(process.env)
     }),
-    platformPrivyConfig,
-    hostedAuthConfig: resolveHostedAuthConfigFromEnv(process.env, { allowDevelopmentDefaults: false }),
-    privyVerifier: new HostedPrivyTokenVerifier({
-      appId: platformPrivyConfig.privyAppId,
-      appSecret: platformPrivyConfig.appSecret
-    })
+    platformZkLoginConfig,
+    hostedAuthConfig: resolveHostedAuthConfigFromEnv(process.env, { allowDevelopmentDefaults: false })
   });
   const api = createApi(services);
   const port = Number(process.env.PORT ?? 3000);
@@ -185,8 +189,8 @@ function isTestRuntimeEnv(env: NodeJS.ProcessEnv) {
   );
 }
 
-export function resolveRuntimePlatformPrivyConfig(env: NodeJS.ProcessEnv = process.env) {
-  return resolvePlatformPrivyConfigFromEnv(env, { allowDevelopmentDefaults: isTestRuntimeEnv(env) });
+export function resolveRuntimePlatformZkLoginConfig(env: NodeJS.ProcessEnv = process.env) {
+  return resolvePlatformZkLoginConfigFromEnv(env, { allowDevelopmentDefaults: isTestRuntimeEnv(env) });
 }
 
 export function resolveHostedAuthConfigFromEnv(

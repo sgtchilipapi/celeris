@@ -24,7 +24,7 @@ test("POST /v1/developer/apps returns minimal setup data and stores player polic
 
   const playerPolicy = services.store.appPlayerPolicies.get(response.appId as string);
   assert.ok(playerPolicy);
-  assert.equal(playerPolicy?.authProvider, "privy");
+  assert.equal(playerPolicy?.authProvider, "zklogin");
   assert.equal(playerPolicy?.allowedChainId, "eip155:1");
 });
 
@@ -86,7 +86,7 @@ test("GET /v1/developer/apps/:appId exposes player policy, package, and action s
   });
 
   assert.equal(setup.statusCode, 200);
-  assert.equal(setup.body.playerPolicy.authProvider, "privy");
+  assert.equal(setup.body.playerPolicy.authProvider, "zklogin");
   assert.equal(setup.body.playerPolicy.allowedChainId, "solana:101");
   assert.equal(setup.body.creditPackages[0].credits, 500);
   assert.equal(setup.body.actions[0].executionMode, "server");

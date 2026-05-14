@@ -24,6 +24,7 @@ import type {
   UsageEvent,
   User,
   WalletPrincipal,
+  ZkLoginUserSalt,
   UUID
 } from "../types.js";
 
@@ -41,6 +42,7 @@ export class MemoryStore implements MemoryStoreContract {
   loginRequests = new Map<UUID, LoginRequest>();
   authCodes = new Map<UUID, AuthCode>();
   playerSessions = new Map<UUID, PlayerSession>();
+  zkLoginUserSalts = new Map<string, ZkLoginUserSalt>();
   creditPackages = new Map<UUID, CreditPackage>();
   creditBalances = new Map<string, CreditBalance>();
   creditLedger: CreditLedgerEntry[] = [];
@@ -102,6 +104,21 @@ export class MemoryStore implements MemoryStoreContract {
   findUserByEmail(email: string): User | null {
     const normalized = email.toLowerCase();
     return [...this.users.values()].find((user) => user.email?.toLowerCase() === normalized) ?? null;
+  }
+
+  getZkLoginUserSalt(externalSubject: string): ZkLoginUserSalt | null {
+    return this.zkLoginUserSalts.get(externalSubject) ?? null;
+  }
+
+  saveZkLoginUserSalt(record: ZkLoginUserSalt): ZkLoginUserSalt {
+    const existing = this.zkLoginUserSalts.get(record.externalSubject);
+    const next: ZkLoginUserSalt = {
+      ...record,
+      createdAt: existing?.createdAt ?? record.createdAt,
+      updatedAt: new Date().toISOString()
+    };
+    this.zkLoginUserSalts.set(next.externalSubject, next);
+    return next;
   }
 
   upsertCelerisUser({

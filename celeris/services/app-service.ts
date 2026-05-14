@@ -50,7 +50,7 @@ export class AppService {
     });
     this.store.saveAppPlayerPolicy({
       appId: app.appId,
-      authProvider: "privy",
+      authProvider: "zklogin",
       allowedChainId,
       allowedFrontendOrigins: normalizeAllowedOrigins(allowedFrontendOrigins, "http://localhost:3002"),
       allowedRedirectUris: normalizeAllowedRedirectUris(allowedRedirectUris, "http://localhost:3002/auth/callback"),
@@ -96,7 +96,7 @@ export class AppService {
     const existingPlayerPolicy = this.store.appPlayerPolicies.get(appId);
     this.store.saveAppPlayerPolicy({
       appId,
-      authProvider: "privy",
+      authProvider: "zklogin",
       allowedChainId,
       allowedFrontendOrigins: normalizeAllowedOrigins(
         allowedFrontendOrigins,

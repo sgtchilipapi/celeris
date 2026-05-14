@@ -21,6 +21,7 @@ type WindowLocationLike = {
 type WindowLike = {
   location?: WindowLocationLike;
   localStorage?: StorageLike;
+  sessionStorage?: StorageLike;
   opener?: { postMessage?: (message: any, targetOrigin: string) => void } | null;
   close?: () => void;
   history?: { replaceState: (data: unknown, unused: string, url?: string | URL | null) => void };
@@ -38,6 +39,8 @@ type PendingLogin = {
   codeVerifier: string;
   redirectUri: string;
   frontendOrigin: string;
+  ephemeralPublicKey: string;
+  maxEpoch: number;
   createdAt: string;
 };
 
@@ -53,6 +56,7 @@ type BrowserClientOptions = {
     hostedAuthOrigin?: string;
     storageKey?: string;
     storage?: StorageLike | null;
+    sessionStorage?: StorageLike | null;
     window?: WindowLike;
     openPopup?: (url: string, target: string, features: string) => PopupLike | null;
     waitForMessage?: (expectedOrigin: string, popup: PopupLike | null) => Promise<{ origin: string; data: any }>;
@@ -86,6 +90,37 @@ type PlayerSession = {
   projectId: string;
   celerisUserId: string;
   projectUserId: string;
+  zkLogin?: {
+    nonce: string;
+    ephemeralPublicKey: string;
+    maxEpoch: number;
+    userSalt: string;
+    issuer: string;
+    audience: string;
+    subject: string;
+    addressSeed: string;
+    proof: {
+      proofDigest: string;
+      proverOrigin: string;
+    };
+  };
+};
+
+type ZkLoginEphemeralSession = {
+  ephemeralPrivateKey: string;
+  ephemeralPublicKey: string;
+  maxEpoch: number;
+  createdAt: string;
+  nonce?: string;
+  userSalt?: string;
+  issuer?: string;
+  audience?: string;
+  subject?: string;
+  addressSeed?: string;
+  proof?: {
+    proofDigest: string;
+    proverOrigin: string;
+  };
 };
 
 type PopupCompletionResult =
@@ -226,6 +261,19 @@ function createRandomState() {
   return base64UrlEncode(bytes);
 }
 
+async function createZkLoginEphemeralSession(maxEpoch: number) {
+  const runtimeCrypto = requireCrypto();
+  const privateKeyBytes = new Uint8Array(32);
+  runtimeCrypto.getRandomValues(privateKeyBytes);
+  const digest = await runtimeCrypto.subtle.digest("SHA-256", privateKeyBytes);
+  return {
+    ephemeralPrivateKey: base64UrlEncode(privateKeyBytes),
+    ephemeralPublicKey: base64UrlEncode(new Uint8Array(digest)),
+    maxEpoch,
+    createdAt: new Date().toISOString()
+  } satisfies ZkLoginEphemeralSession;
+}
+
 export function createBrowserClient({
   apiBaseUrl,
   appId,
@@ -247,9 +295,11 @@ export function createBrowserClient({
   const projectId = auth?.projectId ?? appId;
   const runtimeWindow = getWindow(auth?.window);
   const storage = getStorage(auth?.storage, runtimeWindow);
+  const sessionStorage = auth?.sessionStorage ?? runtimeWindow?.sessionStorage ?? null;
   const storageKey = auth?.storageKey ?? `celeris-player-session:${projectId}`;
   const pendingLoginStorageKey = `${storageKey}:pending-login`;
   const popupCompletionStorageKey = `${storageKey}:popup-completion`;
+  const zkLoginSessionStorageKey = `${storageKey}:zklogin-session`;
   let currentSession = (safeJsonParse(storage?.getItem(storageKey) ?? null) as PlayerSession | null) ?? null;
 
   function persistSession(session: PlayerSession | null) {
@@ -261,7 +311,8 @@ export function createBrowserClient({
       storage.removeItem(storageKey);
       return;
     }
-    storage.setItem(storageKey, JSON.stringify(session));
+    const persistedSession = session.zkLogin ? { ...session, zkLogin: undefined } : session;
+    storage.setItem(storageKey, JSON.stringify(persistedSession));
   }
 
   function readPersistedSession() {
@@ -270,33 +321,48 @@ export function createBrowserClient({
   }
 
   function persistPendingLogin(pendingLogin: PendingLogin | null) {
-    if (!storage) {
+    if (!sessionStorage) {
       return;
     }
     if (!pendingLogin) {
-      storage.removeItem(pendingLoginStorageKey);
+      sessionStorage.removeItem(pendingLoginStorageKey);
       return;
     }
-    storage.setItem(pendingLoginStorageKey, JSON.stringify(pendingLogin));
+    sessionStorage.setItem(pendingLoginStorageKey, JSON.stringify(pendingLogin));
   }
 
   function readPendingLogin() {
-    return (safeJsonParse(storage?.getItem(pendingLoginStorageKey) ?? null) as PendingLogin | null) ?? null;
+    return (safeJsonParse(sessionStorage?.getItem(pendingLoginStorageKey) ?? null) as PendingLogin | null) ?? null;
   }
 
   function persistPopupCompletion(result: PopupCompletionResult | null) {
-    if (!storage) {
+    if (!sessionStorage) {
       return;
     }
     if (!result) {
-      storage.removeItem(popupCompletionStorageKey);
+      sessionStorage.removeItem(popupCompletionStorageKey);
       return;
     }
-    storage.setItem(popupCompletionStorageKey, JSON.stringify(result));
+    sessionStorage.setItem(popupCompletionStorageKey, JSON.stringify(result));
   }
 
   function readPopupCompletion() {
-    return (safeJsonParse(storage?.getItem(popupCompletionStorageKey) ?? null) as PopupCompletionResult | null) ?? null;
+    return (safeJsonParse(sessionStorage?.getItem(popupCompletionStorageKey) ?? null) as PopupCompletionResult | null) ?? null;
+  }
+
+  function persistZkLoginEphemeralSession(zkLoginSession: ZkLoginEphemeralSession | null) {
+    if (!sessionStorage) {
+      return;
+    }
+    if (!zkLoginSession) {
+      sessionStorage.removeItem(zkLoginSessionStorageKey);
+      return;
+    }
+    sessionStorage.setItem(zkLoginSessionStorageKey, JSON.stringify(zkLoginSession));
+  }
+
+  function readZkLoginEphemeralSession() {
+    return (safeJsonParse(sessionStorage?.getItem(zkLoginSessionStorageKey) ?? null) as ZkLoginEphemeralSession | null) ?? null;
   }
 
   async function getAccessToken() {
@@ -352,6 +418,23 @@ export function createBrowserClient({
       })
     });
     const session = (await parseJson(exchangeResponse, "failed to exchange authorization code")) as PlayerSession;
+    const ephemeralSession = readZkLoginEphemeralSession();
+    if (session.zkLogin) {
+      if (!ephemeralSession || ephemeralSession.ephemeralPublicKey !== session.zkLogin.ephemeralPublicKey) {
+        throw new Error("zkLogin ephemeral session is missing or does not match the login request");
+      }
+      persistZkLoginEphemeralSession({
+        ...ephemeralSession,
+        nonce: session.zkLogin.nonce,
+        maxEpoch: session.zkLogin.maxEpoch,
+        userSalt: session.zkLogin.userSalt,
+        issuer: session.zkLogin.issuer,
+        audience: session.zkLogin.audience,
+        subject: session.zkLogin.subject,
+        addressSeed: session.zkLogin.addressSeed,
+        proof: session.zkLogin.proof
+      });
+    }
     persistSession(session);
     return session;
   }
@@ -505,11 +588,15 @@ export function createBrowserClient({
     const frontendOrigin = auth.frontendOrigin ?? resolveWindowOrigin(runtimeWindow);
     const redirectUri = auth.redirectUri ?? `${frontendOrigin}/auth/callback`;
     const state = createRandomState();
+    const zkLoginEphemeralSession = await createZkLoginEphemeralSession(30);
+    persistZkLoginEphemeralSession(zkLoginEphemeralSession);
     persistPendingLogin({
       state,
       codeVerifier,
       redirectUri,
       frontendOrigin,
+      ephemeralPublicKey: zkLoginEphemeralSession.ephemeralPublicKey,
+      maxEpoch: zkLoginEphemeralSession.maxEpoch,
       createdAt: new Date().toISOString()
     });
     const loginRequestResponse = await fetchImpl(`${baseUrl}/v1/auth/login-requests`, {
@@ -521,7 +608,11 @@ export function createBrowserClient({
       body: JSON.stringify({
         projectId,
         redirectUri,
-        codeChallenge
+        codeChallenge,
+        zkLogin: {
+          ephemeralPublicKey: zkLoginEphemeralSession.ephemeralPublicKey,
+          maxEpoch: zkLoginEphemeralSession.maxEpoch
+        }
       })
     });
     const loginRequest = (await parseJson(loginRequestResponse, "failed to create login request")) as LoginRequestResponse;
@@ -571,6 +662,7 @@ export function createBrowserClient({
     persistSession(null);
     persistPendingLogin(null);
     persistPopupCompletion(null);
+    persistZkLoginEphemeralSession(null);
   }
 
   return {
@@ -583,7 +675,28 @@ export function createBrowserClient({
       },
       logout,
       getSession() {
-        return currentSession ?? readPersistedSession();
+        const session = currentSession ?? readPersistedSession();
+        const ephemeralSession = readZkLoginEphemeralSession();
+        if (!session) {
+          return null;
+        }
+        if (!session.zkLogin && !ephemeralSession?.nonce) {
+          return session;
+        }
+        return {
+          ...session,
+          zkLogin: {
+            nonce: ephemeralSession?.nonce ?? session.zkLogin?.nonce ?? "",
+            ephemeralPublicKey: ephemeralSession?.ephemeralPublicKey ?? session.zkLogin?.ephemeralPublicKey ?? "",
+            maxEpoch: ephemeralSession?.maxEpoch ?? session.zkLogin?.maxEpoch ?? 0,
+            userSalt: ephemeralSession?.userSalt ?? session.zkLogin?.userSalt ?? "",
+            issuer: ephemeralSession?.issuer ?? session.zkLogin?.issuer ?? "",
+            audience: ephemeralSession?.audience ?? session.zkLogin?.audience ?? "",
+            subject: ephemeralSession?.subject ?? session.zkLogin?.subject ?? "",
+            addressSeed: ephemeralSession?.addressSeed ?? session.zkLogin?.addressSeed ?? "",
+            proof: ephemeralSession?.proof ?? session.zkLogin?.proof ?? { proofDigest: "", proverOrigin: "" }
+          }
+        };
       }
     },
     me: {
