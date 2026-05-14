@@ -1,12 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Keypair } from "@solana/web3.js";
+import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
 import { createServerClient } from "../sdk/server-client.js";
 import { createHostedPlayerSession } from "./helpers/auth.js";
 import { createDeveloperApp, configureDeveloperAction, signUpDeveloper } from "./helpers/developer.js";
-import { deriveHelloCelerisStatePda } from "../solana/hello-celeris.js";
+import { normalizeSuiAddress, normalizeSuiObjectId } from "@mysten/sui/utils";
 
 function createFetchBridge(api: ReturnType<typeof createApi>): typeof fetch {
   return async (input: URL | RequestInfo, init?: RequestInit) => {
@@ -111,7 +111,7 @@ test("server SDK composes developer routes and can act on behalf of a player ses
     name: "SDK App",
     priceCents: 499,
     credits: 500,
-    allowedChainId: "eip155:1",
+    allowedChainId: "sui:testnet",
     idempotencyKey: "sdk-app-create"
   });
 
@@ -124,17 +124,20 @@ test("server SDK composes developer routes and can act on behalf of a player ses
   const sponsorWallet = await client.apps.createSponsorWallet(app.appId, {
     idempotencyKey: "sdk-sponsor-wallet"
   });
-  const programId = Keypair.generate().publicKey.toBase58();
+  const packageId = normalizeSuiObjectId("0x123");
+  const appStateObjectId = normalizeSuiObjectId("0x456");
+  const authorityCapObjectId = normalizeSuiObjectId("0x789");
   const registeredProgram = await client.apps.registerProgram(app.appId, {
-    programId,
+    packageId,
+    appStateObjectId,
+    authorityCapObjectId,
     idempotencyKey: "sdk-program-register"
   });
 
-  const walletAddress = "0xsdk123";
   const playerSession = await createHostedPlayerSession({
     api,
     appId: app.appId,
-    walletAddress
+    walletAddress: Ed25519Keypair.generate().toSuiAddress()
   });
 
   const playerView = client.asUser(playerSession.accessToken);
@@ -148,18 +151,23 @@ test("server SDK composes developer routes and can act on behalf of a player ses
   const metrics = await client.metrics.getAppMetrics(app.appId);
   const transactions = await client.transactions.list(app.appId);
 
-  assert.equal(me.walletAddress, walletAddress);
+  assert.equal(me.walletAddress, playerSession.player.walletAddress);
+  assert.equal(me.chainId, "sui:testnet");
   assert.equal(catalog.appId, app.appId);
   assert.equal(apps.length, 1);
   assert.equal(appDetails.appId, app.appId);
-  assert.equal(appDetails.sponsorWallet.publicKey, sponsorWallet.publicKey);
-  assert.equal(appDetails.registeredProgram.programId, programId);
-  assert.equal(fetchedSponsorWallet.publicKey, sponsorWallet.publicKey);
-  assert.equal(fetchedProgram.programId, programId);
-  assert.equal(
-    registeredProgram.statePda,
-    deriveHelloCelerisStatePda({ appId: app.appId, programId }).statePda.toBase58()
-  );
+  assert.equal(appDetails.sponsorWallet.address, sponsorWallet.address);
+  assert.equal(appDetails.sponsorWallet.chainFamily, "sui");
+  assert.equal(appDetails.sponsorWallet.network, "testnet");
+  assert.equal(appDetails.registeredProgram.packageId, packageId);
+  assert.equal(appDetails.registeredProgram.appStateObjectId, appStateObjectId);
+  assert.equal(appDetails.registeredProgram.authorityCapObjectId, authorityCapObjectId);
+  assert.equal(fetchedSponsorWallet.address, sponsorWallet.address);
+  assert.equal(fetchedProgram.packageId, packageId);
+  assert.equal(registeredProgram.packageId, packageId);
+  assert.equal(registeredProgram.appStateObjectId, appStateObjectId);
+  assert.equal(registeredProgram.authorityCapObjectId, authorityCapObjectId);
+  assert.equal(normalizeSuiAddress(sponsorWallet.address), sponsorWallet.address);
   assert.equal(players.length, 0);
   assert.equal(metrics.appId, app.appId);
   assert.deepEqual(transactions, []);

@@ -75,10 +75,18 @@ export class ManagedActionService {
     sponsorWallet
   }: ManagedSayHelloRequest): ManagedSayHelloResult {
     const normalizedPayload = this.validateAndNormalizeSayHelloPayload(payload);
+    const programId = registeredProgram.programId;
+    const statePda = registeredProgram.statePda;
+    const sponsorWalletPublicKey = sponsorWallet.publicKey;
+
+    if (!programId || !statePda || !sponsorWalletPublicKey) {
+      throw new AppError(422, "legacy Solana say_hello execution is unavailable for Sui app registration");
+    }
+
     const { instruction, message, username } = createHelloCelerisSayHelloInstruction({
       appId,
-      programId: registeredProgram.programId,
-      sponsorWalletPublicKey: sponsorWallet.publicKey,
+      programId,
+      sponsorWalletPublicKey,
       playerWallet: walletPrincipal.walletAddress,
       username: normalizedPayload.username
     });
@@ -86,11 +94,11 @@ export class ManagedActionService {
     return {
       preparedTransaction: {
         appId,
-        sponsorWalletPublicKey: sponsorWallet.publicKey,
+        sponsorWalletPublicKey,
         transaction: new Transaction().add(instruction),
         debugMetadata: {
-          programId: registeredProgram.programId,
-          statePda: registeredProgram.statePda,
+          programId,
+          statePda,
           playerWalletAddress: walletPrincipal.walletAddress,
           username
         }
@@ -100,7 +108,7 @@ export class ManagedActionService {
         debit: cost,
         username,
         message,
-        sponsorWalletPublicKey: sponsorWallet.publicKey,
+        sponsorWalletPublicKey,
         playerWalletAddress: walletPrincipal.walletAddress,
         providerTxId: "",
         explorerUrl: "",

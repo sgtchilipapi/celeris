@@ -152,13 +152,23 @@ export async function registerProgram({
   api,
   accessToken,
   appId,
-  programId
-}: {
-  api: ApiLike;
-  accessToken: string;
-  appId: string;
-  programId: string;
-}) {
+  ...input
+}: (
+  | {
+      api: ApiLike;
+      accessToken: string;
+      appId: string;
+      packageId: string;
+      appStateObjectId: string;
+      authorityCapObjectId: string;
+    }
+  | {
+      api: ApiLike;
+      accessToken: string;
+      appId: string;
+      programId: string;
+    }
+)) {
   const response = await api.handle({
     method: "PUT",
     url: `/v1/developer/apps/${appId}/program`,
@@ -166,9 +176,16 @@ export async function registerProgram({
       authorization: `Bearer ${accessToken}`,
       "idempotency-key": `developer-program-${randomUUID()}`
     },
-    body: {
-      programId
-    }
+    body:
+      "programId" in input
+        ? {
+            programId: input.programId
+          }
+        : {
+            packageId: input.packageId,
+            appStateObjectId: input.appStateObjectId,
+            authorityCapObjectId: input.authorityCapObjectId
+          }
   });
 
   if (response.statusCode !== 200) {

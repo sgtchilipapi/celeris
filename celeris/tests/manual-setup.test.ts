@@ -23,7 +23,9 @@ test("provision sponsor wallet script parses required arguments and access token
 test("register program script parses developer credentials and required program id", () => {
   const config = parseRegisterProgramArgs([
     "--app-id=app_123",
-    "--program-id=Prog123",
+    "--package-id=0x123",
+    "--app-state-object-id=0x456",
+    "--authority-cap-object-id=0x789",
     "--username=dev",
     "--password=secret"
   ]);
@@ -31,7 +33,9 @@ test("register program script parses developer credentials and required program 
   assert.deepEqual(config, {
     apiOrigin: "http://localhost:3000",
     appId: "app_123",
-    programId: "Prog123",
+    packageId: "0x123",
+    appStateObjectId: "0x456",
+    authorityCapObjectId: "0x789",
     accessToken: null,
     username: "dev",
     password: "secret"
@@ -78,7 +82,9 @@ test("helper scripts issue the expected developer API requests", async () => {
     {
       apiOrigin: "http://localhost:3000",
       appId: "app_123",
-      programId: "Prog123",
+      packageId: "0x123",
+      appStateObjectId: "0x456",
+      authorityCapObjectId: "0x789",
       accessToken: null,
       username: "dev",
       password: "secret"
@@ -101,7 +107,9 @@ test("helper scripts issue the expected developer API requests", async () => {
   assert.equal(requests[2].url, "http://localhost:3000/v1/developer/apps/app_123/program");
   assert.equal(requests[2].method, "PUT");
   assert.equal(requests[2].headers.get("authorization"), "Bearer signed-in-token");
-  assert.equal(requests[2].body.programId, "Prog123");
+  assert.equal(requests[2].body.packageId, "0x123");
+  assert.equal(requests[2].body.appStateObjectId, "0x456");
+  assert.equal(requests[2].body.authorityCapObjectId, "0x789");
   assert.match(String(requests[2].headers.get("idempotency-key")), /^script-register-program-/);
 });
 

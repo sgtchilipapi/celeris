@@ -1,9 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Keypair } from "@solana/web3.js";
+import { normalizeSuiObjectId } from "@mysten/sui/utils";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
-import { deriveHelloCelerisStatePda } from "../solana/hello-celeris.js";
 import { createDeveloperApp, configureDeveloperAction, signUpDeveloper } from "./helpers/developer.js";
 
 test("POST /v1/developer/apps returns minimal setup data and stores player policy", async () => {
@@ -132,20 +131,20 @@ test("developer can provision a sponsor wallet once and read its public summary 
 
   assert.equal(first.statusCode, 201);
   assert.equal(second.statusCode, 200);
-  assert.equal(first.body.publicKey, second.body.publicKey);
-  assert.equal(read.body.publicKey, first.body.publicKey);
-  assert.equal(first.body.chainFamily, "solana");
-  assert.equal(first.body.cluster, "devnet");
+  assert.equal(first.body.address, second.body.address);
+  assert.equal(read.body.address, first.body.address);
+  assert.equal(first.body.chainFamily, "sui");
+  assert.equal(first.body.network, "testnet");
   assert.equal("secretKey" in first.body, false);
-  assert.deepEqual(Object.keys(first.body).sort(), ["appId", "chainFamily", "cluster", "createdAt", "publicKey", "updatedAt"]);
+  assert.deepEqual(Object.keys(first.body).sort(), ["address", "appId", "chainFamily", "createdAt", "network", "updatedAt"]);
 
   const storedSecret = services.store.getSponsorWalletSecret(app.appId as string);
   assert.ok(storedSecret);
-  assert.equal(Array.isArray(storedSecret?.secretKey), true);
-  assert.equal(storedSecret?.secretKey.length, 64);
+  assert.equal(typeof storedSecret?.secretKey, "string");
+  assert.match(String(storedSecret?.secretKey), /^suiprivkey1/);
 });
 
-test("developer can register a Solana devnet program and app setup includes both SDH-02 resources", async () => {
+test("developer can register a Sui testnet package and app setup includes both Sui resources", async () => {
   const services = buildServices();
   const api = createApi(services);
   const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
@@ -168,7 +167,9 @@ test("developer can register a Solana devnet program and app setup includes both
     }
   });
 
-  const programId = Keypair.generate().publicKey.toBase58();
+  const packageId = normalizeSuiObjectId("0x123");
+  const appStateObjectId = normalizeSuiObjectId("0x456");
+  const authorityCapObjectId = normalizeSuiObjectId("0x789");
   const registration = await api.handle({
     method: "PUT",
     url: `/v1/developer/apps/${app.appId}/program`,
@@ -177,7 +178,9 @@ test("developer can register a Solana devnet program and app setup includes both
       "idempotency-key": "program-register-1"
     },
     body: {
-      programId
+      packageId,
+      appStateObjectId,
+      authorityCapObjectId
     }
   });
   const read = await api.handle({
@@ -192,19 +195,19 @@ test("developer can register a Solana devnet program and app setup includes both
   });
 
   assert.equal(registration.statusCode, 200);
-  assert.equal(registration.body.programId, programId);
-  assert.equal(registration.body.chainFamily, "solana");
-  assert.equal(registration.body.cluster, "devnet");
-  assert.equal(
-    registration.body.statePda,
-    deriveHelloCelerisStatePda({ appId: app.appId as string, programId }).statePda.toBase58()
-  );
+  assert.equal(registration.body.packageId, packageId);
+  assert.equal(registration.body.appStateObjectId, appStateObjectId);
+  assert.equal(registration.body.authorityCapObjectId, authorityCapObjectId);
+  assert.equal(registration.body.chainFamily, "sui");
+  assert.equal(registration.body.network, "testnet");
   assert.deepEqual(read.body, registration.body);
-  assert.equal(setup.body.registeredProgram.programId, programId);
-  assert.equal(setup.body.sponsorWallet.publicKey, sponsorWallet.body.publicKey);
+  assert.equal(setup.body.registeredProgram.packageId, packageId);
+  assert.equal(setup.body.registeredProgram.appStateObjectId, appStateObjectId);
+  assert.equal(setup.body.registeredProgram.authorityCapObjectId, authorityCapObjectId);
+  assert.equal(setup.body.sponsorWallet.address, sponsorWallet.body.address);
 });
 
-test("invalid Solana program IDs are rejected", async () => {
+test("invalid Sui registration IDs are rejected", async () => {
   const services = buildServices();
   const api = createApi(services);
   const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
@@ -226,12 +229,14 @@ test("invalid Solana program IDs are rejected", async () => {
       "idempotency-key": "program-register-invalid"
     },
     body: {
-      programId: "not-a-solana-address"
+      packageId: "not-a-sui-package",
+      appStateObjectId: normalizeSuiObjectId("0x456"),
+      authorityCapObjectId: normalizeSuiObjectId("0x789")
     }
   });
 
   assert.equal(response.statusCode, 400);
-  assert.equal(response.body.error, "invalid Solana program ID");
+  assert.equal(response.body.error, "invalid Sui package ID");
 });
 
 test("PUT and DELETE /v1/developer/apps/:appId/actions/:actionType update and remove configured actions", async () => {

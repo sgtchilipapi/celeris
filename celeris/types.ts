@@ -81,26 +81,30 @@ export interface AppPlayerPolicy {
 
 export interface RegisteredProgram {
   appId: UUID;
-  chainFamily: "solana";
-  cluster: "devnet";
-  programId: string;
-  statePda: string;
+  chainFamily: "sui";
+  network: "testnet";
+  packageId: string;
+  appStateObjectId: string;
+  authorityCapObjectId: string;
+  programId?: string;
+  statePda?: string;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface SponsorWallet {
   appId: UUID;
-  chainFamily: "solana";
-  cluster: "devnet";
-  publicKey: string;
+  chainFamily: "sui";
+  network: "testnet";
+  address: string;
+  publicKey?: string;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface SponsorWalletSecret {
   appId: UUID;
-  secretKey: number[];
+  secretKey: string | number[];
   createdAt: string;
   updatedAt: string;
 }

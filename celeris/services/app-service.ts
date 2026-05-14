@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { Keypair } from "@solana/web3.js";
+import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { AppError } from "./errors.js";
 import { normalizeAllowedOrigins, normalizeAllowedRedirectUris } from "./auth-gateway-service.js";
-import { deriveHelloCelerisStatePda, parseSolanaProgramId } from "../solana/hello-celeris.js";
+import { parseSuiPackageId, parseSuiObjectId } from "../sui/hello-celeris.js";
 import type {
   AppListItem,
   AppSetupDetails,
@@ -151,11 +151,15 @@ export class AppService {
 
   registerProgram({
     appId,
-    programId,
+    packageId,
+    appStateObjectId,
+    authorityCapObjectId,
     idempotencyKey
   }: {
     appId: string;
-    programId: string;
+    packageId: string;
+    appStateObjectId: string;
+    authorityCapObjectId: string;
     idempotencyKey: string;
   }): RegisteredProgram {
     const cached = this.store.getIdempotent<RegisteredProgram>(`program:${appId}`, idempotencyKey);
@@ -165,23 +169,38 @@ export class AppService {
 
     this.requireApp(appId);
 
-    let parsedProgramId;
+    let normalizedPackageId;
     try {
-      parsedProgramId = parseSolanaProgramId(programId);
+      normalizedPackageId = parseSuiPackageId(packageId);
     } catch {
-      throw new AppError(400, "invalid Solana program ID");
+      throw new AppError(400, "invalid Sui package ID");
+    }
+
+    let normalizedAppStateObjectId;
+    try {
+      normalizedAppStateObjectId = parseSuiObjectId(appStateObjectId, "Sui app state object ID");
+    } catch {
+      throw new AppError(400, "invalid Sui app state object ID");
+    }
+
+    let normalizedAuthorityCapObjectId;
+    try {
+      normalizedAuthorityCapObjectId = parseSuiObjectId(
+        authorityCapObjectId,
+        "Sui authority capability object ID"
+      );
+    } catch {
+      throw new AppError(400, "invalid Sui authority capability object ID");
     }
 
     const existing = this.store.getRegisteredProgram(appId);
     const registration = this.store.saveRegisteredProgram({
       appId,
-      chainFamily: "solana",
-      cluster: "devnet",
-      programId: parsedProgramId.toBase58(),
-      statePda: deriveHelloCelerisStatePda({
-        appId,
-        programId: parsedProgramId
-      }).statePda.toBase58(),
+      chainFamily: "sui",
+      network: "testnet",
+      packageId: normalizedPackageId,
+      appStateObjectId: normalizedAppStateObjectId,
+      authorityCapObjectId: normalizedAuthorityCapObjectId,
       createdAt: existing?.createdAt ?? new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
@@ -224,18 +243,18 @@ export class AppService {
     }
 
     const now = new Date().toISOString();
-    const keypair = Keypair.generate();
+    const keypair = Ed25519Keypair.generate();
     this.store.saveSponsorWalletSecret({
       appId,
-      secretKey: Array.from(keypair.secretKey),
+      secretKey: keypair.getSecretKey(),
       createdAt: now,
       updatedAt: now
     });
     const sponsorWallet = this.store.saveSponsorWallet({
       appId,
-      chainFamily: "solana",
-      cluster: "devnet",
-      publicKey: keypair.publicKey.toBase58(),
+      chainFamily: "sui",
+      network: "testnet",
+      address: keypair.toSuiAddress(),
       createdAt: now,
       updatedAt: now
     });

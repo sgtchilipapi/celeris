@@ -15,6 +15,9 @@ export function resolveAppSponsorWallet({
   if (!sponsorWallet || !sponsorWalletSecret) {
     throw new AppError(422, "sponsor wallet not provisioned");
   }
+  if (!sponsorWallet.publicKey || typeof sponsorWalletSecret.secretKey === "string") {
+    throw new AppError(422, "legacy Solana sponsor wallet material is unavailable for Sui sponsor wallets");
+  }
 
   const keypair = Keypair.fromSecretKey(Uint8Array.from(sponsorWalletSecret.secretKey));
   if (keypair.publicKey.toBase58() !== sponsorWallet.publicKey) {

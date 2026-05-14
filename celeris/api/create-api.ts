@@ -331,7 +331,9 @@ export function createApi(services: Services) {
     return {
       body: services.appService.registerProgram({
         appId: params.appId,
-        programId: body.programId as string,
+        packageId: body.packageId as string,
+        appStateObjectId: body.appStateObjectId as string,
+        authorityCapObjectId: body.authorityCapObjectId as string,
         idempotencyKey: requireIdempotency(headers, body)
       })
     };

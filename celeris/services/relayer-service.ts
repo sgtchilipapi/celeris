@@ -34,10 +34,15 @@ export class RelayerService {
           store: this.store,
           appId: preparedTransaction.appId
         });
+        const sponsorWalletPublicKey = sponsorWallet.publicKey;
+
+        if (!sponsorWalletPublicKey) {
+          throw new AppError(422, "legacy Solana relayer is unavailable for Sui sponsor wallets");
+        }
 
         if (
           preparedTransaction.sponsorWalletPublicKey &&
-          preparedTransaction.sponsorWalletPublicKey !== sponsorWallet.publicKey
+          preparedTransaction.sponsorWalletPublicKey !== sponsorWalletPublicKey
         ) {
           throw new AppError(422, "prepared transaction sponsor wallet mismatch");
         }
@@ -53,11 +58,11 @@ export class RelayerService {
           throw new AppError(502, "unable to estimate Solana transaction fee");
         }
 
-        const sponsorBalanceLamports = await this.networkClient.getBalance(sponsorWallet.publicKey);
+        const sponsorBalanceLamports = await this.networkClient.getBalance(sponsorWalletPublicKey);
         const requiredLamports = estimatedFeeLamports + this.safetyBufferLamports;
         if (sponsorBalanceLamports < requiredLamports) {
           throw new AppError(422, "sponsor wallet has insufficient SOL", {
-            sponsorWalletPublicKey: sponsorWallet.publicKey,
+            sponsorWalletPublicKey,
             balanceLamports: sponsorBalanceLamports,
             estimatedFeeLamports,
             safetyBufferLamports: this.safetyBufferLamports,

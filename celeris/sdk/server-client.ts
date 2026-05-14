@@ -33,7 +33,9 @@ type ConfigureActionInput = {
 };
 
 type RegisterProgramInput = {
-  programId: string;
+  packageId: string;
+  appStateObjectId: string;
+  authorityCapObjectId: string;
   idempotencyKey?: string;
 };
 
