@@ -1,5 +1,8 @@
 # SDH Context
 
+Legacy reference only.
+The canonical supported demo flow has moved to the Sui testnet `SDH-SUI-*` work orders in [sui/README.md](./sui/README.md).
+
 Read this document before implementing any `SDH-*` work order.
 
 It captures the shared context, invariants, repo reality, and sequencing assumptions for the Solana devnet Hello Celeris slice.

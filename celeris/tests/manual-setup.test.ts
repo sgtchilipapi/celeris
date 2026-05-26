@@ -1,8 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { parseProvisionSponsorWalletArgs, runProvisionSponsorWallet } from "../../scripts/provision-sponsor-wallet.js";
-import { getRetiredFullDemoMessage } from "../../scripts/full-demo.js";
-import { parseRegisterProgramArgs, runRegisterProgram } from "../../scripts/register-program.js";
+import { parseRegisterSuiPackageArgs, runRegisterSuiPackage } from "../../scripts/register-sui-package.js";
 
 test("provision sponsor wallet script parses required arguments and access token auth", () => {
   const config = parseProvisionSponsorWalletArgs([
@@ -20,8 +19,8 @@ test("provision sponsor wallet script parses required arguments and access token
   });
 });
 
-test("register program script parses developer credentials and required program id", () => {
-  const config = parseRegisterProgramArgs([
+test("register Sui package script parses developer credentials and required object ids", () => {
+  const config = parseRegisterSuiPackageArgs([
     "--app-id=app_123",
     "--package-id=0x123",
     "--app-state-object-id=0x456",
@@ -78,7 +77,7 @@ test("helper scripts issue the expected developer API requests", async () => {
     { fetchImpl }
   );
 
-  await runRegisterProgram(
+  await runRegisterSuiPackage(
     {
       apiOrigin: "http://localhost:3000",
       appId: "app_123",
@@ -111,13 +110,4 @@ test("helper scripts issue the expected developer API requests", async () => {
   assert.equal(requests[2].body.appStateObjectId, "0x456");
   assert.equal(requests[2].body.authorityCapObjectId, "0x789");
   assert.match(String(requests[2].headers.get("idempotency-key")), /^script-register-program-/);
-});
-
-test("retired full-demo message points to the manual devnet flow", () => {
-  const message = getRetiredFullDemoMessage();
-
-  assert.match(message, /retired/i);
-  assert.match(message, /provision-sponsor-wallet\.ts/);
-  assert.match(message, /register-program\.ts/);
-  assert.match(message, /say_hello/);
 });

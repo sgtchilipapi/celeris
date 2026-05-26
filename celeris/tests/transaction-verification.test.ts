@@ -57,9 +57,9 @@ function buildCompletedCheckoutEvent({
 async function setupMintFlow(managedActionService: ManagedActionService) {
   const services = buildServices({ managedActionService });
   const api = createApi(services);
-  const walletPrincipal = {
+  const requestedWalletPrincipal = {
     walletAddress: "0xtxv123",
-    chainId: "eip155:1"
+    chainId: "sui:testnet"
   } satisfies WalletPrincipal;
   const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
 
@@ -69,15 +69,17 @@ async function setupMintFlow(managedActionService: ManagedActionService) {
     name: "Transaction Verification App",
     priceCents: 499,
     credits: 500,
-    allowedChainId: walletPrincipal.chainId
+    allowedChainId: requestedWalletPrincipal.chainId
   });
 
   const appId = app.appId as string;
   const session = await createHostedPlayerSession({
     api,
     appId,
-    walletAddress: walletPrincipal.walletAddress
+    walletAddress: requestedWalletPrincipal.walletAddress,
+    chainId: requestedWalletPrincipal.chainId
   });
+  const walletPrincipal = session.player satisfies WalletPrincipal;
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
   await configureDeveloperAction({

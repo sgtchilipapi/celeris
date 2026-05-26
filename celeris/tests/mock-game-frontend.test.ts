@@ -81,3 +81,12 @@ test("mock game frontend public runtime config includes the SUI RPC origin only 
     redirectUri: "http://localhost:3002/auth/callback"
   });
 });
+
+test("mock game frontend bundles the browser SDK without bare package imports", async () => {
+  const { bundleBrowserSdkModule } = await import("../../scripts/mock-game-frontend.js");
+  const source = await bundleBrowserSdkModule();
+
+  assert.doesNotMatch(source, /from\s+["']@mysten\//);
+  assert.doesNotMatch(source, /from\s+["']@mysten\/bcs["']/);
+  assert.match(source, /createBrowserClient/);
+});

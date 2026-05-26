@@ -1,5 +1,8 @@
 # Solana Devnet Hello Demo Plan
 
+Legacy reference only.
+The canonical supported demo flow has moved to the Sui testnet `SDH-SUI-*` plan in [docs/WORK_ORDERS/sui/README.md](./WORK_ORDERS/sui/README.md).
+
 ## Summary
 
 This plan adds a real Solana devnet-backed demo slice to Celeris.

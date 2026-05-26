@@ -9,6 +9,7 @@
     "start:api": "node --import tsx celeris/api/index.ts",
     "dev:mock-game-frontend": "node --watch --import tsx scripts/mock-game-frontend.ts",
     "start:mock-game-frontend": "node --import tsx scripts/mock-game-frontend.ts",
+    "start:tunnel": "node --import tsx scripts/cloudflared-tunnel.ts",
     "start:full-demo": "node --import tsx scripts/full-demo.ts",
     "sui:move:build": "sui move build --path sui/hello-celeris",
     "sui:move:test": "sui move test --path sui/hello-celeris",

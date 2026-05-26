@@ -2,6 +2,8 @@ type HostedAuthConfig = {
   loginRequestId: string;
   googleClientId: string;
   googleIssuer: string;
+  googleAuthorizeUrl: string;
+  googleCallbackUrl: string;
   zkLoginNonce: string;
   zkLoginMaxEpoch: number;
   hostedAuthOrigin: string;
@@ -15,20 +17,13 @@ declare global {
   }
 }
 
-const hostedAuthConfig = getHostedAuthConfig();
-
 const loginButton = requireElement<HTMLButtonElement>("login-button");
 const feedback = requireElement<HTMLParagraphElement>("feedback");
-const callbackStateStorageKey = `celeris-hosted-auth:${hostedAuthConfig.loginRequestId}:callback-state`;
 
 void initialize();
 
 function getHostedAuthConfig() {
-  const config = window.CELERIS_HOSTED_AUTH_CONFIG;
-  if (!config) {
-    throw new Error("Celeris hosted auth config is missing");
-  }
-  return config;
+  return window.CELERIS_HOSTED_AUTH_CONFIG ?? null;
 }
 
 function requireElement<T extends HTMLElement>(id: string) {
@@ -40,17 +35,21 @@ function requireElement<T extends HTMLElement>(id: string) {
 }
 
 async function initialize() {
+  const hostedAuthConfig = getHostedAuthConfig();
   setBusy(loginButton, false);
-  captureCallbackStateFromRequest();
   const callback = readGoogleCallback();
   if (!callback) {
+    if (!hostedAuthConfig) {
+      throw new Error("Celeris hosted auth config is missing");
+    }
+    captureCallbackStateFromRequest(hostedAuthConfig.loginRequestId);
     loginButton.textContent = "Continue with Google";
     return;
   }
 
   setBusy(loginButton, true);
   try {
-    await completeHostedLogin(callback.googleIdToken);
+    await completeHostedLogin(callback.loginRequestId, callback.googleIdToken);
   } catch (error) {
     setFeedback(error instanceof Error ? error.message : "Hosted login failed");
   } finally {
@@ -59,43 +58,46 @@ async function initialize() {
 }
 
 loginButton.addEventListener("click", async () => {
+  const hostedAuthConfig = getHostedAuthConfig();
+  if (!hostedAuthConfig) {
+    throw new Error("Celeris hosted auth config is missing");
+  }
   setBusy(loginButton, true);
   setFeedback("");
   try {
-    const response = await fetch(new URL("/v1/auth/google/dev-token", hostedAuthConfig.authApiBaseUrl), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        loginRequestId: hostedAuthConfig.loginRequestId
-      })
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok || !payload?.googleIdToken) {
-      throw new Error(payload?.error || "Failed to start Google sign-in");
-    }
-
-    const redirectUrl = new URL(window.location.href);
-    redirectUrl.searchParams.set("google_id_token", payload.googleIdToken);
-    window.location.assign(redirectUrl.toString());
+    window.location.assign(buildGoogleAuthorizationUrl(hostedAuthConfig).toString());
   } catch (error) {
     setFeedback(error instanceof Error ? error.message : "Hosted login failed");
     setBusy(loginButton, false);
   }
 });
 
-async function completeHostedLogin(googleIdToken: string) {
-  const callbackState = readStoredCallbackState();
+function buildGoogleAuthorizationUrl(hostedAuthConfig: HostedAuthConfig) {
+  const authorizeUrl = new URL(hostedAuthConfig.googleAuthorizeUrl);
+  authorizeUrl.searchParams.set("client_id", hostedAuthConfig.googleClientId);
+  authorizeUrl.searchParams.set("redirect_uri", hostedAuthConfig.googleCallbackUrl);
+  authorizeUrl.searchParams.set("response_type", "id_token");
+  authorizeUrl.searchParams.set("response_mode", "fragment");
+  authorizeUrl.searchParams.set("scope", "openid email profile");
+  authorizeUrl.searchParams.set("nonce", hostedAuthConfig.zkLoginNonce);
+  authorizeUrl.searchParams.set("state", hostedAuthConfig.loginRequestId);
+  authorizeUrl.searchParams.set("prompt", "select_account");
+  return authorizeUrl;
+}
+
+async function completeHostedLogin(loginRequestId: string, googleIdToken: string) {
+  const callbackState = readStoredCallbackState(loginRequestId);
   if (!callbackState) {
     throw new Error("Hosted login is missing callback state");
   }
 
-  const tokenUrl = new URL("/v1/auth/token", hostedAuthConfig.authApiBaseUrl).toString();
+  const tokenUrl = new URL("/v1/auth/token", window.location.origin).toString();
   const response = await fetch(tokenUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       grantType: "google_identity_token",
-      loginRequestId: hostedAuthConfig.loginRequestId,
+      loginRequestId,
       googleIdToken
     })
   });
@@ -108,36 +110,51 @@ async function completeHostedLogin(googleIdToken: string) {
   const redirectUrl = new URL(payload.redirectUri);
   redirectUrl.searchParams.set("code", payload.code);
   redirectUrl.searchParams.set("state", callbackState);
-  clearStoredCallbackState();
+  clearStoredCallbackState(loginRequestId);
   window.location.assign(redirectUrl.toString());
 }
 
 function readGoogleCallback() {
-  const params = new URL(window.location.href).searchParams;
-  const googleIdToken = params.get("google_id_token");
-  if (!googleIdToken) {
+  const url = new URL(window.location.href);
+  const params = url.hash ? new URLSearchParams(url.hash.replace(/^#/, "")) : url.searchParams;
+  const googleIdToken = params.get("id_token") ?? params.get("google_id_token");
+  const loginRequestId = params.get("state");
+  const error = params.get("error");
+  const errorDescription = params.get("error_description");
+
+  if (error) {
+    throw new Error(errorDescription || error);
+  }
+  if (!googleIdToken || !loginRequestId) {
     return null;
   }
-  return { googleIdToken };
+  if (url.hash) {
+    window.history.replaceState({}, "", url.pathname);
+  }
+  return { googleIdToken, loginRequestId };
 }
 
-function captureCallbackStateFromRequest() {
+function callbackStateStorageKey(loginRequestId: string) {
+  return `celeris-hosted-auth:${loginRequestId}:callback-state`;
+}
+
+function captureCallbackStateFromRequest(loginRequestId: string) {
   const url = new URL(window.location.href);
   const state = url.searchParams.get("state");
   if (!state) {
     return;
   }
-  sessionStorage.setItem(callbackStateStorageKey, state);
+  sessionStorage.setItem(callbackStateStorageKey(loginRequestId), state);
   url.searchParams.delete("state");
   window.history.replaceState({}, "", url.toString());
 }
 
-function readStoredCallbackState() {
-  return sessionStorage.getItem(callbackStateStorageKey);
+function readStoredCallbackState(loginRequestId: string) {
+  return sessionStorage.getItem(callbackStateStorageKey(loginRequestId));
 }
 
-function clearStoredCallbackState() {
-  sessionStorage.removeItem(callbackStateStorageKey);
+function clearStoredCallbackState(loginRequestId: string) {
+  sessionStorage.removeItem(callbackStateStorageKey(loginRequestId));
 }
 
 function setBusy(button: HTMLButtonElement, busy: boolean) {

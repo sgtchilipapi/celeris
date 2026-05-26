@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { transform } from "esbuild";
+import { build } from "esbuild";
 import { MockStripeGateway } from "../celeris/services/mock-stripe-gateway.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -12,6 +12,7 @@ loadDotEnv(path.join(projectRoot, ".env.local"));
 
 const frontendRoot = path.join(projectRoot, "mock-game-frontend");
 const browserSdkPath = path.join(projectRoot, "celeris/sdk/browser-client.ts");
+let bundledBrowserSdkPromise: Promise<string> | null = null;
 const port = Number(process.env.MOCK_GAME_FRONTEND_PORT ?? 3002);
 const apiOrigin = process.env.CELERIS_API_ORIGIN ?? "http://localhost:3000";
 const hostedAuthOrigin = process.env.CELERIS_HOSTED_AUTH_ORIGIN ?? apiOrigin;
@@ -57,14 +58,8 @@ export function createMockGameFrontendServer({
       }
 
       if (requestUrl.pathname === "/sdk/browser-client.ts") {
-        const source = await fs.readFile(browserSdkPath, "utf8");
-        const compiled = await transform(source, {
-          loader: "ts",
-          format: "esm",
-          target: "es2022"
-        });
         res.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });
-        res.end(compiled.code);
+        res.end(await bundleBrowserSdkModule());
         return;
       }
 
@@ -299,6 +294,33 @@ export function buildRunConfig(config: {
     suiRpcOrigin: config.suiRpcOrigin,
     redirectUri: config.redirectUri
   };
+}
+
+export async function bundleBrowserSdkModule() {
+  if (!bundledBrowserSdkPromise) {
+    bundledBrowserSdkPromise = (async () => {
+      const result = await build({
+        entryPoints: [browserSdkPath],
+        absWorkingDir: projectRoot,
+        bundle: true,
+        write: false,
+        format: "esm",
+        platform: "browser",
+        target: "es2022",
+        sourcemap: "inline"
+      });
+      const output = result.outputFiles.find((file) => file.path.endsWith(".js")) ?? result.outputFiles[0];
+      if (!output) {
+        throw new Error("browser SDK bundle did not produce an output file");
+      }
+      return output.text;
+    })().catch((error) => {
+      bundledBrowserSdkPromise = null;
+      throw error;
+    });
+  }
+
+  return bundledBrowserSdkPromise;
 }
 
 if (isMainModule) {

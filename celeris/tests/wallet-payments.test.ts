@@ -43,8 +43,10 @@ function buildCompletedCheckoutEvent({
 async function createWalletPaymentHarness() {
   const services = buildServices();
   const api = createApi(services);
-  const walletAddress = "0xabc123";
-  const chainId = "eip155:1";
+  const requestedWalletPrincipal = {
+    walletAddress: "0xabc123",
+    chainId: "sui:testnet"
+  } satisfies { walletAddress: string; chainId: string };
   const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
 
   const app = await createDeveloperApp({
@@ -53,16 +55,18 @@ async function createWalletPaymentHarness() {
     name: "Wallet Payments Test",
     priceCents: 499,
     credits: 500,
-    allowedChainId: chainId
+    allowedChainId: requestedWalletPrincipal.chainId
   });
 
   const appId = app.appId as string;
   const session = await createHostedPlayerSession({
     api,
     appId,
-    walletAddress
+    walletAddress: requestedWalletPrincipal.walletAddress,
+    chainId: requestedWalletPrincipal.chainId
   });
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
+  const walletPrincipal = session.player;
 
   return {
     services,
@@ -70,10 +74,7 @@ async function createWalletPaymentHarness() {
     appId,
     packageId,
     token: session.accessToken,
-    walletPrincipal: {
-      walletAddress,
-      chainId
-    }
+    walletPrincipal
   };
 }
 
@@ -88,9 +89,7 @@ test("POST /v1/apps/:appId/checkout-sessions creates a wallet-keyed Stripe check
       "idempotency-key": "wallet-checkout-1"
     },
     body: {
-      packageId,
-      successUrl: "https://example.com/success",
-      cancelUrl: "https://example.com/cancel"
+      packageId
     }
   });
 
@@ -154,11 +153,21 @@ test("POST /v1/webhooks/stripe grants credits to the authenticated wallet once",
 });
 
 test("wallet payment webhook idempotency and signature verification prevent duplicate grants", async () => {
-  const { services, api, appId, token, walletPrincipal } = await createWalletPaymentHarness();
+  const { services, api, appId, packageId, token, walletPrincipal } = await createWalletPaymentHarness();
+
+  const checkout = await api.handle({
+    method: "POST",
+    url: `/v1/apps/${appId}/checkout-sessions`,
+    headers: {
+      authorization: `Bearer ${token}`,
+      "idempotency-key": "wallet-checkout-3"
+    },
+    body: { packageId }
+  });
 
   const event = buildCompletedCheckoutEvent({
     eventId: "evt_wallet_manual",
-    checkoutSessionId: "cs_test_wallet_manual",
+    checkoutSessionId: checkout.body.checkoutSessionId as string,
     appId,
     walletAddress: walletPrincipal.walletAddress,
     chainId: walletPrincipal.chainId,

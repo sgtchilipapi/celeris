@@ -29,9 +29,10 @@ import type {
 } from "../types.js";
 import { AuthGatewayService } from "../services/auth-gateway-service.js";
 import {
-  LocalGoogleIdentityTokenVerifier,
-  LocalZkLoginProver,
+  GoogleJwksIdentityTokenVerifier,
+  HttpZkLoginProver,
   ZkLoginAuthService,
+  type ZkLoginProver,
   resolvePlatformZkLoginConfigFromEnv
 } from "../services/zklogin-auth-service.js";
 import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
@@ -52,7 +53,8 @@ export function buildServices({
   solanaRpcOrigin = resolveSolanaRpcOriginFromEnv(process.env),
   suiRpcOrigin = resolveSuiRpcOriginFromEnv(process.env),
   suiGateway,
-  googleIdentityTokenVerifier
+  googleIdentityTokenVerifier,
+  zkLoginProver
 }: {
   relayerNetworkClient?: RelayerNetworkClient;
   managedActionService?: ManagedActionService;
@@ -62,6 +64,7 @@ export function buildServices({
   suiRpcOrigin?: string;
   suiGateway?: SuiGateway;
   googleIdentityTokenVerifier?: GoogleIdentityTokenVerifier;
+  zkLoginProver?: ZkLoginProver;
 } = {}) {
   const store = new MemoryStore();
   const defaultDeveloper = store.createDeveloper({ email: "dev@celeris.local" });
@@ -85,17 +88,19 @@ export function buildServices({
     });
   const resolvedGoogleIdentityTokenVerifier =
     googleIdentityTokenVerifier ??
-    new LocalGoogleIdentityTokenVerifier({
-      secret: platformZkLoginConfig.googleVerifierSecret,
-      issuer: platformZkLoginConfig.googleIssuer
+    new GoogleJwksIdentityTokenVerifier({
+      jwksUri: platformZkLoginConfig.googleJwksUri
+    });
+  const resolvedZkLoginProver =
+    zkLoginProver ??
+    new HttpZkLoginProver({
+      proverOrigin: platformZkLoginConfig.zkLoginProverOrigin
     });
   const zkLoginAuthService = new ZkLoginAuthService({
     store,
     config: platformZkLoginConfig,
     googleIdentityTokenVerifier: resolvedGoogleIdentityTokenVerifier,
-    prover: new LocalZkLoginProver({
-      proverOrigin: platformZkLoginConfig.zkLoginProverOrigin
-    })
+    prover: resolvedZkLoginProver
   });
   const playerSessionService = new PlayerSessionService({ store, config: hostedAuthConfig });
   const developerSessionService = new DeveloperSessionService({ store, config: hostedAuthConfig });
@@ -112,7 +117,8 @@ export function buildServices({
       store,
       zkLoginAuthService,
       playerSessionService,
-      config: hostedAuthConfig
+      config: hostedAuthConfig,
+      suiGateway: resolvedSuiGateway
     }),
     appService: new AppService({ store }),
     paymentService: new PaymentService({ store, ledgerService, stripeCheckoutGateway, stripeGateway }),

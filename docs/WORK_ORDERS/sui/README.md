@@ -52,6 +52,7 @@ Shared implementation context for all work orders:
 | [SDH-SUI-05](./SDH-SUI-05-browser-sdk-and-shared-sui-builder.md) | Browser SDK and shared Sui builder | canonical `TransactionKind` builder and silent zkLogin submission flow | SDH-SUI-01, SDH-SUI-02, SDH-SUI-04 |
 | [SDH-SUI-06](./SDH-SUI-06-simplified-browser-demo.md) | Simplified browser demo | hard-cut `mock-game-frontend` to the Sui Hello Celeris flow | SDH-SUI-02, SDH-SUI-04, SDH-SUI-05 |
 | [SDH-SUI-07](./SDH-SUI-07-manual-setup-tooling-regression-solana-demotion.md) | Manual setup, tooling, regression, Solana demotion | setup docs, helper scripts, regression surface, Solana demotion | SDH-SUI-01, SDH-SUI-02, SDH-SUI-03, SDH-SUI-04, SDH-SUI-05, SDH-SUI-06 |
+| [SDH-SUI-08](./SDH-SUI-08-real-google-auth-and-real-zklogin-prover.md) | Real Google auth and real zkLogin prover | hosted Google account selection, Google JWKS verification, self-hosted prover integration | SDH-SUI-02, SDH-SUI-05, SDH-SUI-06, SDH-SUI-07 |
 
 ## Canonical Flow
 

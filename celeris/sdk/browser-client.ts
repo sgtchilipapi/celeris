@@ -1,7 +1,7 @@
 import { fromBase64 } from "@mysten/bcs";
 import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
-import { getZkLoginSignature } from "@mysten/sui/zklogin";
+import { generateRandomness, getZkLoginSignature } from "@mysten/sui/zklogin";
 import { buildCanonicalHelloCelerisSayHelloTransaction, renderHelloCelerisMessage } from "../sui/hello-celeris.js";
 
 type FetchLike = typeof fetch;
@@ -46,7 +46,6 @@ type PendingLogin = {
   redirectUri: string;
   frontendOrigin: string;
   ephemeralPublicKey: string;
-  maxEpoch: number;
   createdAt: string;
 };
 
@@ -95,6 +94,8 @@ type BrowserSuiRpcClientLike = {
 type LoginRequestResponse = {
   loginRequestId: string;
   hostedLoginUrl: string;
+  zkLoginNonce: string;
+  zkLoginMaxEpoch: number;
   expiresAt: string;
 };
 
@@ -137,6 +138,7 @@ type PlayerSession = {
 type ZkLoginEphemeralSession = {
   ephemeralPrivateKey: string;
   ephemeralPublicKey: string;
+  jwtRandomness: string;
   maxEpoch: number;
   createdAt: string;
   nonce?: string;
@@ -349,6 +351,7 @@ async function createZkLoginEphemeralSession(maxEpoch: number) {
   return {
     ephemeralPrivateKey: keypair.getSecretKey(),
     ephemeralPublicKey: keypair.getPublicKey().toBase64(),
+    jwtRandomness: generateRandomness(),
     maxEpoch,
     createdAt: new Date().toISOString()
   } satisfies ZkLoginEphemeralSession;
@@ -841,7 +844,7 @@ export function createBrowserClient({
     const frontendOrigin = auth.frontendOrigin ?? resolveWindowOrigin(runtimeWindow);
     const redirectUri = auth.redirectUri ?? `${frontendOrigin}/auth/callback`;
     const state = createRandomState();
-    const zkLoginEphemeralSession = await createZkLoginEphemeralSession(30);
+    const zkLoginEphemeralSession = await createZkLoginEphemeralSession(0);
     persistZkLoginEphemeralSession(zkLoginEphemeralSession);
     persistPendingLogin({
       state,
@@ -849,7 +852,6 @@ export function createBrowserClient({
       redirectUri,
       frontendOrigin,
       ephemeralPublicKey: zkLoginEphemeralSession.ephemeralPublicKey,
-      maxEpoch: zkLoginEphemeralSession.maxEpoch,
       createdAt: new Date().toISOString()
     });
     const loginRequestResponse = await fetchImpl(`${baseUrl}/v1/auth/login-requests`, {
@@ -864,11 +866,16 @@ export function createBrowserClient({
         codeChallenge,
         zkLogin: {
           ephemeralPublicKey: zkLoginEphemeralSession.ephemeralPublicKey,
-          maxEpoch: zkLoginEphemeralSession.maxEpoch
+          jwtRandomness: zkLoginEphemeralSession.jwtRandomness
         }
       })
     });
     const loginRequest = (await parseJson(loginRequestResponse, "failed to create login request")) as LoginRequestResponse;
+    persistZkLoginEphemeralSession({
+      ...zkLoginEphemeralSession,
+      nonce: loginRequest.zkLoginNonce,
+      maxEpoch: loginRequest.zkLoginMaxEpoch
+    });
     const hostedLoginUrl = new URL(loginRequest.hostedLoginUrl);
     hostedLoginUrl.searchParams.set("state", state);
 

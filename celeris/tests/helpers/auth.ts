@@ -1,9 +1,6 @@
 import crypto from "node:crypto";
+import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { createGoogleTestIdToken } from "../../services/zklogin-auth-service.js";
-
-function resolveTestVerifierSecret() {
-  return process.env.CELERIS_GOOGLE_VERIFIER_SECRET ?? "google-dev-secret";
-}
 
 export async function createHostedPlayerSession({
   api,
@@ -42,8 +39,8 @@ export async function createHostedPlayerSession({
       redirectUri,
       codeChallenge,
       zkLogin: {
-        ephemeralPublicKey: crypto.randomBytes(32).toString("base64url"),
-        maxEpoch: 30
+        ephemeralPublicKey: Ed25519Keypair.generate().getPublicKey().toBase64(),
+        jwtRandomness: "123456789"
       }
     }
   });
@@ -66,8 +63,6 @@ export async function createHostedPlayerSession({
             throw new Error("login request response missing zkLoginNonce");
           })(),
         audience: "google-client-dev"
-      }, {
-        secret: resolveTestVerifierSecret()
       })
     }
   });

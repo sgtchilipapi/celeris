@@ -1,5 +1,12 @@
 import crypto from "node:crypto";
-import { normalizeSuiAddress } from "@mysten/sui/utils";
+import { jwtVerify, createRemoteJWKSet } from "jose";
+import { Ed25519PublicKey } from "@mysten/sui/keypairs/ed25519";
+import {
+  computeZkLoginAddress,
+  genAddressSeed,
+  generateNonce,
+  getExtendedEphemeralPublicKey
+} from "@mysten/sui/zklogin";
 import { AppError } from "./errors.js";
 import type {
   ChainId,
@@ -21,14 +28,12 @@ export interface VerifiedZkLoginIdentity {
 
 export interface ZkLoginProver {
   createProof(input: {
-    issuer: string;
-    audience: string;
-    subject: string;
-    nonce: string;
-    userSalt: string;
-    ephemeralPublicKey: string;
+    jwt: string;
+    extendedEphemeralPublicKey: string;
     maxEpoch: number;
-    addressSeed: string;
+    jwtRandomness: string;
+    salt: string;
+    keyClaimName: "sub";
   }): ZkLoginProof | Promise<ZkLoginProof>;
 }
 
@@ -60,43 +65,55 @@ export class ZkLoginAuthService {
     allowedChainId,
     nonce,
     ephemeralPublicKey,
-    maxEpoch
+    maxEpoch,
+    jwtRandomness
   }: {
     googleIdToken: string;
     allowedChainId: ChainId;
     nonce: string;
     ephemeralPublicKey: string;
     maxEpoch: number;
+    jwtRandomness: string;
   }): Promise<VerifiedZkLoginIdentity> {
     if (!googleIdToken) {
       throw new AppError(401, "Google identity token required");
     }
 
+    const resolvedNonce = this.resolveLoginNonce({
+      ephemeralPublicKey,
+      maxEpoch,
+      jwtRandomness
+    });
+    if (resolvedNonce !== nonce) {
+      throw new AppError(401, "hosted login nonce mismatch");
+    }
+
     const claims = await this.googleIdentityTokenVerifier.verifyToken(googleIdToken, {
-      expectedNonce: nonce,
-      expectedAudience: this.config.googleClientId
+      expectedNonce: resolvedNonce,
+      expectedAudience: this.config.googleClientId,
+      expectedIssuer: this.config.googleIssuer
     });
     const externalSubject = this.resolveExternalSubject(claims);
     const userSalt = this.resolveUserSalt(externalSubject);
-    const addressSeed = deriveAddressSeed({
-      issuer: claims.iss,
-      audience: claims.aud,
-      subject: claims.sub,
-      salt: userSalt
-    });
+    const addressSeed = genAddressSeed(userSalt, "sub", claims.sub, claims.aud).toString();
     const walletPrincipal = {
-      walletAddress: deriveZkLoginWalletAddress(addressSeed),
+      walletAddress: computeZkLoginAddress({
+        claimName: "sub",
+        claimValue: claims.sub,
+        iss: claims.iss,
+        aud: claims.aud,
+        userSalt,
+        legacyAddress: false
+      }),
       chainId: allowedChainId
     };
     const proof = await this.prover.createProof({
-      issuer: claims.iss,
-      audience: claims.aud,
-      subject: claims.sub,
-      nonce,
-      userSalt,
-      ephemeralPublicKey,
+      jwt: googleIdToken,
+      extendedEphemeralPublicKey: getExtendedEphemeralPublicKey(new Ed25519PublicKey(ephemeralPublicKey)),
       maxEpoch,
-      addressSeed
+      jwtRandomness,
+      salt: userSalt,
+      keyClaimName: "sub"
     });
 
     return {
@@ -118,15 +135,15 @@ export class ZkLoginAuthService {
   }
 
   resolveLoginNonce({
-    loginRequestId,
     ephemeralPublicKey,
-    maxEpoch
+    maxEpoch,
+    jwtRandomness
   }: {
-    loginRequestId: string;
     ephemeralPublicKey: string;
     maxEpoch: number;
+    jwtRandomness: string;
   }) {
-    return createDigest(`zklogin:nonce:${loginRequestId}:${ephemeralPublicKey}:${maxEpoch}`);
+    return generateNonce(new Ed25519PublicKey(ephemeralPublicKey), maxEpoch, jwtRandomness);
   }
 
   private resolveExternalSubject(claims: GoogleIdentityClaims) {
@@ -143,7 +160,7 @@ export class ZkLoginAuthService {
       return existing.salt;
     }
 
-    const salt = createDigest(`zklogin:salt:${this.config.zkLoginSaltSeed}:${externalSubject}`);
+    const salt = hexDigestToBigIntString(createDigest(`zklogin:salt:${this.config.zkLoginSaltSeed}:${externalSubject}`));
     this.store.saveZkLoginUserSalt({
       externalSubject,
       salt,
@@ -169,7 +186,14 @@ export class LocalGoogleIdentityTokenVerifier implements GoogleIdentityTokenVeri
     this.issuer = issuer;
   }
 
-  verifyToken(token: string, { expectedNonce, expectedAudience }: { expectedNonce: string; expectedAudience: string }) {
+  verifyToken(
+    token: string,
+    {
+      expectedNonce,
+      expectedAudience,
+      expectedIssuer
+    }: { expectedNonce: string; expectedAudience: string; expectedIssuer: string }
+  ) {
     const claims = verifyHmacBackedToken(token, this.secret) as unknown as GoogleIdentityClaims;
 
     if (!claims.sub) {
@@ -181,11 +205,74 @@ export class LocalGoogleIdentityTokenVerifier implements GoogleIdentityTokenVeri
     if (claims.aud !== expectedAudience) {
       throw new AppError(403, "unsupported Google audience");
     }
-    if (claims.iss !== this.issuer) {
+    if (claims.iss !== expectedIssuer || claims.iss !== this.issuer) {
       throw new AppError(401, "unsupported Google issuer");
     }
 
     return claims;
+  }
+}
+
+export class GoogleJwksIdentityTokenVerifier implements GoogleIdentityTokenVerifier {
+  readonly jwks: Parameters<typeof jwtVerify>[1];
+
+  constructor({ jwksUri, jwks }: { jwksUri?: string; jwks?: Parameters<typeof jwtVerify>[1] }) {
+    this.jwks = jwks ?? createRemoteJWKSet(new URL(String(jwksUri)));
+  }
+
+  async verifyToken(
+    token: string,
+    {
+      expectedNonce,
+      expectedAudience,
+      expectedIssuer
+    }: { expectedNonce: string; expectedAudience: string; expectedIssuer: string }
+  ) {
+    try {
+      const verified = await jwtVerify(token, this.jwks, {
+        issuer: expectedIssuer,
+        audience: expectedAudience
+      });
+      const audience = Array.isArray(verified.payload.aud) ? verified.payload.aud[0] : verified.payload.aud;
+      const nonce = typeof verified.payload.nonce === "string" ? verified.payload.nonce : "";
+      const subject = typeof verified.payload.sub === "string" ? verified.payload.sub : "";
+      const issuer = typeof verified.payload.iss === "string" ? verified.payload.iss : "";
+
+      if (!subject) {
+        throw new AppError(401, "Google identity token missing subject");
+      }
+      if (!audience) {
+        throw new AppError(403, "unsupported Google audience");
+      }
+      if (nonce !== expectedNonce) {
+        throw new AppError(401, "hosted login nonce mismatch");
+      }
+
+      return {
+        sub: subject,
+        email: typeof verified.payload.email === "string" ? verified.payload.email : null,
+        nonce,
+        aud: audience,
+        iss: issuer,
+        iat: typeof verified.payload.iat === "number" ? verified.payload.iat : undefined,
+        exp: typeof verified.payload.exp === "number" ? verified.payload.exp : undefined
+      } satisfies GoogleIdentityClaims;
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("unexpected \"aud\"")) {
+        throw new AppError(403, "unsupported Google audience");
+      }
+      if (message.includes("unexpected \"iss\"")) {
+        throw new AppError(401, "unsupported Google issuer");
+      }
+      if (message.includes("exp")) {
+        throw new AppError(401, "Google identity token expired");
+      }
+      throw new AppError(401, "invalid Google identity token");
+    }
   }
 }
 
@@ -197,14 +284,12 @@ export class LocalZkLoginProver implements ZkLoginProver {
   }
 
   createProof(input: {
-    issuer: string;
-    audience: string;
-    subject: string;
-    nonce: string;
-    userSalt: string;
-    ephemeralPublicKey: string;
+    jwt: string;
+    extendedEphemeralPublicKey: string;
     maxEpoch: number;
-    addressSeed: string;
+    jwtRandomness: string;
+    salt: string;
+    keyClaimName: "sub";
   }): ZkLoginProof {
     const proofDigest = createDigest(JSON.stringify(input));
     return {
@@ -212,7 +297,7 @@ export class LocalZkLoginProver implements ZkLoginProver {
       proverOrigin: this.proverOrigin,
       proofPoints: deriveMockProofPoints(proofDigest),
       issBase64Details: {
-        value: Buffer.from(input.issuer, "utf8").toString("base64"),
+        value: Buffer.from("https://accounts.google.com", "utf8").toString("base64"),
         indexMod4: 0
       },
       headerBase64: Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" }), "utf8").toString("base64")
@@ -220,24 +305,77 @@ export class LocalZkLoginProver implements ZkLoginProver {
   }
 }
 
+export class HttpZkLoginProver implements ZkLoginProver {
+  readonly proverOrigin: string;
+  readonly fetchImpl: typeof fetch;
+
+  constructor({
+    proverOrigin = "http://localhost:3001",
+    fetchImpl = fetch
+  }: {
+    proverOrigin?: string;
+    fetchImpl?: typeof fetch;
+  } = {}) {
+    this.proverOrigin = proverOrigin.replace(/\/+$/, "");
+    this.fetchImpl = fetchImpl;
+  }
+
+  async createProof(input: {
+    jwt: string;
+    extendedEphemeralPublicKey: string;
+    maxEpoch: number;
+    jwtRandomness: string;
+    salt: string;
+    keyClaimName: "sub";
+  }) {
+    let response: Response;
+    try {
+      response = await this.fetchImpl(new URL("/v1", this.proverOrigin), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify(input)
+      });
+    } catch (error) {
+      throw new AppError(502, "zkLogin prover is unavailable", {
+        detail: error instanceof Error ? error.message : String(error)
+      });
+    }
+
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new AppError(502, "zkLogin prover request failed", {
+        statusCode: response.status,
+        detail: payload?.error ?? payload?.message ?? `HTTP ${response.status}`
+      });
+    }
+
+    return mapProverResponse(payload, this.proverOrigin);
+  }
+}
+
 export function resolvePlatformZkLoginConfig({
   googleClientId,
   googleIssuer,
-  googleVerifierSecret,
+  googleAuthorizeUrl,
+  googleJwksUri,
   zkLoginSaltSeed,
   zkLoginMaxEpoch,
   zkLoginProverOrigin
 }: {
   googleClientId?: string | null;
   googleIssuer?: string | null;
-  googleVerifierSecret?: string | null;
+  googleAuthorizeUrl?: string | null;
+  googleJwksUri?: string | null;
   zkLoginSaltSeed?: string | null;
   zkLoginMaxEpoch?: string | number | null;
   zkLoginProverOrigin?: string | null;
 }): PlatformZkLoginConfig {
   const normalizedClientId = String(googleClientId ?? "").trim();
   const normalizedIssuer = String(googleIssuer ?? "").trim();
-  const normalizedVerifierSecret = String(googleVerifierSecret ?? "").trim();
+  const normalizedAuthorizeUrl = String(googleAuthorizeUrl ?? "").trim();
+  const normalizedJwksUri = String(googleJwksUri ?? "").trim();
   const normalizedSaltSeed = String(zkLoginSaltSeed ?? "").trim();
   const normalizedProverOrigin = String(zkLoginProverOrigin ?? "").trim();
   const parsedMaxEpoch = Number(zkLoginMaxEpoch);
@@ -248,8 +386,11 @@ export function resolvePlatformZkLoginConfig({
   if (!normalizedIssuer) {
     throw new Error("Google issuer is required");
   }
-  if (!normalizedVerifierSecret) {
-    throw new Error("Google verifier secret is required");
+  if (!normalizedAuthorizeUrl) {
+    throw new Error("Google authorize URL is required");
+  }
+  if (!normalizedJwksUri) {
+    throw new Error("Google JWKS URI is required");
   }
   if (!normalizedSaltSeed) {
     throw new Error("zkLogin salt seed is required");
@@ -265,7 +406,8 @@ export function resolvePlatformZkLoginConfig({
     authProvider: "zklogin",
     googleClientId: normalizedClientId,
     googleIssuer: normalizedIssuer,
-    googleVerifierSecret: normalizedVerifierSecret,
+    googleAuthorizeUrl: normalizedAuthorizeUrl,
+    googleJwksUri: normalizedJwksUri,
     zkLoginSaltSeed: normalizedSaltSeed,
     zkLoginMaxEpoch: parsedMaxEpoch,
     zkLoginProverOrigin: normalizedProverOrigin
@@ -279,7 +421,12 @@ export function resolvePlatformZkLoginConfigFromEnv(
   return resolvePlatformZkLoginConfig({
     googleClientId: env.CELERIS_GOOGLE_CLIENT_ID ?? (allowDevelopmentDefaults ? "google-client-dev" : undefined),
     googleIssuer: env.CELERIS_GOOGLE_ISSUER ?? "https://accounts.google.com",
-    googleVerifierSecret: env.CELERIS_GOOGLE_VERIFIER_SECRET ?? (allowDevelopmentDefaults ? "google-dev-secret" : undefined),
+    googleAuthorizeUrl:
+      env.CELERIS_GOOGLE_AUTHORIZE_URL ??
+      "https://accounts.google.com/o/oauth2/v2/auth",
+    googleJwksUri:
+      env.CELERIS_GOOGLE_JWKS_URI ??
+      "https://www.googleapis.com/oauth2/v3/certs",
     zkLoginSaltSeed: env.CELERIS_ZKLOGIN_SALT_SEED ?? (allowDevelopmentDefaults ? "zklogin-salt-dev-seed" : undefined),
     zkLoginMaxEpoch: env.CELERIS_ZKLOGIN_MAX_EPOCH ?? (allowDevelopmentDefaults ? "30" : undefined),
     zkLoginProverOrigin: env.CELERIS_ZKLOGIN_PROVER_ORIGIN ?? (allowDevelopmentDefaults ? "http://localhost:3001" : undefined)
@@ -318,20 +465,6 @@ export function createGoogleTestIdToken(
   );
 }
 
-function deriveAddressSeed({
-  issuer,
-  audience,
-  subject,
-  salt
-}: {
-  issuer: string;
-  audience: string;
-  subject: string;
-  salt: string;
-}) {
-  return createDigest(`${issuer}:${audience}:${subject}:${salt}`);
-}
-
 function deriveMockProofPoints(seed: string) {
   const chunks = seed.match(/.{1,16}/g) ?? [seed];
   const values = Array.from({ length: 8 }, (_, index) => chunks[index] ?? chunks[chunks.length - 1] ?? "0");
@@ -347,8 +480,46 @@ function deriveMockProofPoints(seed: string) {
   };
 }
 
-function deriveZkLoginWalletAddress(addressSeed: string) {
-  return normalizeSuiAddress(`0x${addressSeed}`);
+function mapProverResponse(payload: any, proverOrigin: string): ZkLoginProof {
+  const proofPoints = payload?.proofPoints ?? payload?.proof_points;
+  const issBase64Details = payload?.issBase64Details ?? payload?.iss_base64_details;
+  const headerBase64 = payload?.headerBase64 ?? payload?.header_base64;
+
+  if (
+    !proofPoints?.a ||
+    !proofPoints?.b ||
+    !proofPoints?.c ||
+    typeof issBase64Details?.value !== "string" ||
+    typeof issBase64Details?.indexMod4 !== "number" ||
+    typeof headerBase64 !== "string"
+  ) {
+    throw new AppError(502, "zkLogin prover returned an invalid proof payload");
+  }
+
+  return {
+    proofDigest: createDigest(JSON.stringify(payload)),
+    proverOrigin,
+    proofPoints: {
+      a: [String(proofPoints.a[0] ?? ""), String(proofPoints.a[1] ?? "")],
+      b: [
+        [String(proofPoints.b[0]?.[0] ?? ""), String(proofPoints.b[0]?.[1] ?? "")],
+        [String(proofPoints.b[1]?.[0] ?? ""), String(proofPoints.b[1]?.[1] ?? "")]
+      ],
+      c: [String(proofPoints.c[0] ?? ""), String(proofPoints.c[1] ?? "")]
+    },
+    issBase64Details: {
+      value: issBase64Details.value,
+      indexMod4: issBase64Details.indexMod4
+    },
+    headerBase64
+  };
+}
+
+function hexDigestToBigIntString(value: string) {
+  const bn254FieldOrder = BigInt(
+    "21888242871839275222246405745257275088548364400416034343698204186575808495617"
+  );
+  return (BigInt(`0x${value}`) % bn254FieldOrder).toString();
 }
 
 function createDigest(value: string) {

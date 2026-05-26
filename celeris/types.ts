@@ -114,7 +114,8 @@ export interface PlatformZkLoginConfig {
   authProvider: "zklogin";
   googleClientId: string;
   googleIssuer: string;
-  googleVerifierSecret: string;
+  googleAuthorizeUrl: string;
+  googleJwksUri: string;
   zkLoginSaltSeed: string;
   zkLoginMaxEpoch: number;
   zkLoginProverOrigin: string;
@@ -133,6 +134,7 @@ export interface LoginRequest {
   codeChallenge: string;
   zkLoginNonce: string;
   zkLoginEphemeralPublicKey: string;
+  zkLoginJwtRandomness: string;
   zkLoginMaxEpoch: number;
   expiresAt: string;
   consumedAt: string | null;
@@ -381,7 +383,7 @@ export interface CompleteHostedLoginWithGoogleIdTokenRequest {
 export interface GoogleIdentityTokenVerifier {
   verifyToken(
     token: string,
-    options: { expectedNonce: string; expectedAudience: string }
+    options: { expectedNonce: string; expectedAudience: string; expectedIssuer: string }
   ): GoogleIdentityClaims | Promise<GoogleIdentityClaims>;
 }
 
@@ -454,6 +456,7 @@ export interface AuthLoginRequestResponse {
   loginRequestId: UUID;
   hostedLoginUrl: string;
   zkLoginNonce: string;
+  zkLoginMaxEpoch: number;
   expiresAt: string;
 }
 

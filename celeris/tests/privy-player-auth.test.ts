@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
 import { MemoryStore } from "../db/memory-store.js";
 import {
   LocalGoogleIdentityTokenVerifier,
@@ -16,7 +17,8 @@ function createAuthService() {
       authProvider: "zklogin",
       googleClientId: "google-client-dev",
       googleIssuer: "https://accounts.google.com",
-      googleVerifierSecret: "google-dev-secret",
+      googleAuthorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      googleJwksUri: "https://www.googleapis.com/oauth2/v3/certs",
       zkLoginSaltSeed: "zklogin-salt-dev-seed",
       zkLoginMaxEpoch: 30,
       zkLoginProverOrigin: "http://localhost:3001"
@@ -31,12 +33,18 @@ function createAuthService() {
   });
 }
 
+function createEphemeralPublicKey() {
+  return Ed25519Keypair.generate().getPublicKey().toBase64();
+}
+
 test("ZkLoginAuthService resolves a verified Google login into a stable Sui wallet principal", async () => {
   const authService = createAuthService();
+  const ephemeralPublicKey = createEphemeralPublicKey();
+  const jwtRandomness = "123456789";
   const nonce = authService.resolveLoginNonce({
-    loginRequestId: "login-123",
-    ephemeralPublicKey: "ephemeral-public-key-material-1234567890",
-    maxEpoch: 30
+    ephemeralPublicKey,
+    maxEpoch: 30,
+    jwtRandomness
   });
 
   const identity = await authService.resolveVerifiedIdentity({
@@ -50,8 +58,9 @@ test("ZkLoginAuthService resolves a verified Google login into a stable Sui wall
     }),
     allowedChainId: "sui:testnet",
     nonce,
-    ephemeralPublicKey: "ephemeral-public-key-material-1234567890",
-    maxEpoch: 30
+    ephemeralPublicKey,
+    maxEpoch: 30,
+    jwtRandomness
   });
 
   assert.equal(identity.externalSubject, "https://accounts.google.com:google-test-user");
@@ -65,10 +74,12 @@ test("ZkLoginAuthService resolves a verified Google login into a stable Sui wall
 
 test("ZkLoginAuthService rejects missing subject and nonce mismatches", async () => {
   const authService = createAuthService();
+  const ephemeralPublicKey = createEphemeralPublicKey();
+  const jwtRandomness = "987654321";
   const nonce = authService.resolveLoginNonce({
-    loginRequestId: "login-456",
-    ephemeralPublicKey: "ephemeral-public-key-material-abcdefghij",
-    maxEpoch: 30
+    ephemeralPublicKey,
+    maxEpoch: 30,
+    jwtRandomness
   });
 
   await assert.rejects(
@@ -83,8 +94,9 @@ test("ZkLoginAuthService rejects missing subject and nonce mismatches", async ()
         }),
         allowedChainId: "sui:testnet",
         nonce,
-        ephemeralPublicKey: "ephemeral-public-key-material-abcdefghij",
-        maxEpoch: 30
+        ephemeralPublicKey,
+        maxEpoch: 30,
+        jwtRandomness
       }),
     /hosted login nonce mismatch/
   );
@@ -105,7 +117,8 @@ test("ZkLoginAuthService rejects missing subject and nonce mismatches", async ()
         }),
         {
           expectedNonce: nonce,
-          expectedAudience: "google-client-dev"
+          expectedAudience: "google-client-dev",
+          expectedIssuer: "https://accounts.google.com"
         }
       ),
     /Google identity token missing subject/
@@ -114,10 +127,12 @@ test("ZkLoginAuthService rejects missing subject and nonce mismatches", async ()
 
 test("the same external subject resolves the same persisted user salt and derived Sui address", async () => {
   const authService = createAuthService();
+  const ephemeralPublicKey = createEphemeralPublicKey();
+  const jwtRandomness = "123123123";
   const nonce = authService.resolveLoginNonce({
-    loginRequestId: "login-789",
-    ephemeralPublicKey: "ephemeral-public-key-material-klmnopqrst",
-    maxEpoch: 30
+    ephemeralPublicKey,
+    maxEpoch: 30,
+    jwtRandomness
   });
 
   const first = await authService.resolveVerifiedIdentity({
@@ -130,8 +145,9 @@ test("the same external subject resolves the same persisted user salt and derive
     }),
     allowedChainId: "sui:testnet",
     nonce,
-    ephemeralPublicKey: "ephemeral-public-key-material-klmnopqrst",
-    maxEpoch: 30
+    ephemeralPublicKey,
+    maxEpoch: 30,
+    jwtRandomness
   });
   const second = await authService.resolveVerifiedIdentity({
     googleIdToken: createGoogleTestIdToken({
@@ -143,8 +159,9 @@ test("the same external subject resolves the same persisted user salt and derive
     }),
     allowedChainId: "sui:testnet",
     nonce,
-    ephemeralPublicKey: "ephemeral-public-key-material-klmnopqrst",
-    maxEpoch: 30
+    ephemeralPublicKey,
+    maxEpoch: 30,
+    jwtRandomness
   });
 
   assert.equal(first.zkLogin.userSalt, second.zkLogin.userSalt);

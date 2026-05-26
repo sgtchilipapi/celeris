@@ -93,6 +93,9 @@ export function createApi(services: Services) {
     if (method === "GET" && pathname === "/auth/login") {
       return serveHostedLoginPage(services, typeof searchParams.get("loginRequestId") === "string" ? searchParams.get("loginRequestId")! : "");
     }
+    if (method === "GET" && pathname === "/auth/google/callback") {
+      return serveHostedGoogleCallbackPage();
+    }
     if (method === "GET" && pathname === "/auth/client.js") {
       return serveHostedAuthClientBundle();
     }
@@ -138,16 +141,16 @@ export function createApi(services: Services) {
     body: requireAuthenticatedWalletPrincipal(services, headers, body)
   }));
 
-  addRoute("POST", "/v1/auth/login-requests", ({ headers, body }) => ({
+  addRoute("POST", "/v1/auth/login-requests", async ({ headers, body }) => ({
     statusCode: 201,
-    body: services.authGatewayService.createLoginRequest({
+    body: await services.authGatewayService.createLoginRequest({
       projectId: body.projectId as string,
       origin: requireOrigin(headers),
       redirectUri: body.redirectUri as string,
       codeChallenge: body.codeChallenge as string,
       zkLogin: {
         ephemeralPublicKey: (body.zkLogin as Record<string, unknown> | undefined)?.ephemeralPublicKey as string,
-        maxEpoch: (body.zkLogin as Record<string, unknown> | undefined)?.maxEpoch as number
+        jwtRandomness: (body.zkLogin as Record<string, unknown> | undefined)?.jwtRandomness as string
       }
     })
   }));
@@ -169,23 +172,22 @@ export function createApi(services: Services) {
     throw new AppError(400, "unsupported grantType");
   });
 
-  addRoute("POST", "/v1/auth/google/dev-token", ({ body }) => {
-    const loginRequest = services.authGatewayService.getLoginRequest(body.loginRequestId as string);
-    return {
-      body: {
-        googleIdToken: createGoogleTestIdToken(
-          {
+  if (isTestAuthMockEnabled()) {
+    addRoute("POST", "/v1/auth/google/dev-token", ({ body }) => {
+      const loginRequest = services.authGatewayService.getLoginRequest(body.loginRequestId as string);
+      return {
+        body: {
+          googleIdToken: createGoogleTestIdToken({
             subject: (body.subject as string | undefined) ?? "google-dev-user",
             email: (body.email as string | undefined) ?? "player@example.com",
             nonce: loginRequest.zkLoginNonce,
             audience: services.platformZkLoginConfig.googleClientId,
             issuer: services.platformZkLoginConfig.googleIssuer
-          },
-          { secret: services.platformZkLoginConfig.googleVerifierSecret }
-        )
-      }
-    };
-  });
+          })
+        }
+      };
+    });
+  }
 
   addRoute("GET", "/v1/apps/:appId/me/credits", ({ params, headers, body }) => {
     const player = requireAuthenticatedPlayer(services, headers, body, params.appId);
@@ -756,13 +758,39 @@ function serveHostedLoginPage(services: Services, loginRequestId: string) {
         loginRequestId,
         googleClientId: services.platformZkLoginConfig.googleClientId,
         googleIssuer: services.platformZkLoginConfig.googleIssuer,
+        googleAuthorizeUrl: services.platformZkLoginConfig.googleAuthorizeUrl,
         zkLoginNonce: loginRequest.zkLoginNonce,
         zkLoginMaxEpoch: loginRequest.zkLoginMaxEpoch,
         hostedAuthOrigin: services.hostedAuthConfig.hostedAuthOrigin,
         authApiBaseUrl: services.hostedAuthConfig.hostedAuthOrigin,
+        googleCallbackUrl: new URL("/auth/google/callback", services.hostedAuthConfig.hostedAuthOrigin).toString(),
         allowedChainId: playerPolicy.allowedChainId
       })};
     </script>
+    <script src="/auth/client.js"></script>
+  </body>
+</html>`;
+
+  return {
+    statusCode: 200,
+    headers: { "content-type": "text/html; charset=utf-8" },
+    body
+  };
+}
+
+function serveHostedGoogleCallbackPage() {
+  const body = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Celeris Login Callback</title>
+  </head>
+  <body>
+    <main>
+      <p id="feedback">Completing Google sign-in...</p>
+      <button id="login-button" type="button" hidden>Continue with Google</button>
+    </main>
     <script src="/auth/client.js"></script>
   </body>
 </html>`;
@@ -808,4 +836,14 @@ async function getHostedAuthClientBundle() {
   }
 
   return hostedAuthClientBundlePromise;
+}
+
+function isTestAuthMockEnabled() {
+  return (
+    process.env.CELERIS_ENABLE_TEST_AUTH_MOCKS === "true" ||
+    process.env.NODE_ENV === "test" ||
+    Boolean(process.env.NODE_TEST_CONTEXT) ||
+    process.execArgv.includes("--test") ||
+    process.argv.includes("--test")
+  );
 }

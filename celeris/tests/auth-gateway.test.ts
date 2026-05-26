@@ -1,15 +1,21 @@
 import crypto from "node:crypto";
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
+import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
+import type { SuiGateway } from "../types.js";
 import { buildServices, resolveHostedAuthConfigFromEnv, resolveRuntimePlatformZkLoginConfig } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
 import { createBrowserClient } from "../sdk/browser-client.js";
-import { createGoogleTestIdToken, resolvePlatformZkLoginConfig } from "../services/zklogin-auth-service.js";
+import {
+  GoogleJwksIdentityTokenVerifier,
+  HttpZkLoginProver,
+  LocalGoogleIdentityTokenVerifier,
+  LocalZkLoginProver,
+  createGoogleTestIdToken,
+  resolvePlatformZkLoginConfig
+} from "../services/zklogin-auth-service.js";
 import { createDeveloperApp, signUpDeveloper } from "./helpers/developer.js";
-
-function resolveGoogleVerifierSecret() {
-  return process.env.CELERIS_GOOGLE_VERIFIER_SECRET ?? "google-dev-secret";
-}
 
 function createFetchBridge(api: ReturnType<typeof createApi>): typeof fetch {
   return async (input: URL | RequestInfo, init?: RequestInit) => {
@@ -40,9 +46,6 @@ function createMemoryStorage() {
     },
     removeItem(key: string) {
       values.delete(key);
-    },
-    dump() {
-      return new Map(values);
     }
   };
 }
@@ -50,19 +53,11 @@ function createMemoryStorage() {
 function createWindowStub({
   href,
   storage,
-  sessionStorage,
-  opener = null,
-  onAssign,
-  onReplaceState,
-  onClose
+  sessionStorage
 }: {
   href: string;
   storage: ReturnType<typeof createMemoryStorage>;
   sessionStorage: ReturnType<typeof createMemoryStorage>;
-  opener?: { postMessage?: (message: any, targetOrigin: string) => void } | null;
-  onAssign?: (url: string) => void;
-  onReplaceState?: (url?: string | URL | null) => void;
-  onClose?: () => void;
 }) {
   const locationUrl = new URL(href);
   return {
@@ -71,21 +66,14 @@ function createWindowStub({
       origin: locationUrl.origin,
       pathname: locationUrl.pathname,
       search: locationUrl.search,
-      assign(url: string) {
-        onAssign?.(url);
-      }
+      assign(_url: string) {}
     },
     localStorage: storage,
     sessionStorage,
-    opener,
     history: {
-      replaceState(_data: unknown, _unused: string, url?: string | URL | null) {
-        onReplaceState?.(url);
-      }
+      replaceState() {}
     },
-    close() {
-      onClose?.();
-    }
+    close() {}
   };
 }
 
@@ -93,6 +81,34 @@ function createPkcePair() {
   const codeVerifier = crypto.randomBytes(32).toString("base64url");
   const codeChallenge = crypto.createHash("sha256").update(codeVerifier).digest("base64url");
   return { codeVerifier, codeChallenge };
+}
+
+function createEphemeralPublicKey() {
+  return Ed25519Keypair.generate().getPublicKey().toBase64();
+}
+
+function createSuiGatewayStub(epoch = "100"): SuiGateway {
+  return {
+    getCurrentEpoch: async () => epoch,
+    getReferenceGasPrice: async () => "1000",
+    getChainIdentifier: async () => "sui:testnet",
+    listSponsorGasCoins: async () => [],
+    getObjectReference: async () => ({
+      objectId: "0x1",
+      version: "1",
+      digest: "digest",
+      initialSharedVersion: null
+    }),
+    verifySubmittedDigest: async (input) => ({
+      digest: input.digest,
+      status: "success",
+      explorerUrl: `https://suiexplorer.com/txblock/${input.digest}?network=testnet`,
+      confirmedAt: new Date().toISOString()
+    }),
+    getBuildClient() {
+      return null as never;
+    }
+  };
 }
 
 async function createGatewayApp(
@@ -123,8 +139,21 @@ async function createGatewayApp(
   });
 }
 
-test("login-request creation enforces project existence, origin/redirect allowlists, and zkLogin request state", async () => {
-  const services = buildServices();
+function createTestServices() {
+  return buildServices({
+    suiGateway: createSuiGatewayStub("100"),
+    googleIdentityTokenVerifier: new LocalGoogleIdentityTokenVerifier({
+      secret: "google-dev-secret",
+      issuer: "https://accounts.google.com"
+    }),
+    zkLoginProver: new LocalZkLoginProver({
+      proverOrigin: "http://localhost:3001"
+    })
+  });
+}
+
+test("login-request creation stores randomness, computes the canonical nonce, and returns a backend-chosen max epoch", async () => {
+  const services = createTestServices();
   const api = createApi(services);
   const app = await createGatewayApp(api, services, {
     name: "Gateway App",
@@ -133,28 +162,7 @@ test("login-request creation enforces project existence, origin/redirect allowli
   });
 
   const { codeChallenge } = createPkcePair();
-  const missingProject = await api.handle({
-    method: "POST",
-    url: "/v1/auth/login-requests",
-    headers: { origin: "http://localhost:3002" },
-    body: {
-      projectId: "missing-project",
-      redirectUri: "http://localhost:3002/auth/callback",
-      codeChallenge,
-      zkLogin: { ephemeralPublicKey: crypto.randomBytes(32).toString("base64url"), maxEpoch: 30 }
-    }
-  });
-  const badOrigin = await api.handle({
-    method: "POST",
-    url: "/v1/auth/login-requests",
-    headers: { origin: "http://evil.local" },
-    body: {
-      projectId: app.appId,
-      redirectUri: "http://localhost:3002/auth/callback",
-      codeChallenge,
-      zkLogin: { ephemeralPublicKey: crypto.randomBytes(32).toString("base64url"), maxEpoch: 30 }
-    }
-  });
+  const jwtRandomness = "12345678901234567890";
   const created = await api.handle({
     method: "POST",
     url: "/v1/auth/login-requests",
@@ -163,24 +171,27 @@ test("login-request creation enforces project existence, origin/redirect allowli
       projectId: app.appId,
       redirectUri: "http://localhost:3002/auth/callback",
       codeChallenge,
-      zkLogin: { ephemeralPublicKey: crypto.randomBytes(32).toString("base64url"), maxEpoch: 30 }
+      zkLogin: {
+        ephemeralPublicKey: createEphemeralPublicKey(),
+        jwtRandomness
+      }
     }
   });
 
-  assert.equal(missingProject.statusCode, 404);
-  assert.equal(badOrigin.statusCode, 403);
   assert.equal(created.statusCode, 201);
-  assert.match(created.body.zkLoginNonce, /^[a-f0-9]{64}$/);
+  assert.equal(created.body.zkLoginMaxEpoch, 130);
   const stored = services.store.loginRequests.get(created.body.loginRequestId)!;
+  assert.equal(stored.zkLoginMaxEpoch, 130);
+  assert.equal(stored.zkLoginJwtRandomness, jwtRandomness);
   assert.equal(stored.zkLoginNonce, created.body.zkLoginNonce);
-  assert.equal(stored.zkLoginMaxEpoch, 30);
 });
 
 test("hosted auth rejects nonce mismatch and expired login state", async () => {
-  const services = buildServices();
+  const services = createTestServices();
   const api = createApi(services);
   const app = await createGatewayApp(api, services, { name: "Gateway App Two" });
   const { codeChallenge } = createPkcePair();
+
   const created = await api.handle({
     method: "POST",
     url: "/v1/auth/login-requests",
@@ -189,52 +200,27 @@ test("hosted auth rejects nonce mismatch and expired login state", async () => {
       projectId: app.appId,
       redirectUri: "http://localhost:3002/auth/callback",
       codeChallenge,
-      zkLogin: { ephemeralPublicKey: crypto.randomBytes(32).toString("base64url"), maxEpoch: 30 }
+      zkLogin: {
+        ephemeralPublicKey: createEphemeralPublicKey(),
+        jwtRandomness: "999999999999"
+      }
     }
   });
-  const loginRequest = services.store.loginRequests.get(created.body.loginRequestId)!;
-  const expired = await api.handle({
-    method: "POST",
-    url: "/v1/auth/token",
-    body: {
-      grantType: "google_identity_token",
-      loginRequestId: created.body.loginRequestId,
-      googleIdToken: createGoogleTestIdToken({
-        nonce: created.body.zkLoginNonce,
-        audience: "google-client-dev"
-      }, {
-        secret: resolveGoogleVerifierSecret()
-      })
-    }
-  });
-  assert.equal(expired.statusCode, 200);
 
-  const second = await api.handle({
-    method: "POST",
-    url: "/v1/auth/login-requests",
-    headers: { origin: "http://localhost:3002" },
-    body: {
-      projectId: app.appId,
-      redirectUri: "http://localhost:3002/auth/callback",
-      codeChallenge,
-      zkLogin: { ephemeralPublicKey: crypto.randomBytes(32).toString("base64url"), maxEpoch: 30 }
-    }
-  });
   const mismatch = await api.handle({
     method: "POST",
     url: "/v1/auth/token",
     body: {
-      grantType: "google_identity_token",
-      loginRequestId: second.body.loginRequestId,
-      googleIdToken: createGoogleTestIdToken({
-        nonce: "bad-nonce",
-        audience: "google-client-dev"
-      }, {
-        secret: resolveGoogleVerifierSecret()
-      })
-    }
-  });
+        grantType: "google_identity_token",
+        loginRequestId: created.body.loginRequestId,
+        googleIdToken: createGoogleTestIdToken({
+          nonce: "bad-nonce",
+          audience: services.platformZkLoginConfig.googleClientId
+        })
+      }
+    });
 
+  const loginRequest = services.store.loginRequests.get(created.body.loginRequestId)!;
   loginRequest.expiresAt = new Date(Date.now() - 1000).toISOString();
   services.store.saveLoginRequest(loginRequest);
   const expiredAttempt = await api.handle({
@@ -242,15 +228,13 @@ test("hosted auth rejects nonce mismatch and expired login state", async () => {
     url: "/v1/auth/token",
     body: {
       grantType: "google_identity_token",
-      loginRequestId: loginRequest.loginRequestId,
-      googleIdToken: createGoogleTestIdToken({
-        nonce: loginRequest.zkLoginNonce,
-        audience: "google-client-dev"
-      }, {
-        secret: resolveGoogleVerifierSecret()
-      })
-    }
-  });
+        loginRequestId: loginRequest.loginRequestId,
+        googleIdToken: createGoogleTestIdToken({
+          nonce: loginRequest.zkLoginNonce,
+          audience: services.platformZkLoginConfig.googleClientId
+        })
+      }
+    });
 
   assert.equal(mismatch.statusCode, 401);
   assert.equal(mismatch.body.error, "hosted login nonce mismatch");
@@ -259,13 +243,13 @@ test("hosted auth rejects nonce mismatch and expired login state", async () => {
 });
 
 test("repeat login for the same Google subject resolves the same zkLogin wallet address", async () => {
-  const services = buildServices();
+  const services = createTestServices();
   const api = createApi(services);
   const app = await createGatewayApp(api, services, { name: "Repeat Login App" });
   const subject = "google-repeat-user";
   const results: string[] = [];
 
-  for (const iteration of [1, 2]) {
+  for (const _ of [1, 2]) {
     const { codeVerifier, codeChallenge } = createPkcePair();
     const created = await api.handle({
       method: "POST",
@@ -275,7 +259,10 @@ test("repeat login for the same Google subject resolves the same zkLogin wallet 
         projectId: app.appId,
         redirectUri: "http://localhost:3002/auth/callback",
         codeChallenge,
-        zkLogin: { ephemeralPublicKey: crypto.randomBytes(32).toString("base64url"), maxEpoch: 30 }
+        zkLogin: {
+          ephemeralPublicKey: createEphemeralPublicKey(),
+          jwtRandomness: "424242424242"
+        }
       }
     });
     const completed = await api.handle({
@@ -287,9 +274,7 @@ test("repeat login for the same Google subject resolves the same zkLogin wallet 
         googleIdToken: createGoogleTestIdToken({
           subject,
           nonce: created.body.zkLoginNonce,
-          audience: "google-client-dev"
-        }, {
-          secret: resolveGoogleVerifierSecret()
+          audience: services.platformZkLoginConfig.googleClientId
         })
       }
     });
@@ -302,15 +287,17 @@ test("repeat login for the same Google subject resolves the same zkLogin wallet 
         codeVerifier
       }
     });
-    assert.equal(exchanged.statusCode, 200, `repeat login iteration ${iteration} should exchange successfully`);
+
+    assert.equal(completed.statusCode, 200, JSON.stringify(completed.body));
+    assert.equal(exchanged.statusCode, 200, JSON.stringify(exchanged.body));
     results.push(exchanged.body.player.walletAddress as string);
   }
 
   assert.equal(results[0], results[1]);
 });
 
-test("browser SDK popup login stores zkLogin ephemeral material in session storage only", async () => {
-  const services = buildServices();
+test("browser SDK popup login keeps zkLogin material in session storage only and uses the canonical hosted flow contract", async () => {
+  const services = createTestServices();
   const api = createApi(services);
   const app = await createGatewayApp(api, services, {
     name: "Gateway SDK App",
@@ -348,9 +335,7 @@ test("browser SDK popup login stores zkLogin ephemeral material in session stora
             googleIdToken: createGoogleTestIdToken({
               subject: "popup-login-user",
               nonce: created.zkLoginNonce,
-              audience: "google-client-dev"
-            }, {
-              secret: resolveGoogleVerifierSecret()
+              audience: services.platformZkLoginConfig.googleClientId
             })
           }
         });
@@ -379,41 +364,170 @@ test("browser SDK popup login stores zkLogin ephemeral material in session stora
 
   const session = await client.auth.login({ mode: "popup" });
   assert.ok(session);
-  assert.equal(session?.player.chainId, "sui:testnet");
   assert.equal(storage.getItem(`celeris-player-session:${app.appId}:zklogin-session`), null);
-  assert.ok(sessionStorage.getItem(`celeris-player-session:${app.appId}:zklogin-session`));
+
+  const rawEphemeralSession = sessionStorage.getItem(`celeris-player-session:${app.appId}:zklogin-session`);
+  assert.ok(rawEphemeralSession);
+  assert.match(rawEphemeralSession!, /jwtRandomness/);
+  assert.match(rawEphemeralSession!, /nonce/);
 });
 
-test("hosted auth page and bundle no longer reference Privy", async () => {
-  const services = buildServices();
+test("the canonical runtime no longer exposes the fake Google token minting route", async () => {
+  const services = createTestServices();
   const api = createApi(services);
-  const app = await createGatewayApp(api, services, { name: "Hosted Auth Copy App" });
-  const { codeChallenge } = createPkcePair();
-  const created = await api.handle({
+
+  const response = await api.handle({
     method: "POST",
-    url: "/v1/auth/login-requests",
-    headers: { origin: "http://localhost:3002" },
+    url: "/v1/auth/google/dev-token",
     body: {
-      projectId: app.appId,
-      redirectUri: "http://localhost:3002/auth/callback",
-      codeChallenge,
-      zkLogin: { ephemeralPublicKey: crypto.randomBytes(32).toString("base64url"), maxEpoch: 30 }
+      loginRequestId: "anything"
     }
   });
 
-  const loginPage = await api.handle({
-    method: "GET",
-    url: `/auth/login?loginRequestId=${encodeURIComponent(created.body.loginRequestId)}`
-  });
-  const authBundle = await api.handle({
-    method: "GET",
-    url: "/auth/client.js"
+  assert.equal(response.statusCode, 404);
+});
+
+test("Google JWKS verification rejects bad signature, wrong audience, wrong issuer, expired tokens, and nonce mismatch", async () => {
+  const { publicKey, privateKey } = await generateKeyPair("RS256");
+  const jwk = await exportJWK(publicKey);
+  jwk.kid = "test-key";
+  const verifier = new GoogleJwksIdentityTokenVerifier({
+    jwks: createLocalJWKSet({ keys: [jwk] })
   });
 
-  assert.equal(loginPage.statusCode, 200);
-  assert.equal(authBundle.statusCode, 200);
-  assert.doesNotMatch(String(loginPage.body), /Privy/i);
-  assert.doesNotMatch(String(authBundle.body), /Privy/i);
+  async function signJwt({
+    nonce = "expected-nonce",
+    aud = "google-client-dev",
+    iss = "https://accounts.google.com",
+    exp = Math.floor(Date.now() / 1000) + 300
+  }: {
+    nonce?: string;
+    aud?: string;
+    iss?: string;
+    exp?: number;
+  }) {
+    return new SignJWT({
+      sub: "user-123",
+      email: "player@example.com",
+      nonce,
+      aud,
+      iss
+    })
+      .setProtectedHeader({ alg: "RS256", kid: "test-key", typ: "JWT" })
+      .setIssuedAt()
+      .setExpirationTime(exp)
+      .sign(privateKey);
+  }
+
+  await assert.rejects(
+    async () =>
+      verifier.verifyToken(await signJwt({ nonce: "wrong-nonce" }), {
+        expectedNonce: "expected-nonce",
+        expectedAudience: "google-client-dev",
+        expectedIssuer: "https://accounts.google.com"
+      }),
+    /hosted login nonce mismatch/
+  );
+
+  await assert.rejects(
+    async () =>
+      verifier.verifyToken(await signJwt({ aud: "wrong-aud" }), {
+        expectedNonce: "expected-nonce",
+        expectedAudience: "google-client-dev",
+        expectedIssuer: "https://accounts.google.com"
+      }),
+    /unsupported Google audience/
+  );
+
+  await assert.rejects(
+    async () =>
+      verifier.verifyToken(await signJwt({ iss: "https://evil.example" }), {
+        expectedNonce: "expected-nonce",
+        expectedAudience: "google-client-dev",
+        expectedIssuer: "https://accounts.google.com"
+      }),
+    /unsupported Google issuer|invalid Google identity token/
+  );
+
+  await assert.rejects(
+    async () =>
+      verifier.verifyToken(await signJwt({ exp: Math.floor(Date.now() / 1000) - 10 }), {
+        expectedNonce: "expected-nonce",
+        expectedAudience: "google-client-dev",
+        expectedIssuer: "https://accounts.google.com"
+      }),
+    /Google identity token expired|invalid Google identity token/
+  );
+
+  const otherKeyPair = await generateKeyPair("RS256");
+  const badSignatureToken = await new SignJWT({
+    sub: "user-123",
+    nonce: "expected-nonce",
+    aud: "google-client-dev",
+    iss: "https://accounts.google.com"
+  })
+    .setProtectedHeader({ alg: "RS256", kid: "other-key", typ: "JWT" })
+    .setIssuedAt()
+    .setExpirationTime("5m")
+    .sign(otherKeyPair.privateKey);
+
+  await assert.rejects(
+    () =>
+      verifier.verifyToken(badSignatureToken, {
+        expectedNonce: "expected-nonce",
+        expectedAudience: "google-client-dev",
+        expectedIssuer: "https://accounts.google.com"
+      }),
+    /invalid Google identity token/
+  );
+});
+
+test("HTTP zkLogin prover sends the canonical payload and maps the proof response", async () => {
+  let capturedRequest: Record<string, unknown> | null = null;
+  const prover = new HttpZkLoginProver({
+    proverOrigin: "http://localhost:3001",
+    fetchImpl: async (_url, init) => {
+      capturedRequest = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(
+        JSON.stringify({
+          proofPoints: {
+            a: ["1", "2"],
+            b: [["3", "4"], ["5", "6"]],
+            c: ["7", "8"]
+          },
+          issBase64Details: {
+            value: "aHR0cHM6Ly9hY2NvdW50cy5nb29nbGUuY29t",
+            indexMod4: 0
+          },
+          headerBase64: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9"
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        }
+      );
+    }
+  });
+
+  const proof = await prover.createProof({
+    jwt: "header.payload.signature",
+    extendedEphemeralPublicKey: "extended-pk",
+    maxEpoch: 123,
+    jwtRandomness: "4444",
+    salt: "5555",
+    keyClaimName: "sub"
+  });
+
+  assert.deepEqual(capturedRequest, {
+    jwt: "header.payload.signature",
+    extendedEphemeralPublicKey: "extended-pk",
+    maxEpoch: 123,
+    jwtRandomness: "4444",
+    salt: "5555",
+    keyClaimName: "sub"
+  });
+  assert.equal(proof.proofPoints.a[0], "1");
+  assert.equal(proof.proverOrigin, "http://localhost:3001");
 });
 
 test("zkLogin config loading fails closed when required values are missing", () => {
@@ -421,13 +535,17 @@ test("zkLogin config loading fails closed when required values are missing", () 
     authProvider: "zklogin",
     googleClientId: "google-client-dev",
     googleIssuer: "https://accounts.google.com",
-    googleVerifierSecret: "google-dev-secret",
+    googleAuthorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+    googleJwksUri: "https://www.googleapis.com/oauth2/v3/certs",
     zkLoginSaltSeed: "zklogin-salt-dev-seed",
     zkLoginMaxEpoch: 30,
     zkLoginProverOrigin: "http://localhost:3001"
   });
   assert.throws(() => resolveRuntimePlatformZkLoginConfig({}), /Google client ID is required/);
-  assert.throws(() => resolvePlatformZkLoginConfig({ googleClientId: "", googleIssuer: "https://accounts.google.com" }), /Google client ID is required/);
+  assert.throws(
+    () => resolvePlatformZkLoginConfig({ googleClientId: "", googleIssuer: "https://accounts.google.com" }),
+    /Google client ID is required/
+  );
   assert.doesNotThrow(() =>
     resolveHostedAuthConfigFromEnv({ NODE_TEST_CONTEXT: "1" }, { allowDevelopmentDefaults: true })
   );

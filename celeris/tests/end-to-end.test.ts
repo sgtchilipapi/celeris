@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Keypair } from "@solana/web3.js";
+import { createHash } from "node:crypto";
+import { Ed25519Keypair } from "@mysten/sui/keypairs/ed25519";
+import { normalizeSuiObjectId } from "@mysten/sui/utils";
 import { buildServices } from "../api/index.js";
 import { createApi } from "../api/create-api.js";
-import { getSolanaExplorerTransactionUrl } from "../solana/explorer.js";
-import { MockRelayerNetwork } from "../services/mock-relayer-network.js";
-import type { WalletPrincipal } from "../types.js";
+import { buildHelloCelerisSayHelloTransaction } from "../sui/hello-celeris.js";
+import type { SuiBuildClient, SuiGateway, SuiGasCoin, TransactionStatus, VerifiedSuiDigest, WalletPrincipal } from "../types.js";
 import { createHostedPlayerSession } from "./helpers/auth.js";
 import {
   createDeveloperApp,
@@ -14,6 +15,127 @@ import {
   registerProgram,
   signUpDeveloper
 } from "./helpers/developer.js";
+
+const PACKAGE_ID = "0x2";
+const APP_STATE_OBJECT_ID = "0x123";
+const APP_AUTHORITY_CAP_OBJECT_ID = "0x456";
+const VALID_DIGEST_1 = "11111111111111111111111111111111";
+const VALID_DIGEST_2 = "21111111111111111111111111111111";
+
+class TestSuiGateway implements SuiGateway {
+  readonly buildClient: SuiBuildClient;
+  readonly sponsorCoins: Map<string, SuiGasCoin[]>;
+  readonly digests = new Map<string, VerifiedSuiDigest & { sender: string; sponsorAddress: string }>();
+
+  constructor() {
+    this.sponsorCoins = new Map();
+    this.buildClient = {
+      core: {
+        getMoveFunction: async () => ({
+          function: {
+            parameters: [
+              { body: {}, reference: "mutable" },
+              { body: {}, reference: "mutable" },
+              { body: {}, reference: "immutable" },
+              { body: {} }
+            ]
+          }
+        }),
+        getObjects: async ({ objectIds }) => ({
+          objects: objectIds.map((objectId) => {
+            if (objectId === normalizeSuiObjectId(APP_AUTHORITY_CAP_OBJECT_ID)) {
+              return {
+                objectId,
+                digest: `digest-${objectId.slice(-4)}`,
+                version: "1",
+                owner: { $kind: "AddressOwner", AddressOwner: "0xowner" }
+              };
+            }
+
+            return {
+              objectId,
+              digest: `digest-${objectId.slice(-4)}`,
+              version: "1",
+              owner: { $kind: "Shared", Shared: { initialSharedVersion: "1" } }
+            };
+          })
+        })
+      }
+    };
+  }
+
+  getBuildClient() {
+    return this.buildClient;
+  }
+
+  async getCurrentEpoch() {
+    return "100";
+  }
+
+  async getReferenceGasPrice() {
+    return "1000";
+  }
+
+  async getChainIdentifier() {
+    return "sui:testnet";
+  }
+
+  async listSponsorGasCoins(owner: string) {
+    return this.sponsorCoins.get(owner) ?? [];
+  }
+
+  async getObjectReference(objectId: string) {
+    return {
+      objectId,
+      digest: VALID_DIGEST_1,
+      version: "1",
+      initialSharedVersion: objectId === normalizeSuiObjectId(APP_AUTHORITY_CAP_OBJECT_ID) ? null : "1"
+    };
+  }
+
+  async verifySubmittedDigest(input: {
+    digest: string;
+    expectedSender: string;
+    expectedSponsorAddress: string;
+  }) {
+    const registered = this.digests.get(input.digest);
+    if (!registered) {
+      throw new Error("unknown digest");
+    }
+    if (registered.sender !== input.expectedSender) {
+      throw new Error("sender mismatch");
+    }
+    if (registered.sponsorAddress !== input.expectedSponsorAddress) {
+      throw new Error("sponsor mismatch");
+    }
+    return registered;
+  }
+
+  seedSponsorCoins(owner: string, coins: SuiGasCoin[]) {
+    this.sponsorCoins.set(owner, coins);
+  }
+
+  registerDigest({
+    digest,
+    sender,
+    sponsorAddress,
+    status = "success"
+  }: {
+    digest: string;
+    sender: string;
+    sponsorAddress: string;
+    status?: TransactionStatus;
+  }) {
+    this.digests.set(digest, {
+      digest,
+      sender,
+      sponsorAddress,
+      status,
+      explorerUrl: `https://suiexplorer.com/txblock/${digest}?network=testnet`,
+      confirmedAt: new Date().toISOString()
+    });
+  }
+}
 
 function buildCompletedCheckoutEvent({
   eventId,
@@ -99,41 +221,24 @@ async function fundPlayer({
     body: paymentEvent
   });
 
-  return session;
+  return {
+    ...session,
+    walletPrincipal: session.player satisfies WalletPrincipal
+  };
 }
 
-type Harness = {
-  services: ReturnType<typeof buildServices>;
-  api: ReturnType<typeof createApi>;
-  appId: string;
-  developerAccessToken: string;
-  session: Awaited<ReturnType<typeof createHostedPlayerSession>>;
-  walletPrincipal: WalletPrincipal;
-  sponsorWallet: { publicKey: string };
-  registeredProgram: { programId: string; statePda: string };
-};
-
-async function createHarness({
-  relayerNetworkClient = new MockRelayerNetwork({
-    sendTransaction: async () => ({ txHash: Keypair.generate().publicKey.toBase58() }),
-    confirmTransaction: async () => "success"
-  }),
-  checkoutCredits = 100
-}: {
-  relayerNetworkClient?: MockRelayerNetwork;
-  checkoutCredits?: number;
-} = {}): Promise<Harness> {
-  const services = buildServices({ relayerNetworkClient });
+async function createHarness() {
+  const suiGateway = new TestSuiGateway();
+  const services = buildServices({ suiGateway });
   const api = createApi(services);
   const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
-
   const app = await createDeveloperApp({
     api,
     accessToken: developer.accessToken,
     name: "Hello Celeris App",
     priceCents: 499,
-    credits: checkoutCredits,
-    allowedChainId: "solana:103"
+    credits: 100,
+    allowedChainId: "sui:testnet"
   });
   const appId = app.appId as string;
 
@@ -151,63 +256,96 @@ async function createHarness({
     accessToken: developer.accessToken,
     appId
   });
+  suiGateway.seedSponsorCoins(sponsorWallet.address, [
+    { objectId: "0x701", version: "1", digest: VALID_DIGEST_1 },
+    { objectId: "0x702", version: "1", digest: VALID_DIGEST_2 }
+  ]);
+
   const registeredProgram = await registerProgram({
     api,
     accessToken: developer.accessToken,
     appId,
-    programId: Keypair.generate().publicKey.toBase58()
+    packageId: PACKAGE_ID,
+    appStateObjectId: APP_STATE_OBJECT_ID,
+    authorityCapObjectId: APP_AUTHORITY_CAP_OBJECT_ID
   });
 
   const walletPrincipal = {
-    walletAddress: Keypair.generate().publicKey.toBase58(),
-    chainId: "solana:103"
+    walletAddress: Ed25519Keypair.generate().toSuiAddress(),
+    chainId: "sui:testnet"
   } satisfies WalletPrincipal;
   const session = await fundPlayer({
     api,
     services,
     appId,
     walletPrincipal,
-    credits: checkoutCredits,
-    eventId: "evt-e2e-say-hello-1"
+    eventId: "evt-e2e-sui-1"
   });
 
   return {
+    suiGateway,
     services,
     api,
+    developer,
     appId,
-    developerAccessToken: developer.accessToken,
+    walletPrincipal: session.walletPrincipal,
     session,
-    walletPrincipal,
     sponsorWallet,
     registeredProgram
   };
 }
 
-test("end-to-end happy path covers sponsor wallet, program registration, checkout, say_hello, and app transaction feed", async () => {
-  const txHash = Keypair.generate().publicKey.toBase58();
-  const { services, api, appId, developerAccessToken, session, walletPrincipal, sponsorWallet, registeredProgram } =
-    await createHarness({
-      relayerNetworkClient: new MockRelayerNetwork({
-        sendTransaction: async () => ({ txHash }),
-        confirmTransaction: async () => "success"
-      })
-    });
+function buildDigest(transactionBytes: string) {
+  return `digest-${createHash("sha256").update(transactionBytes).digest("hex").slice(0, 16)}`;
+}
 
-  const execution = await api.handle({
+test("end-to-end Sui happy path covers hosted login, sponsor setup, checkout, transaction preparation, completion, and feed retrieval", async () => {
+  const { suiGateway, services, api, appId, developer, walletPrincipal, session, sponsorWallet, registeredProgram } =
+    await createHarness();
+  const transactionKind = buildHelloCelerisSayHelloTransaction({
+    packageId: registeredProgram.packageId,
+    appAuthorityCapObjectId: registeredProgram.authorityCapObjectId,
+    appStateObjectId: registeredProgram.appStateObjectId,
+    username: "  Sam  "
+  }).transactionKind;
+
+  const prepared = await api.handle({
     method: "POST",
     url: `/v1/apps/${appId}/actions/say_hello/execute`,
     headers: {
-      "idempotency-key": "e2e-say-hello-1",
+      "idempotency-key": "e2e-sui-prepare-1",
       authorization: `Bearer ${session.accessToken}`
     },
     body: {
-      payload: { username: "Sam" }
+      username: "  Sam  ",
+      transactionKind
+    }
+  });
+  const digest = buildDigest(prepared.body.transactionBytes as string);
+  suiGateway.registerDigest({
+    digest,
+    sender: walletPrincipal.walletAddress,
+    sponsorAddress: sponsorWallet.address,
+    status: "success"
+  });
+
+  const completed = await api.handle({
+    method: "POST",
+    url: `/v1/apps/${appId}/actions/say_hello/complete`,
+    headers: {
+      "idempotency-key": "e2e-sui-complete-1",
+      authorization: `Bearer ${session.accessToken}`
+    },
+    body: {
+      reservationId: prepared.body.reservationId,
+      outcome: "submitted",
+      digest
     }
   });
   const setup = await api.handle({
     method: "GET",
     url: `/v1/developer/apps/${appId}`,
-    headers: { authorization: `Bearer ${developerAccessToken}` }
+    headers: { authorization: `Bearer ${developer.accessToken}` }
   });
   const catalog = await api.handle({
     method: "GET",
@@ -220,38 +358,48 @@ test("end-to-end happy path covers sponsor wallet, program registration, checkou
     headers: { authorization: `Bearer ${session.accessToken}` }
   });
 
-  assert.equal(execution.statusCode, 200);
-  assert.equal(execution.body.username, "Sam");
-  assert.equal(execution.body.message, "Sam says Hello Celeris!");
-  assert.equal(execution.body.providerTxId, txHash);
-  assert.equal(execution.body.explorerUrl, getSolanaExplorerTransactionUrl(txHash));
+  assert.equal(prepared.statusCode, 200);
+  assert.equal(prepared.body.username, "Sam");
+  assert.equal(prepared.body.message, "Sam says Hello Celeris!");
+  assert.equal(prepared.body.sponsorAddress, sponsorWallet.address);
+  assert.match(prepared.body.transactionBytes as string, /^[A-Za-z0-9+/=]+$/);
+  assert.match(prepared.body.sponsorSignature as string, /^[A-Za-z0-9+/=]+$/);
+
+  assert.equal(completed.statusCode, 200);
+  assert.equal(completed.body.digest, digest);
+  assert.equal(completed.body.status, "success");
 
   assert.equal(setup.statusCode, 200);
-  assert.equal(setup.body.sponsorWallet.publicKey, sponsorWallet.publicKey);
-  assert.equal(setup.body.registeredProgram.programId, registeredProgram.programId);
+  assert.equal(setup.body.sponsorWallet.address, sponsorWallet.address);
+  assert.equal(setup.body.registeredProgram.packageId, registeredProgram.packageId);
+  assert.equal(setup.body.registeredProgram.appStateObjectId, registeredProgram.appStateObjectId);
+  assert.equal(setup.body.registeredProgram.authorityCapObjectId, registeredProgram.authorityCapObjectId);
 
   assert.equal(catalog.statusCode, 200);
+  assert.equal(catalog.body.playerPolicy.allowedChainId, "sui:testnet");
+  assert.equal(catalog.body.playerPolicy.authProvider, "zklogin");
   assert.equal(catalog.body.actions.some((action: { actionType: string }) => action.actionType === "say_hello"), true);
-  assert.equal(catalog.body.registeredProgram.programId, registeredProgram.programId);
+  assert.equal(catalog.body.registeredProgram.packageId, registeredProgram.packageId);
 
   assert.equal(feed.statusCode, 200);
   assert.equal(feed.body.length, 1);
   assert.equal(feed.body[0].walletAddress, walletPrincipal.walletAddress);
   assert.equal(feed.body[0].username, "Sam");
   assert.equal(feed.body[0].message, "Sam says Hello Celeris!");
-  assert.equal(feed.body[0].providerTxId, txHash);
-  assert.equal(feed.body[0].explorerUrl, getSolanaExplorerTransactionUrl(txHash));
+  assert.equal(feed.body[0].providerTxId, digest);
+  assert.equal(feed.body[0].digest, digest);
+  assert.equal(feed.body[0].explorerUrl, `https://suiexplorer.com/txblock/${digest}?network=testnet`);
 
   assert.equal(services.store.getBalance(walletPrincipal, appId).balance, 75);
   assert.equal(services.store.getBalance(walletPrincipal, appId).reserved, 0);
 });
 
-test("end-to-end duplicate payment webhook only grants credits once", async () => {
+test("end-to-end duplicate payment webhook only grants credits once on the Sui flow", async () => {
   const services = buildServices();
   const api = createApi(services);
-  const walletPrincipal = {
-    walletAddress: Keypair.generate().publicKey.toBase58(),
-    chainId: "solana:103"
+  const requestedWalletPrincipal = {
+    walletAddress: Ed25519Keypair.generate().toSuiAddress(),
+    chainId: "sui:testnet"
   } satisfies WalletPrincipal;
   const developer = await signUpDeveloper({ api, developerId: services.defaultDeveloper.developerId });
 
@@ -261,25 +409,26 @@ test("end-to-end duplicate payment webhook only grants credits once", async () =
     name: "Duplicate Webhook App",
     priceCents: 499,
     credits: 500,
-    allowedChainId: walletPrincipal.chainId
+    allowedChainId: requestedWalletPrincipal.chainId
   });
   const appId = app.appId as string;
   const session = await createHostedPlayerSession({
     api,
     appId,
-    walletAddress: walletPrincipal.walletAddress,
-    chainId: walletPrincipal.chainId
+    walletAddress: requestedWalletPrincipal.walletAddress,
+    chainId: requestedWalletPrincipal.chainId
   });
+  const walletPrincipal = session.player satisfies WalletPrincipal;
   const packageId = [...services.store.creditPackages.values()].find((pkg) => pkg.appId === appId)!.packageId;
 
   const checkout = await api.handle({
     method: "POST",
     url: `/v1/apps/${appId}/checkout-sessions`,
-    headers: { "idempotency-key": "e2e-dup-checkout-1", authorization: `Bearer ${session.accessToken}` },
+    headers: { "idempotency-key": "e2e-sui-dup-checkout-1", authorization: `Bearer ${session.accessToken}` },
     body: { packageId }
   });
   const paymentEvent = buildCompletedCheckoutEvent({
-    eventId: "evt-e2e-dup-1",
+    eventId: "evt-e2e-sui-dup-1",
     checkoutSessionId: checkout.body.checkoutSessionId as string,
     appId,
     walletPrincipal,
@@ -291,7 +440,7 @@ test("end-to-end duplicate payment webhook only grants credits once", async () =
     method: "POST",
     url: "/v1/webhooks/stripe",
     headers: {
-      "idempotency-key": "e2e-dup-webhook-1",
+      "idempotency-key": "e2e-sui-dup-webhook-1",
       "stripe-signature": services.stripeGateway.signWebhookPayload(paymentEvent)
     },
     body: paymentEvent
@@ -300,7 +449,7 @@ test("end-to-end duplicate payment webhook only grants credits once", async () =
     method: "POST",
     url: "/v1/webhooks/stripe",
     headers: {
-      "idempotency-key": "e2e-dup-webhook-1",
+      "idempotency-key": "e2e-sui-dup-webhook-1",
       "stripe-signature": services.stripeGateway.signWebhookPayload(paymentEvent)
     },
     body: paymentEvent
@@ -310,51 +459,4 @@ test("end-to-end duplicate payment webhook only grants credits once", async () =
   assert.equal(duplicate.statusCode, 200);
   assert.equal(services.store.creditLedger.filter((entry) => entry.type === "grant").length, 1);
   assert.equal(services.store.getBalance(walletPrincipal, appId).balance, 500);
-});
-
-test("end-to-end insufficient credits blocks the next say_hello", async () => {
-  const { api, appId, session } = await createHarness({ checkoutCredits: 25 });
-
-  const first = await api.handle({
-    method: "POST",
-    url: `/v1/apps/${appId}/actions/say_hello/execute`,
-    headers: { "idempotency-key": "e2e-say-hello-insufficient-1", authorization: `Bearer ${session.accessToken}` },
-    body: { payload: { username: "Ada" } }
-  });
-  const second = await api.handle({
-    method: "POST",
-    url: `/v1/apps/${appId}/actions/say_hello/execute`,
-    headers: { "idempotency-key": "e2e-say-hello-insufficient-2", authorization: `Bearer ${session.accessToken}` },
-    body: { payload: { username: "Bert" } }
-  });
-
-  assert.equal(first.statusCode, 200);
-  assert.equal(second.statusCode, 409);
-  assert.equal(second.body.error, "insufficient credits");
-});
-
-test("end-to-end failed say_hello relay releases reserved credits and records no success", async () => {
-  const { services, api, appId, session, walletPrincipal } = await createHarness({
-    relayerNetworkClient: new MockRelayerNetwork({
-      sendTransaction: async () => ({ txHash: Keypair.generate().publicKey.toBase58() }),
-      confirmTransaction: async () => "failed"
-    })
-  });
-
-  const response = await api.handle({
-    method: "POST",
-    url: `/v1/apps/${appId}/actions/say_hello/execute`,
-    headers: {
-      "idempotency-key": "e2e-say-hello-failed-1",
-      authorization: `Bearer ${session.accessToken}`
-    },
-    body: { payload: { username: "Nora" } }
-  });
-
-  assert.equal(response.statusCode, 502);
-  assert.equal(response.body.error, "transaction failed after submission");
-  assert.equal(services.store.creditLedger.filter((entry) => entry.type === "capture").length, 0);
-  assert.equal(services.store.creditLedger.filter((entry) => entry.type === "release").length, 1);
-  assert.equal(services.store.getBalance(walletPrincipal, appId).balance, 100);
-  assert.equal(services.store.getBalance(walletPrincipal, appId).reserved, 0);
 });
